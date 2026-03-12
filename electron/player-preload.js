@@ -16,4 +16,5 @@ contextBridge.exposeInMainWorld('playerIpc', {
       ipcRenderer.send(channel, ...args);
     }
   },
+  getLastLicenseError: () => ipcRenderer.invoke('player:getLastLicenseError'),
 });

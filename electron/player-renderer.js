@@ -77,13 +77,21 @@
     player = new shaka.Player();
     await player.attach(video);
 
-    player.addEventListener('error', function (evt) {
+    player.addEventListener('error', async function (evt) {
       const detail = evt && evt.detail;
       if (detail && detail.code === 7002) return;
       const code = detail && detail.code;
-      const msg =
+      let msg =
         getMessageForCode(code) ||
         (detail && detail.message ? 'Shaka: ' + detail.message : 'Shaka: ' + safeErr(detail));
+      if (code === 6007 && window.playerIpc && typeof window.playerIpc.getLastLicenseError === 'function') {
+        try {
+          const f1Msg = await window.playerIpc.getLastLicenseError();
+          if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) {
+            msg = 'F1 TV: ' + f1Msg.trim();
+          }
+        } catch (_) {}
+      }
       setStatus(msg, true);
       if (window.playerIpc && window.playerIpc.send) {
         window.playerIpc.send('player:error', msg);

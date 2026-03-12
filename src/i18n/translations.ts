@@ -103,6 +103,7 @@ export const translations: Record<Locale, Record<string, string>> = {
 
     // Catalog load error (generic)
     'error.catalogLoad': 'Catalog load error.',
+    'error.openPlayer': 'Failed to open player.',
   },
   it: {
     'app.brand': 'F1 OpenViewer',
@@ -195,6 +196,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     'settings.back': 'Torna alla dashboard',
 
     'error.catalogLoad': 'Errore caricamento catalogo.',
+    'error.openPlayer': 'Impossibile aprire il player.',
   },
 };
 

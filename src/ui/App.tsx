@@ -100,8 +100,12 @@ export function App() {
         busy={busy}
         error={error}
         onRefresh={loadCatalog}
-        onOpen={(item) => {
-          window.f1?.openInF1TVWeb?.(item.contentId, item.title, item.channelId);
+        onOpen={async (item) => {
+          try {
+            await window.f1?.openInF1TVWeb?.(item.contentId, item.title, item.channelId);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : t('error.openPlayer'));
+          }
         }}
       />
     ) : (

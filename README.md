@@ -2,7 +2,9 @@
 
 Desktop client for **F1 TV**: official login, entitlement, and DRM (Widevine) playback in an Electron app. Authorized access only — no piracy.
 
-**Beginner-friendly setup (English):** [SETUP.md](SETUP.md) — clone, configure `.env`, test build, create certificate, build and sign for DRM.
+**Detailed setup instructions:** [docs/SETUP.md](docs/SETUP.md) — clone, configure `.env`, run in dev, build and sign.
+
+For **build and signing** (code signing, Widevine VMP, certificates): [docs/BUILD_SIGNING.md](docs/BUILD_SIGNING.md).
 
 ---
 
@@ -28,50 +30,6 @@ Desktop client for **F1 TV**: official login, entitlement, and DRM (Widevine) pl
 - **Node.js** (LTS recommended)
 - **Valid F1 TV subscription**
 - **Windows** (Widevine path is documented for Windows; other OS may need manual CDM setup)
-
----
-
-## Quick start
-
-```bash
-git clone https://github.com/YOUR_USER/F1OpenViewer.git
-cd F1OpenViewer
-
-npm install
-cp .env.example .env
-# Edit .env and set Widevine path/version (see Configuration below)
-
-npm run dev
-```
-
----
-
-## Build
-
-| Command | Description |
-|--------|-------------|
-| `npm run build` | Build without signing. Output: `release/` (installer + portable). DRM will not work. |
-| `npm run build:signed` | Build with code signing, then VMP signing. Use for DRM playback. See [SETUP.md](SETUP.md). |
-
-Signed builds (code signing + Widevine VMP) are required for DRM; see [docs/BUILD_SIGNING.md](docs/BUILD_SIGNING.md) for details.
-
----
-
-## Configuration (`.env`)
-
-Copy `.env.example` to `.env` and adjust as needed.
-
-**Electron**
-
-- `ELECTRON_OPEN_DEVTOOLS` — Open DevTools in development (default: `false`).
-- `ELECTRON_RELAX_CORS` — Relax CORS in dev (default: `false`).
-
-**Widevine CDM (needed for DRM)**
-
-- `ELECTRON_WIDEVINE_CDM_PATH` — Folder containing `widevinecdm.dll` (e.g. from a Chrome install).
-- `ELECTRON_WIDEVINE_CDM_VERSION` — Widevine version string (e.g. `4.10.2934.0` from `manifest.json` in the WidevineCdm folder).
-
-Without these, the app may show error 6001 on protected content. Step-by-step instructions to find path and version on Windows are in `.env.example`.
 
 ---
 

@@ -12,6 +12,8 @@ const memSession = { accessToken: undefined };
 const LICENSE_PROXY_PORT = 18765;
 const LICENSE_PROXY_URL = `http://127.0.0.1:${LICENSE_PROXY_PORT}/la`;
 let licenseProxyTarget = '';
+/** Last error message from F1 license server (403 response), so the player UI can show it. */
+let lastLicenseErrorMsg = '';
 
 const F1TV_WEB_BASE = 'https://f1tv.formula1.com';
 
@@ -37,7 +39,7 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
     result = await f1tv.contentPlay(id, channelId ?? undefined);
   } catch (e) {
     console.warn('[player] contentPlay failed:', e?.message);
-    return;
+    throw e;
   }
   if (!result?.manifestUrl) {
     console.warn('[player] no manifestUrl in response');
@@ -131,9 +133,11 @@ function startLicenseProxy() {
       if (r.status === 403 && buf.length < 500) {
         try {
           const j = JSON.parse(buf.toString('utf8'));
-          const err = j?.resultObj?.keyos?.errormsg || j?.message || '';
-          if (err) console.log('[license-proxy] 403:', err.slice(0, 80));
+          lastLicenseErrorMsg = j?.resultObj?.keyos?.errormsg || j?.message || j?.resultObj?.message || '';
+          if (lastLicenseErrorMsg) console.log('[license-proxy] 403:', lastLicenseErrorMsg.slice(0, 80));
         } catch (_) {}
+      } else if (r.status === 200) {
+        lastLicenseErrorMsg = '';
       }
       if (r.status === 200 && r.headers['set-cookie']) {
         const setCookies = Array.isArray(r.headers['set-cookie']) ? r.headers['set-cookie'] : [r.headers['set-cookie']];
@@ -599,6 +603,7 @@ function setupIpc() {
     await openCustomPlayerWindow(contentId, title, channelId);
   });
   ipcMain.handle('f1:isReady', () => f1tv.isClientReady);
+  ipcMain.handle('player:getLastLicenseError', () => lastLicenseErrorMsg || '');
 
   ipcMain.handle('net:request', async (_evt, req) => {
     const method = req?.method;

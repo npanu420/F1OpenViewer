@@ -2,6 +2,8 @@
 
 This guide walks you through cloning the repo, configuring the app, building a test version (without signing), and then building a signed version so that **DRM-protected F1 TV content** works.
 
+For **detailed build and signing instructions** (certificates, Widevine VMP, Castlabs EVS): see [BUILD_SIGNING.md](BUILD_SIGNING.md) in this folder.
+
 ---
 
 ## What you need before starting
