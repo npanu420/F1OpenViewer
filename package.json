@@ -18,19 +18,28 @@
   "private": true,
   "dependencies": {
     "@exhumer/f1tv-api": "^2.4.0",
+    "@radix-ui/react-switch": "^1.2.5",
     "axios": "^1.13.6",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.35.2",
+    "lucide-react": "^0.462.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "shaka-player": "^5.0.5"
+    "shaka-player": "^5.0.5",
+    "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
+    "autoprefixer": "^10.4.21",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "github:castlabs/electron-releases#v40.7.0+wvcus",
     "electron-builder": "^26.8.1",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "wait-on": "^9.0.4"
@@ -38,6 +47,7 @@
   "build": {
     "appId": "com.f1openviewer.app",
     "productName": "F1 OpenViewer",
+    "icon": "build/icon",
     "files": [
       "dist/**",
       "electron/**",
@@ -50,7 +60,8 @@
       "mirror": "https://github.com/castlabs/electron-releases/releases/download/v"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "afterSign": "scripts/evs-after-sign.js"
   }

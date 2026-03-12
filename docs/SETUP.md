@@ -20,7 +20,7 @@ For **detailed build and signing instructions** (certificates, Widevine VMP, Cas
 Open a terminal (PowerShell or Command Prompt) and run:
 
 ```bash
-git clone https://github.com/panu420/F1OpenViewer.git
+git clone https://github.com/npanu420/F1OpenViewer.git
 cd F1OpenViewer
 ```
 
@@ -192,6 +192,17 @@ Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) 
 | Build for test (no DRM)     | `npm run build` → run `release\win-unpacked\F1 OpenViewer.exe` or the installer |
 | Build + sign (DRM works)    | Set `CSC_LINK` and `CSC_KEY_PASSWORD`, then `npm run build:signed`             |
 | Signed app (DRM)            | `release\win-unpacked\F1 OpenViewer.exe`                                       |
+
+---
+
+## App icon (logo)
+
+To use a custom logo for the app:
+
+- **Icona nella finestra** (barra del titolo): metti un file `icon.png` o `icon.ico` nella cartella **`electron/`**. L’app userà la prima che trova.
+- **Icona dell’eseguibile e dell’installer** (Windows): metti un file **`build/icon.ico`** nella root del progetto. electron-builder lo userà per l’exe e per l’installer NSIS. Formato consigliato: .ico con più dimensioni (es. 256×256, 48×48, 32×32, 16×16).
+
+Se `build/icon.ico` o `electron/icon.png` / `electron/icon.ico` non esistono, l’app funziona comunque con l’icona predefinita di Electron.
 
 ---
 

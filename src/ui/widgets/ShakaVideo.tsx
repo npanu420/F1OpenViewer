@@ -1,6 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import shaka from 'shaka-player/dist/shaka-player.ui';
 import { useLocale } from '../../i18n/LocaleContext';
+
+export type ShakaVideoHandle = {
+  /** Returns the underlying HTMLVideoElement (or null) */
+  getVideoElement: () => HTMLVideoElement | null;
+};
 
 type Props = {
   manifestUrl: string;
@@ -11,23 +16,25 @@ type Props = {
   fallbackLicenseUrl?: string;
   fallbackLicenseHeaders?: Record<string, string>;
   onError: (msg: string) => void;
+  /** Hide status pills and let video fill container (for embedded slots) */
+  compact?: boolean;
 };
 
 function safeErr(e: unknown): string {
   if (e instanceof Error) return e.message;
   if (typeof e === 'string') return e;
-  try {
-    return JSON.stringify(e);
-  } catch {
-    return '';
-  }
+  try { return JSON.stringify(e); } catch { return ''; }
 }
 
-export function ShakaVideo(props: Props) {
+export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(props, ref) {
   const { t } = useLocale();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<shaka.Player | null>(null);
   const [ready, setReady] = useState(false);
+
+  useImperativeHandle(ref, () => ({
+    getVideoElement: () => videoRef.current,
+  }));
 
   useEffect(() => {
     const video = videoRef.current;
@@ -85,15 +92,10 @@ export function ShakaVideo(props: Props) {
       const applyConfig = (licenseUrl: string) => {
         const hasWidevineLicense = Boolean(licenseUrl && licenseUrl.trim().length > 0);
         const config: any = {
-          streaming: {
-            bufferingGoal: 30,
-            rebufferingGoal: 10,
-          },
+          streaming: { bufferingGoal: 30, rebufferingGoal: 10 },
         };
         if (hasWidevineLicense) {
-          config.drm = {
-            servers: { 'com.widevine.alpha': licenseUrl },
-          };
+          config.drm = { servers: { 'com.widevine.alpha': licenseUrl } };
         }
         player.configure(config);
       };
@@ -107,9 +109,7 @@ export function ShakaVideo(props: Props) {
         net.registerRequestFilter((type, request) => {
           if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) {
             if (headers) {
-              for (const [k, v] of Object.entries(headers)) {
-                request.headers[k] = v;
-              }
+              for (const [k, v] of Object.entries(headers)) request.headers[k] = v;
             }
             if (props.accessToken && !request.headers.Authorization) {
               request.headers.Authorization = `Bearer ${props.accessToken}`;
@@ -125,7 +125,7 @@ export function ShakaVideo(props: Props) {
         setLicenseHeaders(headers);
         const loadPromise = player.load(manifestUrl);
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Stream load timeout (15s)')), 15000);
+          setTimeout(() => reject(new Error(t('ui.timeoutStream'))), 15000);
         });
         await Promise.race([loadPromise, timeoutPromise]);
       };
@@ -134,26 +134,18 @@ export function ShakaVideo(props: Props) {
         await loadWith(props.manifestUrl, props.licenseUrl, props.licenseHeaders);
         if (!destroyed) {
           setReady(true);
-          try {
-            await video.play();
-          } catch (_) {}
+          try { await video.play(); } catch (_) {}
         }
       } catch (e) {
         const code = (e as any)?.code;
         if (destroyed || code === 7002) return;
         if (code === 6001 && props.fallbackManifestUrl) {
           try {
-            await loadWith(
-              props.fallbackManifestUrl,
-              props.fallbackLicenseUrl || '',
-              props.fallbackLicenseHeaders
-            );
+            await loadWith(props.fallbackManifestUrl, props.fallbackLicenseUrl || '', props.fallbackLicenseHeaders);
             if (!destroyed) {
               setReady(true);
               props.onError('');
-              try {
-                await video.play();
-              } catch (_) {}
+              try { await video.play(); } catch (_) {}
             }
             return;
           } catch (fallbackError) {
@@ -186,9 +178,7 @@ export function ShakaVideo(props: Props) {
       destroyed = true;
       const p = playerRef.current;
       playerRef.current = null;
-      if (p) {
-        p.destroy().catch(() => {});
-      }
+      if (p) p.destroy().catch(() => {});
     };
   }, [
     t,
@@ -201,15 +191,24 @@ export function ShakaVideo(props: Props) {
     JSON.stringify(props.fallbackLicenseHeaders),
   ]);
 
+  const { compact } = props;
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <video ref={videoRef} controls autoPlay />
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <span className="pill">
-          shaka: <strong>{ready ? t('drm.ready') : t('drm.initializing')}</strong>
-        </span>
-        <span className="pill">drm: widevine</span>
-      </div>
+    <div className={compact ? 'h-full min-h-0 flex flex-col' : ''} style={compact ? {} : { display: 'grid', gap: 10 }}>
+      <video
+        ref={videoRef}
+        controls
+        autoPlay
+        muted
+        className={compact ? 'w-full flex-1 min-h-0 object-contain bg-black' : ''}
+      />
+      {!compact && (
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="pill">
+            shaka: <strong>{ready ? t('drm.ready') : t('drm.initializing')}</strong>
+          </span>
+          <span className="pill">drm: widevine</span>
+        </div>
+      )}
     </div>
   );
-}
+});

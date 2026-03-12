@@ -92,7 +92,7 @@ function getFallbackLicenseUrl(client) {
 }
 
 /**
- * Fetch una pagina F1 TV senza autenticazione (contenuti pubblici/archivio).
+ * Fetches an F1 TV page without authentication (public/archive content).
  * @param {string|number} pageId
  */
 async function fetchPage(pageId) {
@@ -229,7 +229,7 @@ function initClient(token, readyTimeoutMs = 15000) {
 
     const t = setTimeout(() => {
       cleanup();
-      reject(new Error('Timeout inizializzazione F1 TV'));
+      reject(new Error('F1 TV initialization timeout'));
     }, readyTimeoutMs);
 
     function cleanup() {
@@ -240,8 +240,8 @@ function initClient(token, readyTimeoutMs = 15000) {
     client.once('ready', async () => {
       cleanup();
       try {
-        // Dopo entitlement aggiornato, location iniziale può restare ANONYMOUS.
-        // Forziamo refresh location per ottenere entitlement/groupId reali account.
+        // After entitlement is updated, the initial location can stay ANONYMOUS.
+        // Force a location refresh to get the real account entitlement/groupId.
         if (typeof client.refreshLocation === 'function') {
           await new Promise((r) => {
             let done = false;
@@ -349,7 +349,7 @@ function initClient(token, readyTimeoutMs = 15000) {
 }
 
 function getClient() {
-  if (!f1Client || !f1Client.isReady) throw new Error('Client F1 TV non pronto');
+  if (!f1Client || !f1Client.isReady) throw new Error('F1 TV client not ready');
   return f1Client;
 }
 
@@ -398,8 +398,8 @@ async function searchVod(params = {}) {
 }
 
 /**
- * ID pagina archivio F1 TV e mapping anno → pageId stagione.
- * Ottenuti esplorando https://f1tv.formula1.com/2.0/A/ENG/WEB_DASH/ALL/PAGE/493/F1_TV_Pro_Annual/2
+ * F1 TV archive page ID and mapping year → season pageId.
+ * Obtained by exploring https://f1tv.formula1.com/2.0/A/ENG/WEB_DASH/ALL/PAGE/493/F1_TV_Pro_Annual/2
  */
 const ARCHIVE_PAGE_ID = 493;
 const LEGACY_SEASON_PAGE_TO_YEAR = {
@@ -449,8 +449,8 @@ function mapSubtypeToSessionType(subtype, videoType) {
 }
 
 /**
- * Estrae tutti i container GP da una pagina stagione.
- * Ogni container GP ha un'action con pageId per la pagina del GP.
+ * Extracts all GP containers from a season page.
+ * Each GP container has an action with pageId for the GP page.
  */
 function extractEventsFromSeasonPage(containers) {
   const events = [];
@@ -464,7 +464,7 @@ function extractEventsFromSeasonPage(containers) {
       const emf = meta.emfAttributes || {};
       const props = (s.properties && s.properties[0]) || {};
       const title = s.title || meta.title || '';
-      // Filtra solo GP/meeting F1 (esclude F2, F3, ecc.)
+      // Filter only F1 GP/meetings (exclude F2, F3, etc.)
       const isF1GP = (
         String(title).toUpperCase().includes('GRAND PRIX') ||
         String(title).toUpperCase().includes('FORMULA 1') ||
@@ -472,12 +472,12 @@ function extractEventsFromSeasonPage(containers) {
         meta.contentSubtype === 'MEETING'
       ) && !String(title).toUpperCase().includes(' F2 ') && !String(title).toUpperCase().includes(' F3 ');
       if (!isF1GP) continue;
-      // Non mostrare eventi futuri (es: gare non ancora disputate in stagione corrente).
+      // Do not show future events (e.g. races not yet run in the current season).
       const meetingStartMs = Number(props.meeting_Start_Date || props.meeting_start_date || 0);
       if (Number.isFinite(meetingStartMs) && meetingStartMs > 0 && meetingStartMs > nowMs) {
         continue;
       }
-      // Estrai pageId dall'URI: /2.0/A/ENG/WEB_DASH/ALL/PAGE/{pageId}/...
+      // Extract pageId from URI: /2.0/A/ENG/WEB_DASH/ALL/PAGE/{pageId}/...
       const pageIdMatch = action.uri.match(/\/PAGE\/(\d+)\//);
       if (!pageIdMatch) continue;
       events.push({
@@ -492,8 +492,8 @@ function extractEventsFromSeasonPage(containers) {
 }
 
 /**
- * Estrae le sessioni da una pagina GP.
- * Ritorna { sessions, onboard } dove sessions sono FP/Q/Race/Sprint e onboard i canali OBC.
+ * Extracts the sessions from a GP page.
+ * Returns { sessions, onboard } where sessions are FP/Q/Race/Sprint and onboard are OBC channels.
  */
 function extractSessionsFromGPPage(containers) {
   const sessions = [];
@@ -511,7 +511,7 @@ function extractSessionsFromGPPage(containers) {
       const title = s.title || meta.title || '';
       const subtype = meta.contentSubtype || '';
       const videoType = emf.VideoType || '';
-      // Salta contenuti F2/F3
+      // Skip F2/F3 content
       if (/\bF[23]\b/.test(title)) continue;
       const type = mapSubtypeToSessionType(subtype, videoType);
       // Sessioni principali: solo REPLAY di meetingSession (FP, Q, Race, Sprint)
@@ -524,8 +524,8 @@ function extractSessionsFromGPPage(containers) {
 }
 
 /**
- * Ritorna la lista delle stagioni disponibili nell'archivio F1 TV.
- * Ogni stagione ha: { year, pageId }
+ * Returns the list of seasons available in the F1 TV archive.
+ * Each season has: { year, pageId }
  */
 async function getVodSeasons() {
   console.log('[VOD] getVodSeasons: caricamento archivio pagina', ARCHIVE_PAGE_ID);
@@ -545,12 +545,12 @@ async function getVodSeasons() {
     if (year >= 2018 && year <= new Date().getFullYear()) {
       seasonsMap.set(year, { year, pageId });
     } else {
-      // Evita di fare probing su pagine non-stagione (es: full-race-replays-and-highlights)
+      // Avoid probing non-season pages (e.g. full-race-replays-and-highlights)
       const href = String(action.href || '').toLowerCase();
       if (href.includes('season')) unresolved.push(pageId);
     }
   }
-  // Fallback dinamico: deduce anno direttamente dalla pagina stagione (copre nuove stagioni, es. 2026).
+  // Dynamic fallback: deduce year directly from the season page (covers new seasons, e.g. 2026).
   for (const pageId of unresolved) {
     const inferredYear = await inferSeasonYearFromPage(pageId);
     if (!inferredYear) continue;
@@ -560,7 +560,7 @@ async function getVodSeasons() {
       console.log(`[VOD] anno dedotto dinamicamente: ${inferredYear} (page:${pageId})`);
     }
   }
-  // Fallback esplicito: alcune stagioni recenti non compaiono sempre in PAGE/493.
+  // Explicit fallback: some recent seasons do not always appear in PAGE/493.
   for (const [pageIdStr, y] of Object.entries(LEGACY_SEASON_PAGE_TO_YEAR)) {
     const pageId = Number(pageIdStr);
     if (y >= 2018 && y <= new Date().getFullYear() && !seasonsMap.has(y)) {
@@ -573,8 +573,8 @@ async function getVodSeasons() {
 }
 
 /**
- * Ritorna la lista dei GP di una stagione dato il pageId della stagione.
- * Ogni GP ha: { pageId, meetingName, meetingNumber }
+ * Returns the list of GPs for a season given the season pageId.
+ * Each GP has: { pageId, meetingName, meetingNumber }
  */
 async function getVodEvents(seasonPageId) {
   console.log('[VOD] getVodEvents: caricamento stagione pagina', seasonPageId);
@@ -590,7 +590,7 @@ async function getVodEvents(seasonPageId) {
 }
 
 /**
- * Ritorna le sessioni (FP, Q, Race, Sprint) di un GP dato il pageId del GP.
+ * Returns the sessions (FP, Q, Race, Sprint) of a GP given the GP pageId.
  */
 async function getVodSessions(gpPageId) {
   console.log('[VOD] getVodSessions: caricamento GP pagina', gpPageId);
@@ -601,8 +601,8 @@ async function getVodSessions(gpPageId) {
 }
 
 /**
- * Catalogo VOD completo (legacy, carica tutto in una volta).
- * Preferire getVodSeasons + getVodEvents + getVodSessions per caricamento lazy.
+ * Full VOD catalog (legacy, loads everything at once).
+ * Prefer getVodSeasons + getVodEvents + getVodSessions for lazy loading.
  */
 async function getVodCatalog() {
   const result = { seasons: [] };
@@ -624,7 +624,7 @@ async function getVodCatalog() {
 }
 
 /**
- * Dettaglio contenuto per stream aggiuntivi (onboard).
+ * Content details for additional streams (onboard).
  */
 async function getContentVideo(contentId) {
   try {
@@ -663,9 +663,9 @@ async function getContentVideo(contentId) {
 }
 
 /**
- * Ottiene URL playback con fallback profilo:
+ * Gets playback URLs with profile fallback:
  * - primary: WEB_DASH (Widevine)
- * - fallback: WEB_HLS (utile su macchine senza key-system disponibile)
+ * - fallback: WEB_HLS (useful on machines without an available key system)
  * @returns {{
  *  manifestUrl: string,
  *  licenseUrl: string,
@@ -718,7 +718,7 @@ async function contentPlay(contentId, channelId) {
     console.error('[playback] all playback profiles failed. F1 message:', f1Msg || detail);
     throw new Error(f1Msg ? `F1 TV: ${f1Msg}` : (firstError ? `Playback unavailable. ${detail}` : 'Playback unavailable. Sign out and sign in again with "Sign in with browser", then retry.'));
   }
-  // Preferisci stream NON Widevine quando disponibile (evita Shaka 6001 su host senza key-system).
+  // Prefer non-Widevine streams when available (avoids Shaka 6001 on hosts without key system).
   const nonWv = candidates.find((c) => !String(c.streamType || '').toUpperCase().includes('WV'));
   const primary = nonWv || candidates[0];
   const fallback = candidates.find((c) => c !== primary) || null;
@@ -736,7 +736,7 @@ async function contentPlay(contentId, channelId) {
     }
   }
   console.log('[playback] selected platform:', primary.platform, '| streamType:', primary.streamType, '| manifest:', primary.url);
-  console.log('[playback] licenseUrl:', licenseUrl ? `${licenseUrl.slice(0, 80)}…` : '(vuoto)', '| drmToken:', !!primary.drmToken);
+  console.log('[playback] licenseUrl:', licenseUrl ? `${licenseUrl.slice(0, 80)}…` : '(empty)', '| drmToken:', !!primary.drmToken);
   if (fallback?.url) {
     console.log('[playback] fallback platform:', fallback.platform, '| streamType:', fallback.streamType, '| manifest:', fallback.url);
   }
@@ -758,7 +758,7 @@ function getSubscriptionToken() {
   return subscriptionToken;
 }
 
-/** Header da iniettare su ogni richiesta al server licenze F1 (usato dal main per webRequest). */
+/** Headers to inject on every request to the F1 license server (used by main via webRequest). */
 function getLicenseRequestHeaders() {
   try {
     const client = getClient();

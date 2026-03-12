@@ -8,6 +8,7 @@ export const translations: Record<Locale, Record<string, string>> = {
   en: {
     // App / topbar
     'app.brand': 'F1 OpenViewer',
+    'app.subtitle': 'for F1 TV by npanu420',
     'app.session': 'Session',
     'app.sessionActive': 'active',
     'app.sessionInactive': '—',
@@ -62,6 +63,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.sessionSprint': 'Sprint',
     'dashboard.sessionOnboard': 'Onboard',
     'dashboard.sessionVideo': 'Video',
+    'dashboard.playEmbedded': 'Play here',
+    'dashboard.playAllEmbedded': 'Start all streams',
+    'dashboard.openInWindow': 'Open in window',
+    'dashboard.loadingStream': 'Loading…',
 
     // Player
     'player.title': 'Player',
@@ -105,9 +110,41 @@ export const translations: Record<Locale, Record<string, string>> = {
     // Catalog load error (generic)
     'error.catalogLoad': 'Catalog load error.',
     'error.openPlayer': 'Failed to open player.',
+    // Header
+    'header.live': 'LIVE',
+    'header.offline': 'OFFLINE',
+    'header.settingsTitle': 'Settings',
+
+    // Sync
+    'sync.inProgress': 'Sync in progress',
+    'sync.done': 'Sync completed',
+    'sync.error': 'Sync error',
+    'sync.inProgressDescription': 'Aligning streams…',
+    'sync.doneDescription': 'All streams are aligned',
+    'sync.errorDescription': 'Unable to complete synchronization',
+    'sync.progressLabel': 'Progress',
+    'sync.progressValue': '{done}/{total} streams synced',
+    'sync.noAdjustment': 'No adjustment',
+    'sync.synced': 'Synced',
+
+    // Generic UI
+    'ui.archive': 'Archive',
+    'ui.worldFeed': 'World Feed',
+    'ui.previousSeasons': 'Previous seasons',
+    'ui.audioOn': 'Enable audio',
+    'ui.audioOff': 'Mute',
+    'ui.clickToOpen': 'CLICK TO OPEN',
+    'ui.stream': 'STREAM',
+    'ui.english': 'English',
+    'ui.italian': 'Italian',
+    'ui.appearance': 'Appearance',
+    'ui.themeDark': 'Dark',
+    'ui.themeLight': 'Light',
+    'ui.timeoutStream': 'Stream load timeout (15s)',
   },
   it: {
     'app.brand': 'F1 OpenViewer',
+    'app.subtitle': 'per F1 TV da npanu420',
     'app.session': 'Sessione',
     'app.sessionActive': 'attiva',
     'app.sessionInactive': '—',
@@ -160,6 +197,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.sessionSprint': 'Sprint',
     'dashboard.sessionOnboard': 'Onboard',
     'dashboard.sessionVideo': 'Video',
+    'dashboard.playEmbedded': 'Riproduci qui',
+    'dashboard.playAllEmbedded': 'Avvia tutti gli stream',
+    'dashboard.openInWindow': 'Apri in finestra',
+    'dashboard.loadingStream': 'Caricamento…',
 
     'player.title': 'Player',
     'player.content': 'Contenuto',
@@ -199,6 +240,37 @@ export const translations: Record<Locale, Record<string, string>> = {
 
     'error.catalogLoad': 'Errore caricamento catalogo.',
     'error.openPlayer': 'Impossibile aprire il player.',
+    // Header
+    'header.live': 'LIVE',
+    'header.offline': 'OFFLINE',
+    'header.settingsTitle': 'Impostazioni',
+
+    // Sync
+    'sync.inProgress': 'SINCRONIZZAZIONE IN CORSO',
+    'sync.done': 'SINCRONIZZAZIONE COMPLETATA',
+    'sync.error': 'ERRORE SINCRONIZZAZIONE',
+    'sync.inProgressDescription': 'Allineamento stream in corso…',
+    'sync.doneDescription': 'Tutti gli stream sono allineati',
+    'sync.errorDescription': 'Impossibile completare la sincronizzazione',
+    'sync.progressLabel': 'PROGRESSO',
+    'sync.progressValue': '{done}/{total} stream sincronizzati',
+    'sync.noAdjustment': 'Nessuna correzione',
+    'sync.synced': 'Sincronizzato',
+
+    // Generic UI
+    'ui.archive': 'Archivio',
+    'ui.worldFeed': 'World Feed',
+    'ui.previousSeasons': 'Stagioni precedenti',
+    'ui.audioOn': 'Attiva audio',
+    'ui.audioOff': 'Silenzia',
+    'ui.clickToOpen': 'CLICCA PER APRIRE',
+    'ui.stream': 'STREAM',
+    'ui.english': 'English',
+    'ui.italian': 'Italiano',
+    'ui.appearance': 'Aspetto',
+    'ui.themeDark': 'Scuro',
+    'ui.themeLight': 'Chiaro',
+    'ui.timeoutStream': 'Stream load timeout (15s)',
   },
 };
 

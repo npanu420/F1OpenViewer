@@ -1,6 +1,6 @@
 # The First Open Source Desktop client for **F1 TV**
 
-# F1 OpenViewer by panu420
+# F1 OpenViewer by npanu420
 Official login, entitlement, and DRM (Widevine) playback in an Electron app. Authorized access only — no piracy.
 
 **Detailed setup instructions:** [docs/SETUP.md](docs/SETUP.md) — clone, configure `.env`, run in dev, build and sign.
@@ -54,7 +54,7 @@ For **build and signing** (code signing, Widevine VMP, certificates): [docs/BUIL
 
 ## Contact Me
 
-Github: github.com/panu420
+Github: github.com/npanu420
 Discord: @Ovetto
 Mail: biliardocancelli@gmail.com
 

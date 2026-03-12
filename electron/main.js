@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const electron = require('electron');
-const { app, BrowserWindow, ipcMain, session } = electron;
+const { app, BrowserWindow, ipcMain, session, Menu } = electron;
 const components = electron.components;
 const axios = require('axios');
 const f1tv = require('./f1tv-bridge');
@@ -440,10 +440,13 @@ function openLoginWindow() {
 }
 
 function createWindow() {
+  const iconPath = path.join(__dirname, 'icon.png');
+  const iconPathIco = path.join(__dirname, 'icon.ico');
   const win = new BrowserWindow({
     width: 1200,
     height: 820,
     backgroundColor: '#0b0f14',
+    icon: fs.existsSync(iconPathIco) ? iconPathIco : (fs.existsSync(iconPath) ? iconPath : undefined),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -688,6 +691,8 @@ app.whenReady().then(async () => {
       memSession.accessToken = undefined;
     });
   }
+
+  Menu.setApplicationMenu(null);
 
   createWindow();
 

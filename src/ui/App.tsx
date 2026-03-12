@@ -2,18 +2,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import { PlayerView } from './views/PlayerView';
-import { SettingsView } from './views/SettingsView';
 import type { CatalogItem } from '../domain/catalog';
 import { getCatalog } from '../services/catalog';
 import { getVodSeasons } from '../services/vod';
 import { session } from '../services/session';
 import { useLocale } from '../i18n/LocaleContext';
+import { Header } from './components/Header';
+import { SettingsPanel, type ThemeMode } from './components/SettingsPanel';
 
 type Route =
   | { name: 'login' }
   | { name: 'dashboard' }
-  | { name: 'player'; item: CatalogItem }
-  | { name: 'settings' };
+  | { name: 'player'; item: CatalogItem };
 
 export function App() {
   const { t } = useLocale();
@@ -23,7 +23,24 @@ export function App() {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [vodSeasons, setVodSeasons] = useState<Array<{ year: number; pageId: number }>>([]);
   const [token, setToken] = useState<string | undefined>(undefined);
+  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const [showSettings, setShowSettings] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    return (typeof localStorage !== 'undefined' && (localStorage.getItem('f1-theme') as ThemeMode)) || 'dark';
+  });
   const bootOnceRef = useRef(false);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'light') {
+      root.classList.add('light');
+    } else {
+      root.classList.remove('light');
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('f1-theme', theme);
+    }
+  }, [theme]);
 
   useEffect(() => {
     if (bootOnceRef.current) return;
@@ -60,6 +77,9 @@ export function App() {
       ]);
       setCatalog(items);
       setVodSeasons(seasons);
+      if (seasons.length > 0 && selectedYear === 2026) {
+        setSelectedYear(seasons[0].year);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('error.catalogLoad'));
     } finally {
@@ -72,34 +92,68 @@ export function App() {
     setToken(undefined);
     setCatalog([]);
     setVodSeasons([]);
+    setSelectedYear(2026);
     setRoute({ name: 'login' });
   }
 
-  const content =
-    route.name === 'login' ? (
-      <LoginView
-        onLoggedIn={async () => {
-          const s = await session.get();
-          setToken(s.accessToken);
-          setRoute({ name: 'dashboard' });
-          await loadCatalog();
-        }}
-        setError={setError}
-        setBusy={setBusy}
+  if (route.name === 'login') {
+    return (
+      <>
+        <LoginView
+          onLoggedIn={async () => {
+            const s = await session.get();
+            setToken(s.accessToken);
+            setRoute({ name: 'dashboard' });
+            await loadCatalog();
+          }}
+          setError={setError}
+          setBusy={setBusy}
+        />
+      </>
+    );
+  }
+
+  if (route.name === 'player') {
+    return (
+      <div className="min-h-screen bg-background">
+        <PlayerView
+          item={route.item}
+          accessToken={token}
+          onBack={() => setRoute({ name: 'dashboard' })}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header
+        selectedYear={selectedYear}
+        onSelectYear={setSelectedYear}
+        onSettingsClick={() => setShowSettings(true)}
+        brandLabel={t('app.brand')}
+        subtitle={t('app.subtitle')}
+        availableYears={vodSeasons.length > 0 ? vodSeasons.map((s) => s.year) : undefined}
+        hasLive={catalog.some((it) => it.kind === 'live')}
       />
-    ) : route.name === 'settings' ? (
-      <SettingsView
+      <SettingsPanel
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        theme={theme}
+        onThemeChange={setTheme}
         isSignedIn={!!token}
         onLogout={logout}
-        onBack={() => setRoute({ name: 'dashboard' })}
       />
-    ) : route.name === 'dashboard' ? (
       <DashboardView
         items={catalog}
         vodSeasons={vodSeasons}
         busy={busy}
         error={error}
         onRefresh={loadCatalog}
+        selectedYear={selectedYear}
+        onSelectYear={setSelectedYear}
+        accessToken={token}
+        onEmbedError={setError}
         onOpen={async (item) => {
           try {
             await window.f1?.openInF1TVWeb?.(item.contentId, item.title, item.channelId);
@@ -108,47 +162,6 @@ export function App() {
           }
         }}
       />
-    ) : (
-      <PlayerView
-        item={route.item}
-        accessToken={token}
-        onBack={() => setRoute({ name: 'dashboard' })}
-      />
-    );
-
-  return (
-    <div className="shell">
-      <div className="app">
-        <div className="topbar">
-          <div className="brand">
-            <span>{t('app.brand')}</span>
-            <span className="pill">F1 TV</span>
-          </div>
-          <div className="row">
-            {route.name !== 'login' && (
-              <>
-                <span className="pill">
-                  {t('app.session')}: {token ? t('app.sessionActive') : t('app.sessionInactive')}
-                </span>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setRoute({ name: 'settings' })}
-                  title={t('app.settings')}
-                >
-                  {t('app.settings')}
-                </button>
-                <button className="btn btnDanger" onClick={logout} type="button">
-                  {t('app.signOut')}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="panel">
-          <div className="panelInner">{content}</div>
-        </div>
-      </div>
     </div>
   );
 }

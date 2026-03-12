@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import { login, loginWithToken, loginWithBrowser } from '../../services/auth';
 import { useLocale } from '../../i18n/LocaleContext';
 
@@ -59,99 +60,135 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 16, maxWidth: 520 }}>
-      <div>
-        <h2 style={{ margin: '0 0 6px' }}>{t('login.title')}</h2>
-        <p style={{ margin: 0, color: 'var(--muted)', fontSize: 14 }}>
-          {t('login.recommended')}
-        </p>
-      </div>
-
-      <div style={{ display: 'grid', gap: 10 }}>
-        <button
-          type="button"
-          className="btn btnPrimary"
-          onClick={onLoginWithBrowser}
-          style={{ padding: '14px 18px', fontSize: 15 }}
-        >
-          {t('login.withBrowser')}
-        </button>
-      </div>
-
-      <details style={{ border: '1px solid var(--stroke)', borderRadius: 12, padding: '10px 12px' }}>
-        <summary style={{ cursor: 'pointer', color: 'var(--muted)', fontSize: 13 }}>
-          {t('login.otherMethods')}
-        </summary>
-        <div className="row" style={{ gap: 8, marginTop: 12 }}>
-          <button
-            type="button"
-            className={`btn ${mode === 'credentials' ? 'btnPrimary' : ''}`}
-            onClick={() => { setMode('credentials'); setError(null); }}
-          >
-            {t('login.emailPassword')}
-          </button>
-          <button
-            type="button"
-            className={`btn ${mode === 'token' ? 'btnPrimary' : ''}`}
-            onClick={() => { setMode('token'); setError(null); }}
-          >
-            {t('login.pasteToken')}
-          </button>
+    <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
+      <motion.div
+        className="w-full max-w-md glass-panel rounded-xl p-8"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        <div className="mb-6">
+          <h2 className="font-heading text-2xl font-bold tracking-wider text-foreground m-0">
+            {t('login.title')}
+          </h2>
+          <p className="text-sm text-muted-foreground mt-2 mb-0">
+            {t('login.recommended')}
+          </p>
         </div>
 
-        {mode === 'credentials' && (
-          <form onSubmit={onSubmitCredentials} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ color: 'var(--muted)', fontSize: 13 }}>{t('login.email')}</span>
-              <input
-                className="input"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder={t('login.emailPlaceholder')}
-                required
-              />
-            </label>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ color: 'var(--muted)', fontSize: 13 }}>{t('login.password')}</span>
-              <input
-                className="input"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
-            </label>
-            <button className="btn btnPrimary" type="submit">
-              {t('login.signIn')}
-            </button>
-          </form>
-        )}
+        <div className="space-y-4">
+          <motion.button
+            type="button"
+            onClick={onLoginWithBrowser}
+            className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-lg font-heading font-bold tracking-wider bg-primary text-primary-foreground border border-primary glow-red hover:opacity-95 transition-opacity"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            {t('login.withBrowser')}
+          </motion.button>
+        </div>
 
-        {mode === 'token' && (
-          <form onSubmit={onSubmitToken} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ color: 'var(--muted)', fontSize: 13 }}>
-                {t('login.tokenHint')}
-              </span>
-              <textarea
-                className="input"
-                rows={3}
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                placeholder={t('login.tokenPlaceholder')}
-                style={{ resize: 'vertical', minHeight: 60 }}
-              />
-            </label>
-            <button className="btn btnPrimary" type="submit" disabled={!tokenInput.trim()}>
-              {t('login.signInWithToken')}
-            </button>
-          </form>
-        )}
-      </details>
+        <details className="mt-6 border border-border rounded-lg overflow-hidden bg-card/50">
+          <summary className="cursor-pointer text-muted-foreground text-sm py-3 px-4 font-heading tracking-wider hover:text-foreground">
+            {t('login.otherMethods')}
+          </summary>
+          <div className="px-4 pb-4 pt-2 space-y-4">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('credentials');
+                  setError(null);
+                }}
+                className={`flex-1 py-2.5 rounded-md font-heading text-sm font-bold tracking-wider border transition-colors ${
+                  mode === 'credentials'
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-accent/30 text-muted-foreground border-border hover:text-foreground'
+                }`}
+              >
+                {t('login.emailPassword')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('token');
+                  setError(null);
+                }}
+                className={`flex-1 py-2.5 rounded-md font-heading text-sm font-bold tracking-wider border transition-colors ${
+                  mode === 'token'
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-accent/30 text-muted-foreground border-border hover:text-foreground'
+                }`}
+              >
+                {t('login.pasteToken')}
+              </button>
+            </div>
+
+            {mode === 'credentials' && (
+              <form onSubmit={onSubmitCredentials} className="space-y-4">
+                <label className="block space-y-1.5">
+                  <span className="text-muted-foreground text-xs font-heading tracking-wider">
+                    {t('login.email')}
+                  </span>
+                  <input
+                    className="w-full bg-background/80 border border-border rounded-lg px-3 py-2.5 text-foreground outline-none focus:border-primary/50"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder={t('login.emailPlaceholder')}
+                    required
+                  />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-muted-foreground text-xs font-heading tracking-wider">
+                    {t('login.password')}
+                  </span>
+                  <input
+                    className="w-full bg-background/80 border border-border rounded-lg px-3 py-2.5 text-foreground outline-none focus:border-primary/50"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="w-full py-2.5 rounded-lg font-heading font-bold tracking-wider bg-primary text-primary-foreground border border-primary"
+                >
+                  {t('login.signIn')}
+                </button>
+              </form>
+            )}
+
+            {mode === 'token' && (
+              <form onSubmit={onSubmitToken} className="space-y-4">
+                <label className="block space-y-1.5">
+                  <span className="text-muted-foreground text-xs font-heading tracking-wider">
+                    {t('login.tokenHint')}
+                  </span>
+                  <textarea
+                    className="w-full bg-background/80 border border-border rounded-lg px-3 py-2.5 text-foreground outline-none focus:border-primary/50 resize-y min-h-[80px]"
+                    rows={3}
+                    value={tokenInput}
+                    onChange={(e) => setTokenInput(e.target.value)}
+                    placeholder={t('login.tokenPlaceholder')}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={!tokenInput.trim()}
+                  className="w-full py-2.5 rounded-lg font-heading font-bold tracking-wider bg-primary text-primary-foreground border border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {t('login.signInWithToken')}
+                </button>
+              </form>
+            )}
+          </div>
+        </details>
+      </motion.div>
     </div>
   );
 }

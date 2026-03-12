@@ -1,8 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowLeft } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodEvent, VodSession, VodOnboard } from '../../domain/vod';
-import { getVodEvents, getVodSessions, getContentVideoStreams, type SessionStreams } from '../../services/vod';
+import {
+  getVodEvents,
+  getVodSessions,
+  getContentVideoStreams,
+  type SessionStreams,
+} from '../../services/vod';
+import { resolvePlayback, type PlaybackInfo } from '../../services/entitlement';
 import { useLocale } from '../../i18n/LocaleContext';
+import { getFlag, getCountryCodeFromMeetingKey } from '../../lib/flags';
+import { LiveSection } from '../components/LiveSection';
+import { RaceCard } from '../components/RaceCard';
+import { SessionTabs, sessionToTabItem } from '../components/SessionTabs';
+import { MultiViewer } from '../components/MultiViewer';
 
 type Props = {
   items: CatalogItem[];
@@ -11,6 +24,10 @@ type Props = {
   error: string | null;
   onRefresh: () => Promise<void>;
   onOpen: (item: CatalogItem) => void;
+  selectedYear: number;
+  onSelectYear: (year: number) => void;
+  accessToken?: string;
+  onEmbedError?: (msg: string) => void;
 };
 
 function toCatalogItem(session: VodSession, seasonYear: number): CatalogItem {
@@ -34,325 +51,368 @@ function toCatalogItemOnboard(ob: VodOnboard): CatalogItem {
   };
 }
 
-export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpen }: Props) {
+export function DashboardView({
+  items,
+  vodSeasons,
+  busy,
+  error,
+  onRefresh,
+  onOpen,
+  selectedYear,
+  onSelectYear,
+  accessToken,
+  onEmbedError,
+}: Props) {
   const { t } = useLocale();
-  const sessionLabels: Record<string, string> = useMemo(() => ({
-    race: t('dashboard.sessionRace'),
-    qualifying: t('dashboard.sessionQualifying'),
-    practice: t('dashboard.sessionPractice'),
-    sprint: t('dashboard.sessionSprint'),
-    onboard: t('dashboard.sessionOnboard'),
-    other: t('dashboard.sessionVideo'),
-  }), [t]);
-  const [expandedYear, setExpandedYear] = useState<number | null>(null);
-  const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<VodEvent | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string>('');
 
-  // Lazy: events per season (pageId → VodEvent[])
-  const [eventsBySeasonPageId, setEventsBySeasonPageId] = useState<Record<number, VodEvent[]>>({});
-  const [loadingEvents, setLoadingEvents] = useState<Record<number, boolean>>({});
+  const [embeddedPlayback, setEmbeddedPlayback] = useState<Record<string, PlaybackInfo>>({});
+  const [loadingItemIds, setLoadingItemIds] = useState<Record<string, boolean>>({});
 
-  // Lazy: sessions per GP (meetingKey → VodSession[])
-  const [sessionsByEvent, setSessionsByEvent] = useState<Record<string, VodSession[]>>({});
-  const [loadingSessions, setLoadingSessions] = useState<Record<string, boolean>>({});
+  const [eventsBySeasonPageId, setEventsBySeasonPageId] = useState<
+    Record<number, VodEvent[]>
+  >({});
+  const [loadingEvents, setLoadingEvents] = useState<Record<number, boolean>>(
+    {}
+  );
 
-  // For each clicked session: stream list (main + data + onboard). Key = `${eventKey}-${contentId}`
-  const [expandedSessionKey, setExpandedSessionKey] = useState<string | null>(null);
-  const [streamsByContentId, setStreamsByContentId] = useState<Record<number, SessionStreams>>({});
-  const [loadingStreams, setLoadingStreams] = useState<Record<number, boolean>>({});
+  const [sessionsByEvent, setSessionsByEvent] = useState<
+    Record<string, VodSession[]>
+  >({});
+  const [loadingSessions, setLoadingSessions] = useState<
+    Record<string, boolean>
+  >({});
+
+  const [streamsByContentId, setStreamsByContentId] = useState<
+    Record<number, SessionStreams>
+  >({});
+  const [loadingStreams, setLoadingStreams] = useState<
+    Record<number, boolean>
+  >({});
+
+  const currentSeasonPageId = useMemo(
+    () => vodSeasons.find((s) => s.year === selectedYear)?.pageId,
+    [vodSeasons, selectedYear]
+  );
+  const currentEvents = selectedYear !== -1 && currentSeasonPageId != null
+    ? eventsBySeasonPageId[currentSeasonPageId]
+    : undefined;
+  const loadingEvs = currentSeasonPageId != null
+    ? loadingEvents[currentSeasonPageId]
+    : false;
 
   useEffect(() => {
     if (items.length === 0 && vodSeasons.length === 0 && !busy && !error) {
       onRefresh().catch(() => {});
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount to load catalog
   }, []);
 
-  async function loadEvents(seasonPageId: number) {
-    if (eventsBySeasonPageId[seasonPageId] !== undefined) return;
-    setLoadingEvents((prev) => ({ ...prev, [seasonPageId]: true }));
-    const evs = await getVodEvents(seasonPageId);
-    setEventsBySeasonPageId((prev) => ({ ...prev, [seasonPageId]: evs }));
-    setLoadingEvents((prev) => ({ ...prev, [seasonPageId]: false }));
-  }
+  useEffect(() => {
+    setSelectedEvent(null);
+    setActiveSessionId('');
+  }, [selectedYear]);
 
-  async function loadSessions(eventKey: string, gpPageId: number) {
+  useEffect(() => {
+    setEmbeddedPlayback({});
+    setLoadingItemIds({});
+  }, [activeSessionId]);
+
+  const onPlayEmbedded = useCallback(async (item: CatalogItem) => {
+    setLoadingItemIds((prev) => ({ ...prev, [item.id]: true }));
+    try {
+      const info = await resolvePlayback(item);
+      setEmbeddedPlayback((prev) => ({ ...prev, [item.id]: info }));
+    } catch (_) {
+      // Error shown per-panel via onEmbedError if needed
+    } finally {
+      setLoadingItemIds((prev) => ({ ...prev, [item.id]: false }));
+    }
+  }, []);
+
+  const onPlayAllEmbedded = useCallback(async (itemsToPlay: CatalogItem[]) => {
+    setLoadingItemIds((prev) => {
+      const next = { ...prev };
+      itemsToPlay.forEach((it) => { next[it.id] = true; });
+      return next;
+    });
+    const results = await Promise.allSettled(
+      itemsToPlay.map((item) => resolvePlayback(item))
+    );
+    setEmbeddedPlayback((prev) => {
+      const next = { ...prev };
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') next[itemsToPlay[i].id] = result.value;
+      });
+      return next;
+    });
+    setLoadingItemIds((prev) => {
+      const next = { ...prev };
+      itemsToPlay.forEach((it) => { next[it.id] = false; });
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (selectedYear === -1 || currentSeasonPageId == null) return;
+    if (eventsBySeasonPageId[currentSeasonPageId] !== undefined) return;
+    setLoadingEvents((prev) => ({ ...prev, [currentSeasonPageId]: true }));
+    getVodEvents(currentSeasonPageId)
+      .then((evs) => {
+        setEventsBySeasonPageId((prev) => ({
+          ...prev,
+          [currentSeasonPageId]: evs,
+        }));
+      })
+      .finally(() => {
+        setLoadingEvents((prev) => ({ ...prev, [currentSeasonPageId]: false }));
+      });
+  }, [selectedYear, currentSeasonPageId, eventsBySeasonPageId]);
+
+  const eventKey =
+    selectedEvent && selectedYear !== -1
+      ? `${selectedYear}-${selectedEvent.meetingKey}`
+      : '';
+  const currentSessions = eventKey ? sessionsByEvent[eventKey] : undefined;
+  const loadingSess = eventKey ? loadingSessions[eventKey] : false;
+
+  useEffect(() => {
+    if (!eventKey || !selectedEvent?.pageId) return;
     if (sessionsByEvent[eventKey] !== undefined) return;
     setLoadingSessions((prev) => ({ ...prev, [eventKey]: true }));
-    const sessions = await getVodSessions(gpPageId);
-    setSessionsByEvent((prev) => ({ ...prev, [eventKey]: sessions }));
-    setLoadingSessions((prev) => ({ ...prev, [eventKey]: false }));
-  }
+    getVodSessions(selectedEvent.pageId)
+      .then((sessions) => {
+        setSessionsByEvent((prev) => ({ ...prev, [eventKey]: sessions }));
+      })
+      .finally(() => {
+        setLoadingSessions((prev) => ({ ...prev, [eventKey]: false }));
+      });
+  }, [eventKey, selectedEvent?.pageId, sessionsByEvent]);
 
-  async function loadStreamsForSession(contentId: number) {
-    if (streamsByContentId[contentId] !== undefined) return;
-    setLoadingStreams((prev) => ({ ...prev, [contentId]: true }));
-    const streams = await getContentVideoStreams(contentId);
-    setStreamsByContentId((prev) => ({ ...prev, [contentId]: streams }));
-    setLoadingStreams((prev) => ({ ...prev, [contentId]: false }));
-  }
+  const activeSession = useMemo(() => {
+    if (!currentSessions?.length) return null;
+    if (activeSessionId) {
+      const found = currentSessions.find(
+        (s) => sessionToTabItem(s).id === activeSessionId
+      );
+      if (found) return found;
+    }
+    return currentSessions[0];
+  }, [currentSessions, activeSessionId]);
 
-  const toggleYear = (year: number, pageId: number) => {
-    const isExpanding = expandedYear !== year;
-    setExpandedYear(isExpanding ? year : null);
-    setExpandedEvent(null);
-    if (isExpanding) loadEvents(pageId);
+  useEffect(() => {
+    if (!activeSession) return;
+    if (streamsByContentId[activeSession.contentId] !== undefined) return;
+    setLoadingStreams((prev) => ({ ...prev, [activeSession.contentId]: true }));
+    getContentVideoStreams(activeSession.contentId)
+      .then((streams) => {
+        setStreamsByContentId((prev) => ({
+          ...prev,
+          [activeSession.contentId]: streams,
+        }));
+      })
+      .finally(() => {
+        setLoadingStreams((prev) => ({
+          ...prev,
+          [activeSession.contentId]: false,
+        }));
+      });
+  }, [activeSession?.contentId, streamsByContentId]);
+
+  useEffect(() => {
+    if (currentSessions?.length && !activeSessionId) {
+      setActiveSessionId(sessionToTabItem(currentSessions[0]).id);
+    }
+  }, [currentSessions, activeSessionId]);
+
+  const handleSelectEvent = (ev: VodEvent) => {
+    setSelectedEvent(ev);
+    setActiveSessionId('');
   };
 
-  const toggleEvent = (eventKey: string, gpPageId: number) => {
-    const isExpanding = expandedEvent !== eventKey;
-    setExpandedEvent(isExpanding ? eventKey : null);
-    setExpandedSessionKey(null);
-    if (isExpanding) loadSessions(eventKey, gpPageId);
+  const handleBack = () => {
+    setSelectedEvent(null);
+    setActiveSessionId('');
   };
 
-  const toggleSession = (eventKey: string, session: VodSession, year: number) => {
-    const key = `${eventKey}-${session.contentId}`;
-    const isExpanding = expandedSessionKey !== key;
-    setExpandedSessionKey(isExpanding ? key : null);
-    if (isExpanding) loadStreamsForSession(session.contentId);
-  };
+  const seasonLabel =
+    selectedYear === -1
+      ? t('dashboard.pastChampionships') + ' — Archive'
+      : `${t('dashboard.season')} ${selectedYear}`;
+
+  const sessionTabItems = useMemo(
+    () => (currentSessions ?? []).map(sessionToTabItem),
+    [currentSessions]
+  );
 
   return (
-    <div style={{ display: 'grid', gap: 20 }}>
-      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <div>
-          <h2 style={{ margin: '0 0 6px' }}>{t('dashboard.title')}</h2>
-          <div className="kpi">
-            <span>{t('dashboard.live')}: <strong>{items.length}</strong></span>
-            <span>{t('dashboard.vodSeasons')}: <strong>{vodSeasons.length}</strong></span>
-            <span>{t('dashboard.status')}: <strong>{busy ? t('dashboard.statusLoading') : t('dashboard.statusReady')}</strong></span>
+    <div className="min-h-screen bg-background">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
+        {error && (
+          <div className="mb-4 error" role="alert">
+            {error}
           </div>
-        </div>
-        <button className="btn" onClick={onRefresh} disabled={busy} type="button">
-          {t('dashboard.refresh')}
-        </button>
-      </div>
-      {error && <div className="error">{error}</div>}
-
-      {/* Live */}
-      <section>
-        <h3 style={{ margin: '0 0 10px', fontSize: 16, color: 'var(--muted)' }}>{t('dashboard.liveSection')}</h3>
-        {items.length === 0 && !busy && (
-          <p style={{ color: 'var(--muted)', margin: 0, fontSize: 14 }}>
-            {t('dashboard.noLiveEvents')}
-          </p>
         )}
-        <div className="grid">
-          {items.map((it) => (
-            <button key={it.id} type="button" className="card" onClick={() => onOpen(it)}>
-              <h3 className="cardTitle">{it.title}</h3>
-              <p className="cardMeta">{t('dashboard.live')}</p>
-            </button>
-          ))}
-        </div>
-      </section>
 
-      {/* Video - Past championships */}
-      <section>
-        <h3 style={{ margin: '0 0 10px', fontSize: 16, color: 'var(--muted)' }}>{t('dashboard.pastChampionships')}</h3>
-        {vodSeasons.length === 0 && !busy && (
-          <p style={{ color: 'var(--muted)', margin: 0, fontSize: 14 }}>
-            {t('dashboard.noSeasons')}
-          </p>
-        )}
-        <div style={{ display: 'grid', gap: 6 }}>
-          {vodSeasons.map(({ year, pageId }) => {
-            const events = eventsBySeasonPageId[pageId];
-            const loadingEvs = loadingEvents[pageId];
-            return (
-              <div key={year} style={{ border: '1px solid var(--stroke)', borderRadius: 12, overflow: 'hidden' }}>
+        <AnimatePresence mode="wait">
+          {!selectedEvent ? (
+            <motion.div
+              key={`season-${selectedYear}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, x: -30 }}
+              transition={{ duration: 0.3 }}
+            >
+              <LiveSection
+                items={items}
+                onOpen={onOpen}
+                loading={busy}
+              />
+
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-heading text-2xl font-bold tracking-wider">
+                    {seasonLabel}
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {selectedYear === -1
+                      ? t('ui.previousSeasons')
+                      : currentEvents
+                        ? `${currentEvents.length} Grand Prix`
+                        : loadingEvs
+                          ? t('dashboard.loadingGps')
+                          : ''}
+                  </p>
+                </div>
                 <button
                   type="button"
-                  className="row"
-                  onClick={() => toggleYear(year, pageId)}
-                  style={{
-                    width: '100%',
-                    justifyContent: 'space-between',
-                    padding: '12px 14px',
-                    background: 'rgba(255,255,255,0.04)',
-                    border: 'none',
-                    color: 'inherit',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
+                  onClick={() => onRefresh()}
+                  disabled={busy}
+                  className="py-2 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 disabled:opacity-50"
                 >
-                  <strong>{t('dashboard.season')} {year}</strong>
-                  <span style={{ color: 'var(--muted)', fontSize: 13 }}>
-                    {expandedYear === year ? '▼' : '▶'}
-                    {events ? ` ${events.length} GP` : ''}
+                  {t('dashboard.refresh')}
+                </button>
+              </div>
+
+              <div className="red-stripe mb-6" />
+
+              {selectedYear === -1 ? (
+                <div className="glass-panel rounded-lg p-8 text-center">
+                  <p className="text-muted-foreground font-heading tracking-wider">
+                    The archive of previous seasons will be available soon.
+                  </p>
+                </div>
+              ) : loadingEvs ? (
+                <div className="glass-panel rounded-lg p-8 text-center">
+                  <p className="text-muted-foreground font-heading tracking-wider">
+                    {t('dashboard.loadingGps')}
+                  </p>
+                </div>
+              ) : !currentEvents?.length ? (
+                <div className="glass-panel rounded-lg p-8 text-center">
+                  <p className="text-muted-foreground font-heading tracking-wider">
+                    {t('dashboard.noGpsFound')}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                  {currentEvents.map((ev, i) => (
+                    <RaceCard
+                      key={`${selectedYear}-${ev.meetingKey}`}
+                      event={ev}
+                      onClick={() => handleSelectEvent(ev)}
+                      index={i}
+                    />
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="race-view"
+              initial={{ opacity: 0, x: 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <div className="mb-6">
+                <button
+                  onClick={handleBack}
+                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 group"
+                  type="button"
+                >
+                  <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                  <span className="font-heading tracking-wider">
+                    {t('dashboard.pastChampionships')} — Back to calendar
                   </span>
                 </button>
 
-                {expandedYear === year && (
-                  <div style={{ padding: '8px 12px 12px', display: 'grid', gap: 8 }}>
-                    {loadingEvs && (
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.loadingGps')}</p>
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">
+                    {getFlag(
+                      getCountryCodeFromMeetingKey(selectedEvent.meetingKey)
                     )}
-                    {!loadingEvs && events?.length === 0 && (
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.noGpsFound')}</p>
-                    )}
-                    {events?.map((ev: VodEvent) => {
-                      const eventKey = `${year}-${ev.meetingKey}`;
-                      const gpPageId = ev.pageId ?? 0;
-                      if (!gpPageId) return null;
-                      const sessions = sessionsByEvent[eventKey];
-                      const loadingSess = loadingSessions[eventKey];
-                      const isExpanded = expandedEvent === eventKey;
-
-                      return (
-                        <div
-                          key={eventKey}
-                          style={{
-                            border: '1px solid var(--stroke)',
-                            borderRadius: 10,
-                            overflow: 'hidden',
-                            background: 'rgba(0,0,0,0.15)',
-                          }}
-                        >
-                          <button
-                            type="button"
-                            className="row"
-                            onClick={() => toggleEvent(eventKey, gpPageId)}
-                            style={{
-                              width: '100%',
-                              justifyContent: 'space-between',
-                              padding: '10px 12px',
-                              background: 'none',
-                              border: 'none',
-                              color: 'inherit',
-                              cursor: 'pointer',
-                              textAlign: 'left',
-                            }}
-                          >
-                            <strong style={{ fontSize: 14 }}>{ev.meetingName}</strong>
-                            <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-                              {isExpanded ? '▼' : '▶'}
-                              {sessions ? ` ${sessions.length} ${t('dashboard.sessions')}` : ''}
-                            </span>
-                          </button>
-
-                          {isExpanded && (
-                            <div style={{ padding: '8px 12px 14px', display: 'grid', gap: 6 }}>
-                              {loadingSess && (
-                                <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>{t('dashboard.loadingSessions')}</p>
-                              )}
-                              {!loadingSess && sessions?.length === 0 && (
-                                <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>{t('dashboard.noSessionsFound')}</p>
-                              )}
-                              {sessions?.map((session: VodSession) => {
-                                const sessionStreamKey = `${eventKey}-${session.contentId}`;
-                                const isSessionExpanded = expandedSessionKey === sessionStreamKey;
-                                const streams = streamsByContentId[session.contentId];
-                                const loadingStr = loadingStreams[session.contentId];
-                                return (
-                                  <div
-                                    key={`${session.contentId}-${session.channelId ?? 0}`}
-                                    style={{
-                                      border: '1px solid var(--stroke)',
-                                      borderRadius: 8,
-                                      overflow: 'hidden',
-                                      background: 'rgba(0,0,0,0.1)',
-                                    }}
-                                  >
-                                    <button
-                                      type="button"
-                                      className="row"
-                                      style={{
-                                        width: '100%',
-                                        justifyContent: 'space-between',
-                                        padding: '8px 10px',
-                                        background: 'none',
-                                        border: 'none',
-                                        color: 'inherit',
-                                        cursor: 'pointer',
-                                        textAlign: 'left',
-                                        fontSize: 13,
-                                      }}
-                                      onClick={() => toggleSession(eventKey, session, year)}
-                                    >
-                                      <span>
-                                        {sessionLabels[session.type] || session.type}
-                                        {session.title ? ` · ${session.title}` : ''}
-                                      </span>
-                                      <span style={{ color: 'var(--muted)', fontSize: 11 }}>
-                                        {isSessionExpanded ? '▼' : '▶'} {t('dashboard.stream')}
-                                      </span>
-                                    </button>
-                                    {isSessionExpanded && (
-                                      <div style={{ padding: '6px 10px 10px', display: 'grid', gap: 6 }}>
-                                        {loadingStr && (
-                                          <p style={{ margin: 0, fontSize: 11, color: 'var(--muted)' }}>{t('dashboard.loadingStreams')}</p>
-                                        )}
-                                        {!loadingStr && (
-                                          <>
-                                            <button
-                                              type="button"
-                                              className="card"
-                                              style={{ textAlign: 'left', padding: '8px 10px' }}
-                                              onClick={() => onOpen(toCatalogItem(session, year))}
-                                            >
-                                              <span className="cardTitle" style={{ fontSize: 13 }}>{t('dashboard.mainFeed')}</span>
-                                              <p className="cardMeta" style={{ fontSize: 11 }}>{session.title}</p>
-                                            </button>
-                                            {streams?.dataChannel?.length > 0 && (
-                                              <>
-                                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('dashboard.dataChannel')}</div>
-                                                {streams.dataChannel.map((dc: VodOnboard) => (
-                                                  <button
-                                                    key={`dc-${dc.channelId}`}
-                                                    type="button"
-                                                    className="card"
-                                                    style={{ textAlign: 'left', padding: '8px 10px' }}
-                                                    onClick={() => onOpen(toCatalogItemOnboard(dc))}
-                                                  >
-                                                    <span className="cardTitle" style={{ fontSize: 13 }}>{dc.title}</span>
-                                                  </button>
-                                                ))}
-                                              </>
-                                            )}
-                                            {streams?.onboard?.length > 0 && (
-                                              <>
-                                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('dashboard.onboard')}</div>
-                                                {streams.onboard.map((ob: VodOnboard) => (
-                                                  <button
-                                                    key={`ob-${ob.channelId}`}
-                                                    type="button"
-                                                    className="card"
-                                                    style={{ textAlign: 'left', padding: '8px 10px' }}
-                                                    onClick={() => onOpen(toCatalogItemOnboard(ob))}
-                                                  >
-                                                    <span className="cardTitle" style={{ fontSize: 13 }}>{ob.title}</span>
-                                                    {(ob.driverName || ob.teamName) && (
-                                                      <p className="cardMeta" style={{ fontSize: 11 }}>
-                                                        {[ob.driverName, ob.teamName].filter(Boolean).join(' · ')}
-                                                      </p>
-                                                    )}
-                                                  </button>
-                                                ))}
-                                              </>
-                                            )}
-                                            {!loadingStr && streams && streams.onboard.length === 0 && streams.dataChannel.length === 0 && (
-                                              <p style={{ margin: 0, fontSize: 11, color: 'var(--muted)' }}>{t('dashboard.mainFeedOnly')}</p>
-                                            )}
-                                          </>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  </span>
+                  <span className="text-primary font-heading font-bold text-lg tracking-widest">
+                    R{String(selectedEvent.meetingNumber ?? 0).padStart(2, '0')}
+                  </span>
+                  <h2 className="font-heading text-2xl font-bold tracking-wider">
+                    {selectedEvent.meetingName}
+                  </h2>
+                </div>
+                {selectedEvent.country && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {selectedEvent.country}
+                  </p>
                 )}
               </div>
-            );
-          })}
-        </div>
-      </section>
+
+              <div className="red-stripe mb-6" />
+
+              {loadingSess ? (
+                <p className="text-sm text-muted-foreground mb-4">
+                  {t('dashboard.loadingSessions')}
+                </p>
+              ) : sessionTabItems.length > 0 ? (
+                <>
+                  <div className="mb-6">
+                    <SessionTabs
+                      sessions={sessionTabItems}
+                      activeSessionId={activeSessionId}
+                      onSelectSession={setActiveSessionId}
+                    />
+                  </div>
+
+                  {activeSession && (
+                    <MultiViewer
+                      session={activeSession}
+                      streams={
+                        loadingStreams[activeSession.contentId]
+                          ? null
+                          : streamsByContentId[activeSession.contentId] ?? null
+                      }
+                      seasonYear={selectedYear}
+                      onOpen={onOpen}
+                      toCatalogItem={toCatalogItem}
+                      toCatalogItemOnboard={toCatalogItemOnboard}
+                      embeddedPlayback={embeddedPlayback}
+                      loadingItemIds={loadingItemIds}
+                      onPlayEmbedded={onPlayEmbedded}
+                      onPlayAllEmbedded={onPlayAllEmbedded}
+                      accessToken={accessToken}
+                      onEmbedError={onEmbedError}
+                    />
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {t('dashboard.noSessionsFound')}
+                </p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
     </div>
   );
 }
