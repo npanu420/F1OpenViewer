@@ -1,6 +1,6 @@
 /**
- * Build con code signing, poi firma VMP a mano (senza eseguire EVS durante afterSign).
- * Uso: npm run build:signed   oppure   node scripts/build-and-sign-vmp.js
+ * Build with code signing, then run VMP signing manually (without running EVS during afterSign).
+ * Usage: npm run build:signed   or   node scripts/build-and-sign-vmp.js
  */
 const { spawnSync } = require('child_process');
 const path = require('path');
@@ -10,7 +10,7 @@ const root = path.join(__dirname, '..');
 const isWin = process.platform === 'win32';
 const winUnpacked = path.join(root, 'release', 'win-unpacked');
 
-console.log('[build-and-sign-vmp] Build con SKIP_EVS_SIGN=1...\n');
+console.log('[build-and-sign-vmp] Building with SKIP_EVS_SIGN=1...\n');
 const buildEnv = { ...process.env, SKIP_EVS_SIGN: '1' };
 const build = spawnSync('npm', ['run', 'build'], {
   cwd: root,
@@ -23,23 +23,23 @@ if (build.status !== 0) {
 }
 
 if (!isWin) {
-  console.log('[build-and-sign-vmp] Build completata. Firma VMP su macOS: esegui a mano dopo la build.');
+  console.log('[build-and-sign-vmp] Build complete. For VMP signing on macOS: run it manually after the build.');
   process.exit(0);
 }
 
 if (!fs.existsSync(winUnpacked)) {
-  console.warn('[build-and-sign-vmp] Cartella release\\win-unpacked non trovata, skip firma VMP.');
+  console.warn('[build-and-sign-vmp] release\\win-unpacked folder not found, skipping VMP signing.');
   process.exit(0);
 }
 
-console.log('\n[build-and-sign-vmp] Firma VMP su', winUnpacked, '...\n');
+console.log('\n[build-and-sign-vmp] Running VMP signing on', winUnpacked, '...\n');
 const py = 'py';
 const sign = spawnSync(py, ['-m', 'castlabs_evs.vmp', 'sign-pkg', winUnpacked], {
   cwd: root,
   stdio: 'inherit',
 });
 if (sign.status !== 0) {
-  console.warn('[build-and-sign-vmp] Firma VMP fallita (exit', sign.status, '). Exe in release\\win-unpacked è già code-signed.');
+  console.warn('[build-and-sign-vmp] VMP signing failed (exit', sign.status, '). Exe in release\\win-unpacked is already code-signed.');
   process.exit(0);
 }
-console.log('\n[build-and-sign-vmp] Build e firma VMP completate.');
+console.log('\n[build-and-sign-vmp] Build and VMP signing complete.');
