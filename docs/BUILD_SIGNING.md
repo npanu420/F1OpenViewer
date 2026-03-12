@@ -7,6 +7,12 @@ There are **two types of signing** useful for F1 OpenViewer:
 
 ---
 
+## Recommended: build then sign with `npm run build:signed`
+
+**We recommend** using **`npm run build:signed`** to build the app and then run the VMP (Widevine) signing in one go. This command runs the script in the **`scripts/`** folder (`scripts/build-and-sign-vmp.js`): it first runs a normal build (with VMP signing disabled during the build), then runs the VMP signing step on the built app. **This approach is recommended** because building with `npm run build` and having signing run automatically during the build did not work reliably in our experience (e.g. the build hangs on "Requesting VMP signature" or the EVS step never completes). So use `npm run build:signed` and the script in `scripts/` for a signed, DRM-capable build. See [SETUP.md](SETUP.md) for the full step-by-step (certificate, EVS account, `CSC_LINK` / `CSC_KEY_PASSWORD`, then `npm run build:signed`). If during `npm run build:signed` the output stays on **"Requesting VMP signature"**, we recommend **just waiting**, for up to **3–5 minutes**; the step often takes that long and then completes.
+
+---
+
 ## 1. Code signing (executable signing)
 
 ### Windows
@@ -46,13 +52,13 @@ The `.pfx` file ends up on your Desktop. Use that path in `CSC_LINK` and the pas
 
 - **For serious distribution**: you need a certificate from a CA (e.g. DigiCert, Sectigo), paid.
 
-- Then run the build as usual:
+- To build and sign: we recommend **`npm run build:signed`** (uses the script in `scripts/` to build then run VMP signing). If you only want code signing without VMP, you can run:
 
 ```bash
 npm run build
 ```
 
-electron-builder will automatically sign the exe and NSIS installer when `CSC_LINK` and `CSC_KEY_PASSWORD` are set.
+electron-builder will automatically sign the exe and NSIS installer when `CSC_LINK` and `CSC_KEY_PASSWORD` are set. For DRM (Widevine) to work you still need VMP signing afterwards; use `npm run build:signed` for the full flow (see "Recommended" section above).
 
 - On macOS/Linux to build a signed Windows installer you can use `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`.
 
@@ -111,7 +117,7 @@ python3 -m castlabs_evs.account reauth
 
 #### 2.4 VMP sign the build
 
-- **Windows**: VMP signing must be done **after** code signing.  
+- **Windows**: The **recommended** way is **`npm run build:signed`** (script in `scripts/build-and-sign-vmp.js`): it builds with code signing, then runs VMP signing on the built app. That avoids the build hanging when EVS runs during the build. Alternatively, you can build with `npm run build` and then run VMP signing manually as below. VMP signing must be done **after** code signing.  
   After `npm run build` you will have e.g. `release/win-unpacked/` with the exe already code-signed. Run:
 
 ```bash
@@ -119,6 +125,8 @@ python3 -m castlabs_evs.vmp sign-pkg path/to/release/win-unpacked
 ```
 
 Replace `path/to/release/win-unpacked` with the actual path (e.g. `.\release\win-unpacked` on Windows).
+
+**If you use `npm run build:signed`** and the output stays on "Requesting VMP signature", we recommend **just waiting** for up to **3–5 minutes**; the step often takes that long and then completes.
 
 **If VMP signing hangs during the build** (stuck on “Requesting VMP signature”): the build skips EVS signing after ~35 s and continues. To skip it entirely and have a faster build, set before building:
 

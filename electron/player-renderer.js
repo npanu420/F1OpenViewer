@@ -3,6 +3,8 @@
  * Logic aligned with ShakaVideo.tsx (init, DRM config, load, fallback on 6001).
  */
 (function () {
+  const MSG_1001 =
+    'Request failed (e.g. bad HTTP status 403). Content may be unavailable in your region or subscription.';
   const MSG_6001 =
     'DRM Widevine not available. Install Chrome or set ELECTRON_WIDEVINE_CDM_PATH/VERSION in .env.';
   const MSG_6007 =
@@ -27,6 +29,7 @@
   }
 
   function getMessageForCode(code) {
+    if (code === 1001) return MSG_1001;
     if (code === 6001) return MSG_6001;
     if (code === 6007) return MSG_6007;
     if (code === 6012) return MSG_6012;
@@ -84,7 +87,7 @@
       let msg =
         getMessageForCode(code) ||
         (detail && detail.message ? 'Shaka: ' + detail.message : 'Shaka: ' + safeErr(detail));
-      if (code === 6007 && window.playerIpc && typeof window.playerIpc.getLastLicenseError === 'function') {
+      if ((code === 1001 || code === 6001 || code === 6007) && window.playerIpc && typeof window.playerIpc.getLastLicenseError === 'function') {
         try {
           const f1Msg = await window.playerIpc.getLastLicenseError();
           if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) {
@@ -172,9 +175,15 @@
           return;
         } catch (fallbackError) {
           const fc = fallbackError && fallbackError.code;
-          const msg =
+          let msg =
             getMessageForCode(fc) ||
             'Load failed (primary + fallback): ' + safeErr(fallbackError);
+          if ((fc === 1001 || fc === 6001 || fc === 6007) && window.playerIpc && typeof window.playerIpc.getLastLicenseError === 'function') {
+            try {
+              const f1Msg = await window.playerIpc.getLastLicenseError();
+              if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) msg = 'F1 TV: ' + f1Msg.trim();
+            } catch (_) {}
+          }
           setStatus(msg, true);
           if (window.playerIpc && window.playerIpc.send) {
             window.playerIpc.send('player:error', msg);
@@ -182,8 +191,14 @@
           return;
         }
       }
-      const errMsg =
+      let errMsg =
         getMessageForCode(code) || 'Load failed: ' + safeErr(e);
+      if ((code === 1001 || code === 6001 || code === 6007) && window.playerIpc && typeof window.playerIpc.getLastLicenseError === 'function') {
+        try {
+          const f1Msg = await window.playerIpc.getLastLicenseError();
+          if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) errMsg = 'F1 TV: ' + f1Msg.trim();
+        } catch (_) {}
+      }
       setStatus(errMsg, true);
       if (window.playerIpc && window.playerIpc.send) {
         window.playerIpc.send('player:error', errMsg);

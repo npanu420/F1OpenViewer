@@ -49,6 +49,8 @@ export type PreloadApi = {
   openInF1TVWeb?(contentId: number, title?: string, channelId?: number): Promise<void>;
   isF1Ready?(): Promise<boolean>;
   restoreSession?(): Promise<{ accessToken: string | null; restored: boolean }>;
+  /** Last error message from F1 license server (e.g. 403 region/subscription). */
+  getLastLicenseError?(): Promise<string>;
 };
 
 declare global {

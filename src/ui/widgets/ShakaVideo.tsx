@@ -34,6 +34,7 @@ export function ShakaVideo(props: Props) {
     if (!video) return;
 
     let destroyed = false;
+    const msg1001 = t('drm.error1001');
     const msg6001 = t('drm.error6001');
     const msg6007 = t('drm.error6007');
     const msg6012 = t('drm.error6012');
@@ -60,18 +61,25 @@ export function ShakaVideo(props: Props) {
 
       await player.attach(video);
 
-      player.addEventListener('error', (evt: any) => {
+      player.addEventListener('error', async (evt: any) => {
         const detail = evt?.detail;
         if (destroyed) return;
         if (detail?.code === 7002) return;
         const code = detail?.code;
         const fallback = safeErr(detail) || unknownErr;
-        const msg =
-          code === 6001 ? msg6001
+        let msg =
+          code === 1001 ? msg1001
+          : code === 6001 ? msg6001
           : code === 6007 ? msg6007
           : code === 6012 ? msg6012
           : (detail?.message ? `Shaka: ${detail.message}` : `Shaka: ${fallback}`);
-        props.onError(msg);
+        if ((code === 1001 || code === 6001 || code === 6007) && typeof window.f1?.getLastLicenseError === 'function') {
+          try {
+            const f1Msg = await window.f1.getLastLicenseError();
+            if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) msg = `F1 TV: ${f1Msg.trim()}`;
+          } catch (_) {}
+        }
+        if (!destroyed) props.onError(msg);
       });
 
       const applyConfig = (licenseUrl: string) => {
@@ -150,12 +158,24 @@ export function ShakaVideo(props: Props) {
             return;
           } catch (fallbackError) {
             const fc = (fallbackError as any)?.code;
-            const msg = fc === 6001 ? msg6001 : fc === 6007 ? msg6007 : fc === 6012 ? msg6012 : `${loadFailedFallback}: ${safeErr(fallbackError) || unknownErr}`;
+            let msg = fc === 1001 ? msg1001 : fc === 6001 ? msg6001 : fc === 6007 ? msg6007 : fc === 6012 ? msg6012 : `${loadFailedFallback}: ${safeErr(fallbackError) || unknownErr}`;
+            if ((fc === 1001 || fc === 6001 || fc === 6007) && typeof window.f1?.getLastLicenseError === 'function') {
+              try {
+                const f1Msg = await window.f1.getLastLicenseError();
+                if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) msg = `F1 TV: ${f1Msg.trim()}`;
+              } catch (_) {}
+            }
             props.onError(msg);
             return;
           }
         }
-        const errMsg = code === 6001 ? msg6001 : code === 6012 ? msg6012 : code === 6007 ? msg6007 : `${loadFailed}: ${safeErr(e) || unknownErr}`;
+        let errMsg = code === 1001 ? msg1001 : code === 6001 ? msg6001 : code === 6012 ? msg6012 : code === 6007 ? msg6007 : `${loadFailed}: ${safeErr(e) || unknownErr}`;
+        if ((code === 1001 || code === 6001 || code === 6007) && typeof window.f1?.getLastLicenseError === 'function') {
+          try {
+            const f1Msg = await window.f1.getLastLicenseError();
+            if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) errMsg = `F1 TV: ${f1Msg.trim()}`;
+          } catch (_) {}
+        }
         props.onError(errMsg);
       }
     }

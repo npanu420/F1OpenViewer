@@ -1,6 +1,7 @@
-# F1 OpenViewer
+# The First Open Source Desktop client for **F1 TV**
 
-Desktop client for **F1 TV**: official login, entitlement, and DRM (Widevine) playback in an Electron app. Authorized access only — no piracy.
+# F1 OpenViewer by panu420
+Official login, entitlement, and DRM (Widevine) playback in an Electron app. Authorized access only — no piracy.
 
 **Detailed setup instructions:** [docs/SETUP.md](docs/SETUP.md) — clone, configure `.env`, run in dev, build and sign.
 
@@ -44,13 +45,24 @@ For **build and signing** (code signing, Widevine VMP, certificates): [docs/BUIL
 
 1. **Login / Auth** (Milestone 1) — Done: login UI, session token in memory, network layer.
 2. **Entitlement / Licenses** (Milestone 2) — Entitlement, asset/manifest selection, permissions and expiry.
-3. **DRM playback** (Milestone 3) — End-to-end playback with real licenses, retry, telemetry, and UX.
+3. **DRM playback** (Milestone 3) — End-to-end playback with real licenses.
+--WE ARE HERE--
+4. **UI and UX improvements** — New UI and better UX
+5. **Live Timing** — Live Timing support for lives and replays
+
+---
+
+## Contact Me
+
+Github: github.com/panu420
+Discord: @Ovetto
+Mail: biliardocancelli@gmail.com
 
 ---
 
 ## AI disclaimer
 
-AI was used in this project for **repetitive code** (e.g. login flows and boilerplate) and, in particular, for **translating READMEs and code comments into English** so that documentation and code are easier to understand for everyone. Core logic and architecture remain human-authored.
+AI was used in this project for **repetitive code** (e.g. login flows and boilerplate) and, in particular, for **translating the application, READMEs and code comments into English** so that documentation and code are easier to understand for everyone. Core logic and architecture remain human-authored.
 
 ---
 

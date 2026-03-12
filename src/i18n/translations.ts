@@ -81,6 +81,7 @@ export const translations: Record<Locale, Record<string, string>> = {
 
     // ShakaVideo / DRM errors
     'drm.errorUnknown': 'Unknown error',
+    'drm.error1001': 'Request failed (e.g. HTTP 403). Content may be unavailable in your region or with your subscription.',
     'drm.error6001': 'DRM Widevine not available on this system. Protected content (e.g. 2026) cannot be played. Solutions: 1) Install Google Chrome (CDM is detected automatically). 2) Set ELECTRON_WIDEVINE_CDM_PATH and ELECTRON_WIDEVINE_CDM_VERSION in the .env file. 3) Some apps use Electron castLabs for built-in Widevine.',
     'drm.error6007': 'DRM license rejected by server (error 403 / ACN_5002). F1 TV Widevine provider may reject uncertified clients (VMP). Try: 1) Sign in with "Sign in with browser" and retry. 2) If it persists, watch this content on f1tv.formula1.com in the browser.',
     'drm.error6012': 'DRM license URL not available for this content. The F1 API did not return it and it was not found in the manifest.',
@@ -176,6 +177,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     'player.errorStreamStart': 'Errore avvio stream.',
 
     'drm.errorUnknown': 'Errore sconosciuto',
+    'drm.error1001': 'Richiesta fallita (es. HTTP 403). Il contenuto potrebbe non essere disponibile nella tua regione o con il tuo abbonamento.',
     'drm.error6001': 'DRM Widevine non disponibile su questo sistema. I contenuti protetti (es. 2026) non possono essere riprodotti. Soluzioni: 1) Installa Google Chrome (il CDM viene rilevato automaticamente). 2) Imposta ELECTRON_WIDEVINE_CDM_PATH e ELECTRON_WIDEVINE_CDM_VERSION nel file .env. 3) Alcune app usano Electron castLabs per Widevine integrato.',
     'drm.error6007': 'Licenza DRM rifiutata dal server (errore 403 / ACN_5002). Il fornitore Widevine di F1 TV può rifiutare client non certificati (VMP). Prova: 1) Accedi con «Accedi con browser» e riprova. 2) Se persiste, guarda questo contenuto su f1tv.formula1.com nel browser.',
     'drm.error6012': 'URL licenza DRM non disponibile per questo contenuto. L\'API F1 non l\'ha restituito e non è stato trovato nel manifest.',

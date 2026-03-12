@@ -125,13 +125,13 @@ To get a **signed** build so that DRM works, you need a code-signing certificate
 
 ## Step 7 — Build and sign (so DRM works)
 
-We use a **two-step process**: build the app with signing **disabled during the build**, then run the VMP (Widevine) signing **after** the build. This avoids the build getting stuck waiting for the Castlabs EVS server.
+**Recommended approach: `npm run build:signed`**
 
-**Why signing is disabled during the build**
+Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) signing in one go. This command runs the script in the **`scripts/`** folder (`scripts/build-and-sign-vmp.js`): it first runs a normal build (with VMP signing disabled during the build), then runs the VMP signing step on the built app. **This is the approach we recommend.** The alternative — building with `npm run build` and having signing run automatically during the build — did not work reliably in our experience (e.g. the build hangs on "Requesting VMP signature" or the EVS step never completes). So we recommend always using `npm run build:signed` and the script in `scripts/` for a signed, DRM-capable build.
 
-- During the build, the project can run a “VMP signing” step that talks to Castlabs’ servers. That step often **hangs** (e.g. “Requesting VMP signature” forever) when run from the build script, because it has no way to ask for your login.
-- So we **skip** that step during the build and run it **afterwards** in a separate command. You can then log in to Castlabs EVS if needed, and the signing finishes correctly.
-- You can also enable signing during the build (see `docs/BUILD_SIGNING.md`), but we prefer doing it after for reliability.
+**Why we use "build first, then sign"**
+
+- During the build, electron-builder can run a "VMP signing" step that talks to Castlabs' servers. That step often **hangs** when run automatically from the build (no way to prompt for EVS login, or timeouts). Running the build without VMP, then signing afterwards via the script in `scripts/`, avoids that: you can log in to Castlabs EVS in the terminal when the script asks, and the signing finishes correctly.
 
 **What you need for the signed build**
 
@@ -147,7 +147,7 @@ We use a **two-step process**: build the app with signing **disabled during the 
    Settings → Privacy & security → For developers → turn **Developer mode** **On**.  
    If you skip this, you may see an error about “symbolic link” when building; enabling Developer mode usually fixes it.
 
-**Run the build-and-sign script**
+**Run the build-and-sign script** (in the project root)
 
 1. Set your certificate and password (PowerShell). Use the **real path** to your `.pfx` and the password you chose:
 
@@ -156,16 +156,18 @@ We use a **two-step process**: build the app with signing **disabled during the 
    $env:CSC_KEY_PASSWORD = "YourPassword"
    ```
 
-2. Run the script that builds and then signs:
+2. Run the script that builds and then signs (it lives in **`scripts/build-and-sign-vmp.js`**):
 
    ```powershell
    npm run build:signed
    ```
 
-   This script:
+   This script (in the **`scripts/`** folder):
 
    - Runs `npm run build` with **VMP signing disabled** during the build (so the build does not hang).
    - After the build finishes, it runs the **VMP signing** step on the built app folder (`release\win-unpacked`). This step can ask for your Castlabs login if needed; because it runs in your terminal, you can type your credentials.
+
+   If the output stays on **"Requesting VMP signature"**, we recommend **just waiting**, for up to **3–5 minutes**; the step often takes that long and then completes.
 
 3. When it completes, you will see something like:  
    `[build-and-sign-vmp] Build e firma VMP completate.`
