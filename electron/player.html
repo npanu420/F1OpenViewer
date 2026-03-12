@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>F1 OpenViewer – Player</title>
+  <link rel="stylesheet" href="../node_modules/shaka-player/dist/controls.css" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b0f14;
+      color: #e6edf3;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    #container {
+      display: flex;
+      flex-direction: column;
+      width: 100vw;
+      height: 100vh;
+    }
+    #video-container {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #status {
+      padding: 10px 14px;
+      font-size: 13px;
+      background: #161b22;
+      border-top: 1px solid #21262d;
+      color: #8b949e;
+    }
+    #status.error { color: #f85149; }
+    #status.ready { color: #3fb950; }
+  </style>
+  <script src="../node_modules/shaka-player/dist/shaka-player.ui.js"></script>
+</head>
+<body>
+  <div id="container">
+    <div id="video-container">
+      <video id="video" controls autoplay></video>
+    </div>
+    <div id="status" aria-live="polite">In attesa dello stream…</div>
+  </div>
+  <script src="player-renderer.js"></script>
+</body>
+</html>

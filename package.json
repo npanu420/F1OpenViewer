@@ -1,0 +1,57 @@
+{
+  "name": "f1-openviewer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && npm run electron:dev\"",
+    "vite": "vite",
+    "electron:dev": "cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .",
+    "build": "vite build && npm run electron:build",
+    "build:signed": "node scripts/build-and-sign-vmp.js",
+    "electron:build": "electron-builder"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "private": true,
+  "dependencies": {
+    "@exhumer/f1tv-api": "^2.4.0",
+    "axios": "^1.13.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "shaka-player": "^5.0.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "github:castlabs/electron-releases#v40.7.0+wvcus",
+    "electron-builder": "^26.8.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "wait-on": "^9.0.4"
+  },
+  "build": {
+    "appId": "com.f1openviewer.app",
+    "productName": "F1 OpenViewer",
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "electronDownload": {
+      "mirror": "https://github.com/castlabs/electron-releases/releases/download/v"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "afterSign": "scripts/evs-after-sign.js"
+  }
+}

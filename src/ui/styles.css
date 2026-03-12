@@ -1,0 +1,183 @@
+:root{
+  --bg: #0b0f14;
+  --panel: rgba(255,255,255,0.06);
+  --panel2: rgba(255,255,255,0.10);
+  --text: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.64);
+  --accent: #ff2d55;
+  --accent2: #ffd166;
+  --stroke: rgba(255,255,255,0.10);
+  --shadow: 0 14px 40px rgba(0,0,0,0.5);
+  --radius: 16px;
+  color-scheme: dark;
+}
+
+*{ box-sizing: border-box; }
+html,body{ height: 100%; }
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial;
+  background:
+    radial-gradient(1200px 700px at 25% -10%, rgba(255,45,85,0.35), transparent 55%),
+    radial-gradient(900px 700px at 90% 15%, rgba(255,209,102,0.20), transparent 60%),
+    radial-gradient(800px 600px at 30% 90%, rgba(60,160,255,0.20), transparent 60%),
+    var(--bg);
+  color: var(--text);
+}
+
+a{ color: inherit; }
+
+.shell{
+  min-height: 100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding: 32px 18px;
+}
+
+.app{
+  width: min(1100px, 100%);
+  display:grid;
+  gap: 16px;
+}
+
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--stroke);
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.brand{
+  display:flex;
+  gap: 10px;
+  align-items:center;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+.pill{
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(0,0,0,0.12);
+}
+
+.panel{
+  border: 1px solid var(--stroke);
+  background: rgba(0,0,0,0.20);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.panelInner{
+  padding: 16px;
+}
+
+.row{
+  display:flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn{
+  border: 1px solid var(--stroke);
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform .06s ease, background .2s ease, border-color .2s ease;
+}
+.btn:hover{ border-color: rgba(255,255,255,0.16); background: rgba(255,255,255,0.12); }
+.btn:active{ transform: translateY(1px); }
+.btnPrimary{
+  border-color: rgba(255,45,85,0.35);
+  background: linear-gradient(180deg, rgba(255,45,85,0.30), rgba(255,45,85,0.12));
+}
+.btnDanger{
+  border-color: rgba(255,80,80,0.35);
+  background: linear-gradient(180deg, rgba(255,80,80,0.30), rgba(255,80,80,0.12));
+}
+
+.input{
+  width: 100%;
+  border: 1px solid var(--stroke);
+  background: rgba(0,0,0,0.25);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 12px;
+  outline: none;
+}
+.input:focus{ border-color: rgba(255,255,255,0.22); }
+
+.grid{
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 900px){ .grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px){ .grid{ grid-template-columns: 1fr; } }
+
+.card{
+  border: 1px solid var(--stroke);
+  background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
+  border-radius: 16px;
+  padding: 14px;
+  cursor: pointer;
+  transition: transform .08s ease, border-color .2s ease;
+}
+.card:hover{ transform: translateY(-2px); border-color: rgba(255,255,255,0.16); }
+.cardTitle{ font-weight: 800; margin: 0 0 6px; }
+.cardMeta{ color: var(--muted); font-size: 13px; margin: 0; }
+
+.kpi{
+  display:flex;
+  gap: 14px;
+  align-items:baseline;
+  color: var(--muted);
+  font-size: 13px;
+}
+.kpi strong{ color: var(--text); }
+
+.error{
+  color: #ff8080;
+  background: rgba(255,80,80,0.10);
+  border: 1px solid rgba(255,80,80,0.22);
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.playerWrap{
+  display:grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 900px){ .playerWrap{ grid-template-columns: 1fr; } }
+
+video{
+  width: 100%;
+  max-height: 70vh;
+  background: #000;
+  border-radius: 16px;
+  border: 1px solid var(--stroke);
+}
+
+.mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
