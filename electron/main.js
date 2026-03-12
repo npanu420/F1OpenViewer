@@ -15,7 +15,7 @@ let licenseProxyTarget = '';
 
 const F1TV_WEB_BASE = 'https://f1tv.formula1.com';
 
-/** Slug per URL detail F1 TV: /detail/{contentId}/{slug} */
+/** Slug for F1 TV detail URL: /detail/{contentId}/{slug} */
 function slugify(title) {
   if (!title || typeof title !== 'string') return 'video';
   const s = title.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -23,24 +23,24 @@ function slugify(title) {
 }
 
 /**
- * Apre una finestra con il player custom (pagina locale + Shaka). Stessa partition della sessione
- * per DRM; il proxy licenze e gli header vengono usati dalla finestra player.
+ * Opens a window with the custom player (local page + Shaka). Same session partition for DRM;
+ * license proxy and headers are used by the player window.
  */
 async function openCustomPlayerWindow(contentId, title, channelId) {
   const id = Number(contentId);
   if (!Number.isFinite(id) || id <= 0) {
-    console.warn('[player] contentId non valido:', contentId);
+    console.warn('[player] invalid contentId:', contentId);
     return;
   }
   let result;
   try {
     result = await f1tv.contentPlay(id, channelId ?? undefined);
   } catch (e) {
-    console.warn('[player] contentPlay fallito:', e?.message);
+    console.warn('[player] contentPlay failed:', e?.message);
     return;
   }
   if (!result?.manifestUrl) {
-    console.warn('[player] nessun manifestUrl in risposta');
+    console.warn('[player] no manifestUrl in response');
     return;
   }
   let licenseUrl = result.licenseUrl || '';
@@ -86,7 +86,7 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
     },
   });
   win.loadFile(path.join(__dirname, 'player.html')).catch((e) => {
-    console.warn('[player] loadFile:', e?.message);
+    console.warn('[player] loadFile failed:', e?.message);
   });
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('player:load', payload);
@@ -105,7 +105,7 @@ function startLicenseProxy() {
     const body = Buffer.concat(chunks);
     const target = licenseProxyTarget;
     if (!target || !target.startsWith('https://')) {
-      console.warn('[license-proxy] nessun target LA impostato');
+      console.warn('[license-proxy] no LA target set');
       res.writeHead(502);
       res.end();
       return;
@@ -152,13 +152,13 @@ function startLicenseProxy() {
         }
       }
     } catch (e) {
-      console.warn('[license-proxy] errore:', e?.message);
+      console.warn('[license-proxy] error:', e?.message);
       res.writeHead(502);
       res.end();
     }
   });
   server.listen(LICENSE_PROXY_PORT, '127.0.0.1', () => {
-    console.log('[license-proxy] in ascolto su', LICENSE_PROXY_URL);
+    console.log('[license-proxy] listening on', LICENSE_PROXY_URL);
   });
   server.on('error', (e) => {
     console.warn('[license-proxy] server error:', e?.message);
@@ -197,7 +197,7 @@ function persistSession(token) {
   } catch (_) {}
 }
 
-/** Salva i cookie su disco per ripristinarli al prossimo avvio (finestra F1 TV già loggata). */
+/** Saves cookies to disk so they can be restored on next launch (F1 TV window already logged in). */
 function persistCookies(cookieList) {
   if (!Array.isArray(cookieList) || !cookieList.length) return;
   try {
@@ -209,7 +209,7 @@ function persistCookies(cookieList) {
   }
 }
 
-/** Ripristina i cookie salvati nella defaultSession (così la finestra F1 TV è già loggata). */
+/** Restores saved cookies into defaultSession (so the F1 TV window is already logged in). */
 async function restorePersistedCookies() {
   try {
     const p = getCookiesFilePath();
@@ -231,13 +231,13 @@ async function restorePersistedCookies() {
         expirationDate: c.expirationDate,
       }).catch(() => {});
     }
-    console.log('[session] ripristinati', list.length, 'cookie da disco');
+    console.log('[session] restored', list.length, 'cookies from disk');
   } catch (_) {}
 }
 
 /**
- * Trova la cartella Widevine CDM di Chrome su Windows (per uso con Electron).
- * Restituisce { path, version } o null.
+ * Finds Chrome Widevine CDM folder on Windows (for use with Electron).
+ * Returns { path, version } or null.
  */
 function findChromeWidevineWindows() {
   if (process.platform !== 'win32') return null;
@@ -294,7 +294,7 @@ function configureWidevineFromEnv() {
     if (found) {
       cdmPath = found.path;
       if (!cdmVersion) cdmVersion = found.version;
-      console.log('[Widevine] usato CDM Chrome:', cdmPath, '| version:', cdmVersion);
+      console.log('[Widevine] using Chrome CDM:', cdmPath, '| version:', cdmVersion);
     }
   }
   if (cdmPath) app.commandLine.appendSwitch('widevine-cdm-path', cdmPath);
@@ -304,7 +304,7 @@ function configureWidevineFromEnv() {
 
 const F1_LOGIN_URL = 'https://account.formula1.com/';
 
-/** Script iniettato nella pagina F1 per intercettare la risposta by-password (fetch e XHR) e inviare il token. */
+/** Script injected into F1 page to intercept by-password response (fetch and XHR) and send the token. */
 const LOGIN_PAGE_INJECT = `
 (function() {
   if (window.__f1openviewerPatched) return true;
@@ -361,7 +361,7 @@ function openLoginWindow() {
     const loginWin = new BrowserWindow({
       width: 900,
       height: 700,
-      title: 'Accedi a F1 TV',
+      title: 'Sign in to F1 TV',
       webPreferences: {
         preload: path.join(__dirname, 'login-preload.js'),
         contextIsolation: true,
@@ -371,12 +371,12 @@ function openLoginWindow() {
     });
 
     const timeout = setTimeout(() => {
-      finish(new Error('Timeout: completa il login nella finestra entro qualche minuto.'));
+      finish(new Error('Timeout: complete sign-in in the window within a few minutes.'));
     }, 300000);
 
     ipcMain.once('f1:login-token', async (_, token) => {
       if (settled) return;
-      // Come MultiViewer: i cookie impostati da F1 TV sono necessari per il server licenze e per la finestra web F1 TV.
+      // F1 TV cookies are required for the license server and the F1 TV web window.
       await new Promise((r) => setTimeout(r, 2000));
       if (settled || loginWin.isDestroyed()) return;
       const toPersist = [];
@@ -410,17 +410,17 @@ function openLoginWindow() {
               expirationDate,
             });
           }
-          if (list.length) console.log('[login] copiati', list.length, 'cookie per', baseUrl);
+          if (list.length) console.log('[login] copied', list.length, 'cookies for', baseUrl);
         }
         persistCookies(toPersist);
       } catch (e) {
-        console.warn('[login] copia cookie:', e?.message);
+        console.warn('[login] copy cookies:', e?.message);
       }
       finish(null, token);
     });
 
     loginWin.on('closed', () => {
-      if (!settled) finish(new Error('Finestra chiusa senza aver completato il login.'));
+      if (!settled) finish(new Error('Window closed without completing sign-in.'));
     });
 
     loginWin.loadURL(F1_LOGIN_URL).then(() => {}).catch((e) => finish(e));
@@ -441,8 +441,8 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      plugins: true, // necessario per CDM/DRM in alcune configurazioni
-      webSecurity: false, // evita blocchi CORS su manifest/segment/license CDN F1 TV
+      plugins: true, // required for CDM/DRM in some configurations
+      webSecurity: false, // avoid CORS blocks on manifest/segment/license F1 TV CDN
     },
   });
 
@@ -461,8 +461,7 @@ function createWindow() {
 }
 
 function setupCorsRelaxForDev() {
-  // Milestone 1: il renderer NON fa chiamate dirette; usa IPC.
-  // Tuttavia abilitiamo una policy dev-only che può aiutare con risorse cross-origin (manifest/segment).
+  // Renderer uses IPC, not direct calls. We still enable a dev-only policy for cross-origin (manifest/segment).
   if (process.env.ELECTRON_RELAX_CORS === 'true') {
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
       details.requestHeaders['Origin'] = details.requestHeaders['Origin'] || 'https://localhost';
@@ -477,17 +476,17 @@ function setupCorsRelaxForDev() {
   }
 }
 
-/** Log status risposta richieste LA per debug (403/401 = rifiutato). */
+/** Log LA request response status for debug (403/401 = rejected). */
 function setupLicenseResponseLog() {
   session.defaultSession.webRequest.onCompleted((details) => {
     const url = details.url || '';
     if (url.includes('formula1.com') && (url.includes('/LA') || url.includes('/CONTENT/LA'))) {
-      console.log('[license] risposta LA status:', details.statusCode, details.statusCode >= 400 ? '(richiesta rifiutata)' : '');
+      console.log('[license] LA response status:', details.statusCode, details.statusCode >= 400 ? '(request rejected)' : '');
     }
   });
 }
 
-/** Inietta ascendon/entitlement e cookie su ogni richiesta al server licenze F1 (come MultiViewer). */
+/** Injects ascendon/entitlement and cookies on every request to the F1 license server. */
 function setupLicenseRequestHeaders() {
   session.defaultSession.webRequest.onBeforeSendHeaders(async (details, callback) => {
     const url = details.url || '';
@@ -511,7 +510,7 @@ function setupLicenseRequestHeaders() {
         cookieCount = cookies.length;
       }
     } catch (_) {}
-    console.log('[license] header iniettati su richiesta LA' + (cookieCount ? ` | ${cookieCount} cookie` : ' (nessun cookie)'));
+    console.log('[license] headers injected on LA request' + (cookieCount ? ` | ${cookieCount} cookies` : ' (no cookies)'));
     callback({ requestHeaders });
   });
 }
@@ -571,7 +570,7 @@ function setupIpc() {
       memSession.accessToken = token;
       return { accessToken: token, restored: true };
     } catch (e) {
-      console.warn('[session] restore fallito, token scaduto:', e?.message);
+      console.warn('[session] restore failed, token expired:', e?.message);
       persistSession(null);
       memSession.accessToken = undefined;
       return { accessToken: null, restored: false };
@@ -600,12 +599,12 @@ function setupIpc() {
   ipcMain.handle('net:request', async (_evt, req) => {
     const method = req?.method;
     const url = req?.url;
-    if (!method || !url) throw new Error('Richiesta non valida (method/url).');
+    if (!method || !url) throw new Error('Invalid request (method/url).');
 
     const timeout = Number(req?.timeoutMs ?? 30000);
     const headers = Object.assign({}, req?.headers || {});
 
-    // Se non fornito, iniettiamo il bearer dalla sessione in memoria.
+    // If not provided, inject bearer from in-memory session.
     if (!headers.Authorization && !headers.authorization && memSession.accessToken) {
       headers.Authorization = `Bearer ${memSession.accessToken}`;
     }
@@ -642,7 +641,7 @@ function setupIpc() {
         data: res.data,
       };
     } catch (e) {
-      const msg = e?.message || 'Errore rete.';
+      const msg = e?.message || 'Network error.';
       return { ok: false, status: 0, headers: {}, data: { message: msg } };
     }
   });
@@ -650,16 +649,16 @@ function setupIpc() {
 
 configureWidevineFromEnv();
 
-// Su Windows evita "Sandbox cannot access executable" che può bloccare CDM/DRM
+// On Windows avoid "Sandbox cannot access executable" which can block CDM/DRM
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('no-sandbox');
 }
 
 app.whenReady().then(async () => {
   if (components && typeof components.whenReady === 'function') {
-    console.log('[Widevine] attesa CDM castLabs…');
+    console.log('[Widevine] waiting for castLabs CDM…');
     await components.whenReady();
-    console.log('[Widevine] CDM castLabs pronto.');
+    console.log('[Widevine] castLabs CDM ready.');
   }
   startLicenseProxy();
   setupCorsRelaxForDev();
@@ -671,11 +670,11 @@ app.whenReady().then(async () => {
   await restorePersistedCookies();
   if (savedToken) {
     memSession.accessToken = savedToken;
-    console.log('[session] token trovato su disco, ripristino client F1 TV…');
+    console.log('[session] token found on disk, restoring F1 TV client…');
     f1tv.initClient(savedToken).then(() => {
-      console.log('[session] client F1 TV ripristinato con successo');
+      console.log('[session] F1 TV client restored successfully');
     }).catch((e) => {
-      console.warn('[session] token scaduto, richiesto nuovo login:', e?.message);
+      console.warn('[session] token expired, new login required:', e?.message);
       persistSession(null);
       memSession.accessToken = undefined;
     });

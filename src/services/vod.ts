@@ -1,12 +1,12 @@
 import type { VodCatalog, VodSeason, VodEvent, VodSession, VodOnboard } from '../domain/vod';
 
-/** Carica solo la lista delle stagioni (veloce, 1 richiesta HTTP) */
+/** Loads only the list of seasons (fast, 1 HTTP request) */
 export async function getVodSeasons(): Promise<Array<{ year: number; pageId: number }>> {
   if (!window.f1?.getVodSeasons) return [];
   return window.f1.getVodSeasons().catch(() => []);
 }
 
-/** Carica i GP di una stagione dato il pageId (1 richiesta HTTP) */
+/** Loads the GPs of a season given the pageId (1 HTTP request) */
 export async function getVodEvents(seasonPageId: number): Promise<VodEvent[]> {
   if (!window.f1?.getVodEvents) return [];
   const items = await window.f1.getVodEvents(seasonPageId).catch(() => []);
@@ -20,7 +20,7 @@ export async function getVodEvents(seasonPageId: number): Promise<VodEvent[]> {
   }));
 }
 
-/** Carica le sessioni di un GP dato il pageId (1 richiesta HTTP) */
+/** Loads the sessions of a GP given the pageId (1 HTTP request) */
 export async function getVodSessions(gpPageId: number): Promise<VodSession[]> {
   if (!window.f1?.getVodSessions) return [];
   const items = await window.f1.getVodSessions(gpPageId).catch(() => []);
@@ -31,7 +31,7 @@ export async function getVodSessions(gpPageId: number): Promise<VodSession[]> {
   }));
 }
 
-/** @deprecated Usa getVodSeasons + getVodEvents + getVodSessions per lazy loading */
+/** @deprecated Use getVodSeasons + getVodEvents + getVodSessions for lazy loading */
 export async function getVodCatalog(): Promise<VodCatalog> {
   if (!window.f1?.getVodCatalog) return { seasons: [] };
   const data = await window.f1.getVodCatalog().catch(() => ({ seasons: [] }));
@@ -45,7 +45,7 @@ export async function getContentVideoOnboard(contentId: number): Promise<VodOnbo
   return (data?.onboard || []) as VodOnboard[];
 }
 
-/** Tutti gli stream per una sessione: ripresa principale (session), data channel, onboard. */
+/** All streams for a session: main feed (session), data channel, onboard. */
 export type SessionStreams = {
   onboard: VodOnboard[];
   dataChannel: VodOnboard[];

@@ -1,6 +1,6 @@
 /**
- * Preload per la finestra di login F1 (account.formula1.com).
- * Espone captureToken così lo script iniettato può inviare il JWT al main.
+ * Preload for the F1 login window (account.formula1.com).
+ * Exposes captureToken so the injected script can send the JWT to main.
  */
 const { contextBridge, ipcRenderer } = require('electron');
 

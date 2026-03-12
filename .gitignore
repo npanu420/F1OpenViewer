@@ -10,7 +10,7 @@ certificatoBuildF1
 .DS_Store
 Thumbs.db
 
-# Env (mai committare .env — contiene configurazione locale)
+# Env (do not commit .env — contains local configuration)
 .env
 .env.*.local
 .env.development
@@ -24,13 +24,13 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Certificati / chiavi (mai in repo)
+# Certificates / keys (never in repo)
 *.pfx
 *.p12
 *.pem
 *.key
 
-# IDE / editor (opzionale)
+# IDE / editor (optional)
 .idea/
 *.suo
 *.user

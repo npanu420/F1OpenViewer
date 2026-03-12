@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { login, loginWithToken, loginWithBrowser } from '../../services/auth';
+import { useLocale } from '../../i18n/LocaleContext';
 
 type Props = {
   onLoggedIn: () => Promise<void>;
@@ -10,6 +11,7 @@ type Props = {
 type Mode = 'browser' | 'credentials' | 'token';
 
 export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
+  const { t } = useLocale();
   const [mode, setMode] = useState<Mode>('browser');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,7 +24,7 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
       await loginWithBrowser();
       await onLoggedIn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login annullato o non riuscito.');
+      setError(err instanceof Error ? err.message : t('login.errorCancelled'));
     } finally {
       setBusy(false);
     }
@@ -36,7 +38,7 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
       await login(email, password);
       await onLoggedIn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore di accesso.');
+      setError(err instanceof Error ? err.message : t('login.errorSignIn'));
     } finally {
       setBusy(false);
     }
@@ -50,7 +52,7 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
       await loginWithToken(tokenInput);
       await onLoggedIn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Token non valido.');
+      setError(err instanceof Error ? err.message : t('login.errorInvalidToken'));
     } finally {
       setBusy(false);
     }
@@ -59,9 +61,9 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
   return (
     <div style={{ display: 'grid', gap: 16, maxWidth: 520 }}>
       <div>
-        <h2 style={{ margin: '0 0 6px' }}>Accedi a F1 TV</h2>
+        <h2 style={{ margin: '0 0 6px' }}>{t('login.title')}</h2>
         <p style={{ margin: 0, color: 'var(--muted)', fontSize: 14 }}>
-          Consigliato: apri la pagina F1 nel browser integrato, fai login lì e il token viene salvato automaticamente (come MultiViewer).
+          {t('login.recommended')}
         </p>
       </div>
 
@@ -72,13 +74,13 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
           onClick={onLoginWithBrowser}
           style={{ padding: '14px 18px', fontSize: 15 }}
         >
-          Accedi con browser (apri pagina F1)
+          {t('login.withBrowser')}
         </button>
       </div>
 
       <details style={{ border: '1px solid var(--stroke)', borderRadius: 12, padding: '10px 12px' }}>
         <summary style={{ cursor: 'pointer', color: 'var(--muted)', fontSize: 13 }}>
-          Altri metodi (email/password o incolla token)
+          {t('login.otherMethods')}
         </summary>
         <div className="row" style={{ gap: 8, marginTop: 12 }}>
           <button
@@ -86,33 +88,33 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
             className={`btn ${mode === 'credentials' ? 'btnPrimary' : ''}`}
             onClick={() => { setMode('credentials'); setError(null); }}
           >
-            Email / Password
+            {t('login.emailPassword')}
           </button>
           <button
             type="button"
             className={`btn ${mode === 'token' ? 'btnPrimary' : ''}`}
             onClick={() => { setMode('token'); setError(null); }}
           >
-            Incolla token
+            {t('login.pasteToken')}
           </button>
         </div>
 
         {mode === 'credentials' && (
           <form onSubmit={onSubmitCredentials} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ color: 'var(--muted)', fontSize: 13 }}>Email</span>
+              <span style={{ color: 'var(--muted)', fontSize: 13 }}>{t('login.email')}</span>
               <input
                 className="input"
                 type="email"
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="nome@esempio.com"
+                placeholder={t('login.emailPlaceholder')}
                 required
               />
             </label>
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ color: 'var(--muted)', fontSize: 13 }}>Password</span>
+              <span style={{ color: 'var(--muted)', fontSize: 13 }}>{t('login.password')}</span>
               <input
                 className="input"
                 type="password"
@@ -124,7 +126,7 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
               />
             </label>
             <button className="btn btnPrimary" type="submit">
-              Accedi
+              {t('login.signIn')}
             </button>
           </form>
         )}
@@ -133,19 +135,19 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
           <form onSubmit={onSubmitToken} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
             <label style={{ display: 'grid', gap: 6 }}>
               <span style={{ color: 'var(--muted)', fontSize: 13 }}>
-                Token (DevTools → Network → by-password → copia Response)
+                {t('login.tokenHint')}
               </span>
               <textarea
                 className="input"
                 rows={3}
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="Incolla il token JWT o la risposta JSON"
+                placeholder={t('login.tokenPlaceholder')}
                 style={{ resize: 'vertical', minHeight: 60 }}
               />
             </label>
             <button className="btn btnPrimary" type="submit" disabled={!tokenInput.trim()}>
-              Accedi con token
+              {t('login.signInWithToken')}
             </button>
           </form>
         )}

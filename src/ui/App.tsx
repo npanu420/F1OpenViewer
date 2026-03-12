@@ -2,17 +2,21 @@ import React, { useEffect, useRef, useState } from 'react';
 import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import { PlayerView } from './views/PlayerView';
+import { SettingsView } from './views/SettingsView';
 import type { CatalogItem } from '../domain/catalog';
 import { getCatalog } from '../services/catalog';
 import { getVodSeasons } from '../services/vod';
 import { session } from '../services/session';
+import { useLocale } from '../i18n/LocaleContext';
 
 type Route =
   | { name: 'login' }
   | { name: 'dashboard' }
-  | { name: 'player'; item: CatalogItem };
+  | { name: 'player'; item: CatalogItem }
+  | { name: 'settings' };
 
 export function App() {
+  const { t } = useLocale();
   const [route, setRoute] = useState<Route>({ name: 'login' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +35,6 @@ export function App() {
           await session.set({ accessToken: result.accessToken });
           setToken(result.accessToken);
           setRoute({ name: 'dashboard' });
-          // carica il catalogo in background dopo il ripristino
           loadCatalog();
           return;
         }
@@ -58,7 +61,7 @@ export function App() {
       setCatalog(items);
       setVodSeasons(seasons);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Errore caricamento catalogo.');
+      setError(e instanceof Error ? e.message : t('error.catalogLoad'));
     } finally {
       setBusy(false);
     }
@@ -84,6 +87,12 @@ export function App() {
         setError={setError}
         setBusy={setBusy}
       />
+    ) : route.name === 'settings' ? (
+      <SettingsView
+        isSignedIn={!!token}
+        onLogout={logout}
+        onBack={() => setRoute({ name: 'dashboard' })}
+      />
     ) : route.name === 'dashboard' ? (
       <DashboardView
         items={catalog}
@@ -108,15 +117,25 @@ export function App() {
       <div className="app">
         <div className="topbar">
           <div className="brand">
-            <span>F1 OpenViewer</span>
+            <span>{t('app.brand')}</span>
             <span className="pill">F1 TV</span>
           </div>
           <div className="row">
             {route.name !== 'login' && (
               <>
-                <span className="pill">Sessione: {token ? 'attiva' : '—'}</span>
+                <span className="pill">
+                  {t('app.session')}: {token ? t('app.sessionActive') : t('app.sessionInactive')}
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setRoute({ name: 'settings' })}
+                  title={t('app.settings')}
+                >
+                  {t('app.settings')}
+                </button>
                 <button className="btn btnDanger" onClick={logout} type="button">
-                  Esci
+                  {t('app.signOut')}
                 </button>
               </>
             )}

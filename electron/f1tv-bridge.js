@@ -1,6 +1,6 @@
 /**
- * Bridge per F1 TV: login (api.formula1.com) + client @exhumer/f1tv-api.
- * Esegue tutto nel main process (Node) per evitare CORS e per usare undici.
+ * Bridge for F1 TV: login (api.formula1.com) + client @exhumer/f1tv-api.
+ * Runs in the main process (Node) to avoid CORS and to use undici.
  */
 
 const axios = require('axios');
@@ -13,7 +13,7 @@ const F1TV_LANG = 'ENG';
 const F1TV_ENTITLEMENT = 'F1_TV_Pro_Annual';
 const F1TV_GROUP = '2';
 
-/** Estrae l'URL del server licenze dal manifest MPD se presente (fallback quando l'API non restituisce laURL). */
+/** Extracts the license server URL from the MPD manifest if present (fallback when API does not return it). */
 async function extractLicenseUrlFromManifest(manifestUrl) {
   try {
     const client = getClient();
@@ -29,26 +29,26 @@ async function extractLicenseUrlFromManifest(manifestUrl) {
       || xml.match(/<[^>]*(?:laurl|Laurl)[^>]*>([^<]+)</i)
       || xml.match(/license[^"']*["']([^"']+)/i);
     if (laurlMatch && laurlMatch[1] && laurlMatch[1].startsWith('http')) {
-      console.log('[playback] licenseUrl estratto dal manifest');
+      console.log('[playback] licenseUrl extracted from manifest');
       return laurlMatch[1].trim();
     }
     const f1La = xml.match(/https:\/\/f1tv\.formula1\.com\/[^\s"'<>]*CONTENT\/LA[^\s"'<>]*/i);
     if (f1La) {
-      console.log('[playback] licenseUrl (F1 LA) estratto dal manifest');
+      console.log('[playback] licenseUrl (F1 LA) extracted from manifest');
       return f1La[0].trim().replace(/&amp;/g, '&');
     }
     const anyHttps = xml.match(/https:\/\/[^\s"'<>]+(?:license|widevine|drm|entitlement|acquire)[^\s"'<>]*/i);
     if (anyHttps) {
-      console.log('[playback] licenseUrl (pattern) estratto dal manifest');
+      console.log('[playback] licenseUrl (pattern) extracted from manifest');
       return anyHttps[0].trim();
     }
   } catch (e) {
-    console.warn('[playback] estrazione licenseUrl da manifest:', e?.message);
+    console.warn('[playback] extracting licenseUrl from manifest:', e?.message);
   }
   return '';
 }
 
-/** URL di fallback per License Acquisition F1 quando API/manifest non forniscono laURL. Stesso pattern di PAGE: entitlement + groupId nel path. Se autenticati ma location dice ANONYMOUS, proviamo con F1_TV_Pro_Annual. */
+/** Fallback URL for F1 License Acquisition when API/manifest do not provide it. Same pattern as PAGE: entitlement + groupId in path. If authenticated but location says ANONYMOUS, we try F1_TV_Pro_Annual. */
 function getFallbackLicenseUrl(client) {
   if (!client) return '';
   const auth = client.ascendon ? 'R' : 'A';
@@ -103,8 +103,8 @@ const defaultHeaders = {
 };
 
 /**
- * Login con email/password su F1 TV.
- * Prova body con Login/Password (Ascendon) e fallback email/password.
+ * Login with email/password on F1 TV.
+ * Tries body with Login/Password (Ascendon) and fallback email/password.
  * @returns {{ subscriptionToken: string }}
  */
 async function login(email, password) {
@@ -125,15 +125,15 @@ async function login(email, password) {
 
       if (res.status === 403) {
         lastError = new Error(
-          'HTTP 403: il server F1 blocca il login diretto (protezione Imperva). ' +
-          'Usa "Accedi con token" qui sotto: fai login su account.formula1.com nel browser, ' +
-          'apri DevTools (F12) → Network, fai login, cerca la richiesta "by-password", ' +
-          'copia la risposta (Response) e incollala nel campo Token.'
+          'HTTP 403: F1 server blocks direct login (Imperva protection). ' +
+          'Use "Sign in with token" below: sign in at account.formula1.com in the browser, ' +
+          'open DevTools (F12) → Network, sign in, find the "by-password" request, ' +
+          'copy the Response and paste it in the Token field.'
         );
         continue;
       }
       if (res.status !== 200) {
-        lastError = new Error(`Login fallito: HTTP ${res.status}`);
+        lastError = new Error(`Login failed: HTTP ${res.status}`);
         continue;
       }
 
@@ -148,22 +148,22 @@ async function login(email, password) {
         subscriptionToken = token;
         return { subscriptionToken: token };
       }
-      lastError = new Error('Risposta login senza token');
+      lastError = new Error('Login response missing token');
     } catch (e) {
       lastError = e?.response?.data ? new Error(String(e.response.data?.message || e.response.data)) : e;
     }
   }
-  throw lastError || new Error('Login non riuscito');
+  throw lastError || new Error('Login failed');
 }
 
 /**
- * Login usando un token già ottenuto (es. copiato dalla richiesta by-password in DevTools).
- * @param {string} tokenOrJson - JWT token oppure JSON della risposta (con subscriptionToken/token)
+ * Login using an already-obtained token (e.g. copied from by-password request in DevTools).
+ * @param {string} tokenOrJson - JWT token or JSON response (with subscriptionToken/token)
  * @returns {{ subscriptionToken: string }}
  */
 function loginWithToken(tokenOrJson) {
   const raw = typeof tokenOrJson === 'string' ? tokenOrJson.trim() : '';
-  if (!raw) throw new Error('Token vuoto.');
+  if (!raw) throw new Error('Empty token.');
   let token = raw;
   if (raw.startsWith('{')) {
     try {
@@ -171,17 +171,17 @@ function loginWithToken(tokenOrJson) {
       token = obj.subscriptionToken ?? obj.token ?? obj.accessToken ?? obj.access_token
         ?? obj.resultObj?.subscriptionToken ?? obj.data?.subscriptionToken ?? obj.data?.token ?? '';
     } catch (_) {
-      throw new Error('Token non valido: non è un JSON valido.');
+      throw new Error('Invalid token: not valid JSON.');
     }
   }
   token = typeof token === 'string' ? token.trim() : '';
-  if (!token || token.length < 50) throw new Error('Token non valido o troppo corto.');
+  if (!token || token.length < 50) throw new Error('Invalid or too short token.');
   subscriptionToken = token;
   return { subscriptionToken: token };
 }
 
 /**
- * Inizializza il client F1 TV con il token e aspetta ready.
+ * Initializes the F1 TV client with the token and waits for ready.
  * @param {string} token - subscription token (ascendon)
  * @param {number} readyTimeoutMs
  */
@@ -234,13 +234,13 @@ function initClient(token, readyTimeoutMs = 15000) {
         }
       } catch (_) {}
 
-      // ascendon viene impostato in modo asincrono (verifica JWT). Aspettiamo ascendonUpdated.
+      // ascendon is set asynchronously (JWT verification). We wait for ascendonUpdated.
       if (!client.ascendon) {
         await new Promise((res, rej) => {
           const t = setTimeout(() => {
             client.removeListener('ascendonUpdated', onOk);
             client.removeListener('ascendonError', onErr);
-            rej(new Error('Verifica token in corso: timeout (ascendon non ricevuto). Riprova il login.'));
+            rej(new Error('Token verification timeout (ascendon not received). Try signing in again.'));
           }, 10000);
           const onOk = () => {
             clearTimeout(t);
@@ -285,11 +285,11 @@ function initClient(token, readyTimeoutMs = 15000) {
       }
       if (!client.entitlement) {
         f1Client = null;
-        reject(new Error('Sessione non valida: entitlement non disponibile (account non autenticato lato API).'));
+        reject(new Error('Invalid session: entitlement not available (account not authenticated with API).'));
         return;
       }
 
-      console.log('[F1TV] Client pronto. ascendon:', !!client.ascendon, '| entitlement:', !!client.entitlement, '| location:', !!client.location);
+      console.log('[F1TV] Client ready. ascendon:', !!client.ascendon, '| entitlement:', !!client.entitlement, '| location:', !!client.location);
       if (client.location) {
         const loc = client.location.userLocation?.[0];
         console.log('[F1TV] UserLocation:', JSON.stringify({ entitlement: loc?.entitlement, groupId: loc?.groupId, country: loc?.registeredCountryIsoCode }));

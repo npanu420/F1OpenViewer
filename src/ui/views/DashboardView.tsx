@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodEvent, VodSession, VodOnboard } from '../../domain/vod';
 import { getVodEvents, getVodSessions, getContentVideoStreams, type SessionStreams } from '../../services/vod';
+import { useLocale } from '../../i18n/LocaleContext';
 
 type Props = {
   items: CatalogItem[];
@@ -10,15 +11,6 @@ type Props = {
   error: string | null;
   onRefresh: () => Promise<void>;
   onOpen: (item: CatalogItem) => void;
-};
-
-const SESSION_LABELS: Record<string, string> = {
-  race: 'Gara',
-  qualifying: 'Qualifiche',
-  practice: 'Free Practice',
-  sprint: 'Sprint',
-  onboard: 'Onboard',
-  other: 'Video',
 };
 
 function toCatalogItem(session: VodSession, seasonYear: number): CatalogItem {
@@ -43,18 +35,27 @@ function toCatalogItemOnboard(ob: VodOnboard): CatalogItem {
 }
 
 export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpen }: Props) {
+  const { t } = useLocale();
+  const sessionLabels: Record<string, string> = useMemo(() => ({
+    race: t('dashboard.sessionRace'),
+    qualifying: t('dashboard.sessionQualifying'),
+    practice: t('dashboard.sessionPractice'),
+    sprint: t('dashboard.sessionSprint'),
+    onboard: t('dashboard.sessionOnboard'),
+    other: t('dashboard.sessionVideo'),
+  }), [t]);
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
 
-  // Lazy: eventi per stagione (pageId → VodEvent[])
+  // Lazy: events per season (pageId → VodEvent[])
   const [eventsBySeasonPageId, setEventsBySeasonPageId] = useState<Record<number, VodEvent[]>>({});
   const [loadingEvents, setLoadingEvents] = useState<Record<number, boolean>>({});
 
-  // Lazy: sessioni per GP (meetingKey → VodSession[])
+  // Lazy: sessions per GP (meetingKey → VodSession[])
   const [sessionsByEvent, setSessionsByEvent] = useState<Record<string, VodSession[]>>({});
   const [loadingSessions, setLoadingSessions] = useState<Record<string, boolean>>({});
 
-  // Per ogni sessione cliccata: lista stream (main + data + onboard). Key = `${eventKey}-${contentId}`
+  // For each clicked session: stream list (main + data + onboard). Key = `${eventKey}-${contentId}`
   const [expandedSessionKey, setExpandedSessionKey] = useState<string | null>(null);
   const [streamsByContentId, setStreamsByContentId] = useState<Record<number, SessionStreams>>({});
   const [loadingStreams, setLoadingStreams] = useState<Record<number, boolean>>({});
@@ -115,43 +116,43 @@ export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpe
     <div style={{ display: 'grid', gap: 20 }}>
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: '0 0 6px' }}>Contenuti F1 TV</h2>
+          <h2 style={{ margin: '0 0 6px' }}>{t('dashboard.title')}</h2>
           <div className="kpi">
-            <span>Live: <strong>{items.length}</strong></span>
-            <span>Stagioni VOD: <strong>{vodSeasons.length}</strong></span>
-            <span>Stato: <strong>{busy ? 'caricamento…' : 'pronto'}</strong></span>
+            <span>{t('dashboard.live')}: <strong>{items.length}</strong></span>
+            <span>{t('dashboard.vodSeasons')}: <strong>{vodSeasons.length}</strong></span>
+            <span>{t('dashboard.status')}: <strong>{busy ? t('dashboard.statusLoading') : t('dashboard.statusReady')}</strong></span>
           </div>
         </div>
         <button className="btn" onClick={onRefresh} disabled={busy} type="button">
-          Aggiorna
+          {t('dashboard.refresh')}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
 
       {/* Live */}
       <section>
-        <h3 style={{ margin: '0 0 10px', fontSize: 16, color: 'var(--muted)' }}>In diretta</h3>
+        <h3 style={{ margin: '0 0 10px', fontSize: 16, color: 'var(--muted)' }}>{t('dashboard.liveSection')}</h3>
         {items.length === 0 && !busy && (
           <p style={{ color: 'var(--muted)', margin: 0, fontSize: 14 }}>
-            Nessun evento in diretta al momento.
+            {t('dashboard.noLiveEvents')}
           </p>
         )}
         <div className="grid">
           {items.map((it) => (
             <button key={it.id} type="button" className="card" onClick={() => onOpen(it)}>
               <h3 className="cardTitle">{it.title}</h3>
-              <p className="cardMeta">Live</p>
+              <p className="cardMeta">{t('dashboard.live')}</p>
             </button>
           ))}
         </div>
       </section>
 
-      {/* Video - Campionati passati */}
+      {/* Video - Past championships */}
       <section>
-        <h3 style={{ margin: '0 0 10px', fontSize: 16, color: 'var(--muted)' }}>Video · Campionati passati</h3>
+        <h3 style={{ margin: '0 0 10px', fontSize: 16, color: 'var(--muted)' }}>{t('dashboard.pastChampionships')}</h3>
         {vodSeasons.length === 0 && !busy && (
           <p style={{ color: 'var(--muted)', margin: 0, fontSize: 14 }}>
-            Nessuna stagione disponibile. Premi Aggiorna per ricaricare.
+            {t('dashboard.noSeasons')}
           </p>
         )}
         <div style={{ display: 'grid', gap: 6 }}>
@@ -175,7 +176,7 @@ export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpe
                     textAlign: 'left',
                   }}
                 >
-                  <strong>Stagione {year}</strong>
+                  <strong>{t('dashboard.season')} {year}</strong>
                   <span style={{ color: 'var(--muted)', fontSize: 13 }}>
                     {expandedYear === year ? '▼' : '▶'}
                     {events ? ` ${events.length} GP` : ''}
@@ -185,10 +186,10 @@ export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpe
                 {expandedYear === year && (
                   <div style={{ padding: '8px 12px 12px', display: 'grid', gap: 8 }}>
                     {loadingEvs && (
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Caricamento GP…</p>
+                      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.loadingGps')}</p>
                     )}
                     {!loadingEvs && events?.length === 0 && (
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Nessun GP trovato.</p>
+                      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.noGpsFound')}</p>
                     )}
                     {events?.map((ev: VodEvent) => {
                       const eventKey = `${year}-${ev.meetingKey}`;
@@ -226,17 +227,17 @@ export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpe
                             <strong style={{ fontSize: 14 }}>{ev.meetingName}</strong>
                             <span style={{ color: 'var(--muted)', fontSize: 12 }}>
                               {isExpanded ? '▼' : '▶'}
-                              {sessions ? ` ${sessions.length} sessioni` : ''}
+                              {sessions ? ` ${sessions.length} ${t('dashboard.sessions')}` : ''}
                             </span>
                           </button>
 
                           {isExpanded && (
                             <div style={{ padding: '8px 12px 14px', display: 'grid', gap: 6 }}>
                               {loadingSess && (
-                                <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Caricamento sessioni…</p>
+                                <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>{t('dashboard.loadingSessions')}</p>
                               )}
                               {!loadingSess && sessions?.length === 0 && (
-                                <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Nessuna sessione trovata.</p>
+                                <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>{t('dashboard.noSessionsFound')}</p>
                               )}
                               {sessions?.map((session: VodSession) => {
                                 const sessionStreamKey = `${eventKey}-${session.contentId}`;
@@ -270,17 +271,17 @@ export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpe
                                       onClick={() => toggleSession(eventKey, session, year)}
                                     >
                                       <span>
-                                        {SESSION_LABELS[session.type] || session.type}
+                                        {sessionLabels[session.type] || session.type}
                                         {session.title ? ` · ${session.title}` : ''}
                                       </span>
                                       <span style={{ color: 'var(--muted)', fontSize: 11 }}>
-                                        {isSessionExpanded ? '▼' : '▶'} stream
+                                        {isSessionExpanded ? '▼' : '▶'} {t('dashboard.stream')}
                                       </span>
                                     </button>
                                     {isSessionExpanded && (
                                       <div style={{ padding: '6px 10px 10px', display: 'grid', gap: 6 }}>
                                         {loadingStr && (
-                                          <p style={{ margin: 0, fontSize: 11, color: 'var(--muted)' }}>Caricamento stream…</p>
+                                          <p style={{ margin: 0, fontSize: 11, color: 'var(--muted)' }}>{t('dashboard.loadingStreams')}</p>
                                         )}
                                         {!loadingStr && (
                                           <>
@@ -290,12 +291,12 @@ export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpe
                                               style={{ textAlign: 'left', padding: '8px 10px' }}
                                               onClick={() => onOpen(toCatalogItem(session, year))}
                                             >
-                                              <span className="cardTitle" style={{ fontSize: 13 }}>Ripresa principale</span>
+                                              <span className="cardTitle" style={{ fontSize: 13 }}>{t('dashboard.mainFeed')}</span>
                                               <p className="cardMeta" style={{ fontSize: 11 }}>{session.title}</p>
                                             </button>
                                             {streams?.dataChannel?.length > 0 && (
                                               <>
-                                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>Data channel</div>
+                                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('dashboard.dataChannel')}</div>
                                                 {streams.dataChannel.map((dc: VodOnboard) => (
                                                   <button
                                                     key={`dc-${dc.channelId}`}
@@ -311,7 +312,7 @@ export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpe
                                             )}
                                             {streams?.onboard?.length > 0 && (
                                               <>
-                                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>Onboard</div>
+                                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('dashboard.onboard')}</div>
                                                 {streams.onboard.map((ob: VodOnboard) => (
                                                   <button
                                                     key={`ob-${ob.channelId}`}
@@ -331,7 +332,7 @@ export function DashboardView({ items, vodSeasons, busy, error, onRefresh, onOpe
                                               </>
                                             )}
                                             {!loadingStr && streams && streams.onboard.length === 0 && streams.dataChannel.length === 0 && (
-                                              <p style={{ margin: 0, fontSize: 11, color: 'var(--muted)' }}>Solo ripresa principale.</p>
+                                              <p style={{ margin: 0, fontSize: 11, color: 'var(--muted)' }}>{t('dashboard.mainFeedOnly')}</p>
                                             )}
                                           </>
                                         )}

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import shaka from 'shaka-player/dist/shaka-player.ui';
+import { useLocale } from '../../i18n/LocaleContext';
 
 type Props = {
   manifestUrl: string;
@@ -12,32 +13,18 @@ type Props = {
   onError: (msg: string) => void;
 };
 
-function safeErr(e: unknown) {
+function safeErr(e: unknown): string {
   if (e instanceof Error) return e.message;
   if (typeof e === 'string') return e;
   try {
     return JSON.stringify(e);
   } catch {
-    return 'Errore sconosciuto';
+    return '';
   }
 }
 
-/** Messaggio chiaro per errore 6001 (Widevine non disponibile in Electron). */
-const MSG_6001 =
-  'DRM Widevine non disponibile su questo sistema. Contenuti protetti (es. 2026) non possono essere riprodotti. ' +
-  'Soluzioni: 1) Installa Google Chrome (il CDM viene rilevato automaticamente). ' +
-  '2) Imposta ELECTRON_WIDEVINE_CDM_PATH e ELECTRON_WIDEVINE_CDM_VERSION nel file .env. ' +
-  '3) App come MultiViewer usano Electron castLabs per Widevine integrato.';
-
-/** Messaggio per 6007 (richiesta licenza DRM fallita). */
-const MSG_6007 =
-  'Licenza DRM rifiutata dal server (errore 403 / ACN_5002). Il fornitore Widevine di F1 TV può rifiutare client non certificati (VMP). Prova: 1) Accedi con «Accedi con browser» e riprova. 2) Se persiste, guarda questo contenuto su f1tv.formula1.com nel browser.';
-
-/** Messaggio per 6012 (nessun server licenze configurato). */
-const MSG_6012 =
-  'URL licenza DRM non disponibile per questo contenuto. L’API F1 non ha restituito laURL e non è stato trovato nel manifest.';
-
 export function ShakaVideo(props: Props) {
+  const { t } = useLocale();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<shaka.Player | null>(null);
   const [ready, setReady] = useState(false);
@@ -47,6 +34,14 @@ export function ShakaVideo(props: Props) {
     if (!video) return;
 
     let destroyed = false;
+    const msg6001 = t('drm.error6001');
+    const msg6007 = t('drm.error6007');
+    const msg6012 = t('drm.error6012');
+    const unknownErr = t('drm.errorUnknown');
+    const browserErr = t('drm.browserNotSupported');
+    const loadFailed = t('drm.loadFailed');
+    const loadFailedFallback = t('drm.loadFailedFallback');
+    const initFailed = t('drm.initFailed');
 
     async function init() {
       setReady(false);
@@ -55,7 +50,7 @@ export function ShakaVideo(props: Props) {
       shaka.polyfill.installAll();
 
       if (!shaka.Player.isBrowserSupported()) {
-        props.onError('Shaka: browser non supportato.');
+        props.onError(browserErr);
         return;
       }
 
@@ -70,11 +65,12 @@ export function ShakaVideo(props: Props) {
         if (destroyed) return;
         if (detail?.code === 7002) return;
         const code = detail?.code;
+        const fallback = safeErr(detail) || unknownErr;
         const msg =
-          code === 6001 ? MSG_6001
-          : code === 6007 ? MSG_6007
-          : code === 6012 ? MSG_6012
-          : (detail?.message ? `Shaka: ${detail.message}` : `Shaka: ${safeErr(detail)}`);
+          code === 6001 ? msg6001
+          : code === 6007 ? msg6007
+          : code === 6012 ? msg6012
+          : (detail?.message ? `Shaka: ${detail.message}` : `Shaka: ${fallback}`);
         props.onError(msg);
       });
 
@@ -86,7 +82,6 @@ export function ShakaVideo(props: Props) {
             rebufferingGoal: 10,
           },
         };
-        // Config DRM solo quando la licenza esiste davvero.
         if (hasWidevineLicense) {
           config.drm = {
             servers: { 'com.widevine.alpha': licenseUrl },
@@ -122,7 +117,7 @@ export function ShakaVideo(props: Props) {
         setLicenseHeaders(headers);
         const loadPromise = player.load(manifestUrl);
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Timeout caricamento stream (15s)')), 15000);
+          setTimeout(() => reject(new Error('Stream load timeout (15s)')), 15000);
         });
         await Promise.race([loadPromise, timeoutPromise]);
       };
@@ -138,7 +133,6 @@ export function ShakaVideo(props: Props) {
       } catch (e) {
         const code = (e as any)?.code;
         if (destroyed || code === 7002) return;
-        // 6001: key-system config unavailable. Prova fallback stream profile.
         if (code === 6001 && props.fallbackManifestUrl) {
           try {
             await loadWith(
@@ -156,16 +150,17 @@ export function ShakaVideo(props: Props) {
             return;
           } catch (fallbackError) {
             const fc = (fallbackError as any)?.code;
-            props.onError(fc === 6001 ? MSG_6001 : fc === 6007 ? MSG_6007 : fc === 6012 ? MSG_6012 : `Load fallito (primary + fallback): ${safeErr(fallbackError)}`);
+            const msg = fc === 6001 ? msg6001 : fc === 6007 ? msg6007 : fc === 6012 ? msg6012 : `${loadFailedFallback}: ${safeErr(fallbackError) || unknownErr}`;
+            props.onError(msg);
             return;
           }
         }
-        const errMsg = code === 6001 ? MSG_6001 : code === 6012 ? MSG_6012 : code === 6007 ? MSG_6007 : `Load fallito: ${safeErr(e)}`;
+        const errMsg = code === 6001 ? msg6001 : code === 6012 ? msg6012 : code === 6007 ? msg6007 : `${loadFailed}: ${safeErr(e) || unknownErr}`;
         props.onError(errMsg);
       }
     }
 
-    init().catch((e) => props.onError(`Init fallita: ${safeErr(e)}`));
+    init().catch((e) => props.onError(`${initFailed}: ${safeErr(e) || unknownErr}`));
 
     return () => {
       destroyed = true;
@@ -176,6 +171,7 @@ export function ShakaVideo(props: Props) {
       }
     };
   }, [
+    t,
     props.manifestUrl,
     props.licenseUrl,
     props.accessToken,
@@ -190,11 +186,10 @@ export function ShakaVideo(props: Props) {
       <video ref={videoRef} controls autoPlay />
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <span className="pill">
-          shaka: <strong>{ready ? 'pronto' : 'inizializzazione'}</strong>
+          shaka: <strong>{ready ? t('drm.ready') : t('drm.initializing')}</strong>
         </span>
         <span className="pill">drm: widevine</span>
       </div>
     </div>
   );
 }
-

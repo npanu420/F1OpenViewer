@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { CatalogItem } from '../../domain/catalog';
 import { resolvePlayback } from '../../services/entitlement';
 import { ShakaVideo } from '../widgets/ShakaVideo';
+import { useLocale } from '../../i18n/LocaleContext';
 
 type Props = {
   item: CatalogItem;
@@ -10,6 +11,7 @@ type Props = {
 };
 
 export function PlayerView({ item, accessToken, onBack }: Props) {
+  const { t } = useLocale();
   const [error, setError] = useState<string | null>(null);
   const [playback, setPlayback] = useState<{
     manifestUrl: string;
@@ -27,26 +29,26 @@ export function PlayerView({ item, accessToken, onBack }: Props) {
     setPlayback(null);
     resolvePlayback(item)
       .then(setPlayback)
-      .catch((e) => setError(e instanceof Error ? e.message : 'Errore avvio stream.'));
-  }, [item]);
+      .catch((e) => setError(e instanceof Error ? e.message : t('player.errorStreamStart')));
+  }, [item, t]);
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: '0 0 6px' }}>Player</h2>
+          <h2 style={{ margin: '0 0 6px' }}>{t('player.title')}</h2>
           <div className="kpi">
-            <span>Contenuto: <strong>{item.title}</strong></span>
+            <span>{t('player.content')}: <strong>{item.title}</strong></span>
           </div>
         </div>
         <button className="btn" onClick={onBack} type="button">
-          Indietro
+          {t('player.back')}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
       {!playback ? (
         <div className="pill" style={{ justifySelf: 'start' }}>
-          Preparazione stream…
+          {t('player.preparingStream')}
         </div>
       ) : (
         <div className="playerWrap">
@@ -64,13 +66,13 @@ export function PlayerView({ item, accessToken, onBack }: Props) {
           </div>
           <div className="panel" style={{ alignSelf: 'start', minWidth: 0 }}>
             <div className="panelInner" style={{ display: 'grid', gap: 10 }}>
-              <div className="pill">Info stream</div>
+              <div className="pill">{t('player.streamInfo')}</div>
               <div className="mono">
-                {`Manifest: ${playback.manifestUrl}\n`}
-                {`License: ${playback.licenseUrl || '(inline)'}\n`}
-                {`Stream: ${playback.streamType || 'n/a'}\n`}
-                {`Fallback: ${playback.fallbackStreamType || 'n/a'}\n`}
-                {`DRM: Widevine`}
+                {`${t('player.manifest')}: ${playback.manifestUrl}\n`}
+                {`${t('player.license')}: ${playback.licenseUrl || t('player.inline')}\n`}
+                {`${t('player.stream')}: ${playback.streamType || t('player.na')}\n`}
+                {`${t('player.fallback')}: ${playback.fallbackStreamType || t('player.na')}\n`}
+                {`${t('player.drm')}: ${t('player.widevine')}`}
               </div>
             </div>
           </div>

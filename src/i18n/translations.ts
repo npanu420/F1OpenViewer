@@ -1,0 +1,215 @@
+/**
+ * Localization: all user-facing strings.
+ * Keys are in English; values are the translated strings per locale.
+ */
+export type Locale = 'en' | 'it';
+
+export const translations: Record<Locale, Record<string, string>> = {
+  en: {
+    // App / topbar
+    'app.brand': 'F1 OpenViewer',
+    'app.session': 'Session',
+    'app.sessionActive': 'active',
+    'app.sessionInactive': '—',
+    'app.signOut': 'Sign out',
+    'app.settings': 'Settings',
+
+    // Login
+    'login.title': 'Sign in to F1 TV',
+    'login.recommended': 'Recommended: open the F1 page in the in-app browser, sign in there and the token is saved automatically.',
+    'login.withBrowser': 'Sign in with browser (open F1 page)',
+    'login.otherMethods': 'Other methods (email/password or paste token)',
+    'login.emailPassword': 'Email / Password',
+    'login.pasteToken': 'Paste token',
+    'login.email': 'Email',
+    'login.password': 'Password',
+    'login.emailPlaceholder': 'name@example.com',
+    'login.signIn': 'Sign in',
+    'login.tokenHint': 'Token (DevTools → Network → by-password → copy Response)',
+    'login.tokenPlaceholder': 'Paste the JWT token or JSON response',
+    'login.signInWithToken': 'Sign in with token',
+    'login.errorCancelled': 'Sign-in cancelled or failed.',
+    'login.errorSignIn': 'Sign-in error.',
+    'login.errorInvalidToken': 'Invalid token.',
+
+    // Dashboard
+    'dashboard.title': 'F1 TV Content',
+    'dashboard.live': 'Live',
+    'dashboard.vodSeasons': 'VOD Seasons',
+    'dashboard.status': 'Status',
+    'dashboard.statusLoading': 'loading…',
+    'dashboard.statusReady': 'ready',
+    'dashboard.refresh': 'Refresh',
+    'dashboard.liveSection': 'Live',
+    'dashboard.noLiveEvents': 'No live events at the moment.',
+    'dashboard.pastChampionships': 'Video · Past championships',
+    'dashboard.noSeasons': 'No seasons available. Click Refresh to reload.',
+    'dashboard.season': 'Season',
+    'dashboard.loadingGps': 'Loading GPs…',
+    'dashboard.noGpsFound': 'No GPs found.',
+    'dashboard.sessions': 'sessions',
+    'dashboard.loadingSessions': 'Loading sessions…',
+    'dashboard.noSessionsFound': 'No sessions found.',
+    'dashboard.stream': 'stream',
+    'dashboard.loadingStreams': 'Loading streams…',
+    'dashboard.mainFeed': 'Main feed',
+    'dashboard.dataChannel': 'Data channel',
+    'dashboard.onboard': 'Onboard',
+    'dashboard.mainFeedOnly': 'Main feed only.',
+    'dashboard.sessionRace': 'Race',
+    'dashboard.sessionQualifying': 'Qualifying',
+    'dashboard.sessionPractice': 'Free Practice',
+    'dashboard.sessionSprint': 'Sprint',
+    'dashboard.sessionOnboard': 'Onboard',
+    'dashboard.sessionVideo': 'Video',
+
+    // Player
+    'player.title': 'Player',
+    'player.content': 'Content',
+    'player.back': 'Back',
+    'player.preparingStream': 'Preparing stream…',
+    'player.streamInfo': 'Stream info',
+    'player.manifest': 'Manifest',
+    'player.license': 'License',
+    'player.stream': 'Stream',
+    'player.fallback': 'Fallback',
+    'player.drm': 'DRM',
+    'player.widevine': 'Widevine',
+    'player.inline': '(inline)',
+    'player.na': 'n/a',
+    'player.errorStreamStart': 'Stream start error.',
+
+    // ShakaVideo / DRM errors
+    'drm.errorUnknown': 'Unknown error',
+    'drm.error6001': 'DRM Widevine not available on this system. Protected content (e.g. 2026) cannot be played. Solutions: 1) Install Google Chrome (CDM is detected automatically). 2) Set ELECTRON_WIDEVINE_CDM_PATH and ELECTRON_WIDEVINE_CDM_VERSION in the .env file. 3) Some apps use Electron castLabs for built-in Widevine.',
+    'drm.error6007': 'DRM license rejected by server (error 403 / ACN_5002). F1 TV Widevine provider may reject uncertified clients (VMP). Try: 1) Sign in with "Sign in with browser" and retry. 2) If it persists, watch this content on f1tv.formula1.com in the browser.',
+    'drm.error6012': 'DRM license URL not available for this content. The F1 API did not return it and it was not found in the manifest.',
+    'drm.browserNotSupported': 'Shaka: browser not supported.',
+    'drm.loadFailed': 'Load failed',
+    'drm.loadFailedFallback': 'Load failed (primary + fallback)',
+    'drm.initFailed': 'Init failed',
+    'drm.ready': 'ready',
+    'drm.initializing': 'initializing',
+
+    // Settings
+    'settings.title': 'Settings',
+    'settings.account': 'Account',
+    'settings.accountSignedIn': 'You are signed in to F1 TV.',
+    'settings.accountNotAvailable': 'Account info is only available when signed in.',
+    'settings.language': 'Language',
+    'settings.languageLabel': 'Language',
+    'settings.logout': 'Sign out',
+    'settings.back': 'Back to dashboard',
+
+    // Catalog load error (generic)
+    'error.catalogLoad': 'Catalog load error.',
+  },
+  it: {
+    'app.brand': 'F1 OpenViewer',
+    'app.session': 'Sessione',
+    'app.sessionActive': 'attiva',
+    'app.sessionInactive': '—',
+    'app.signOut': 'Esci',
+    'app.settings': 'Impostazioni',
+
+    'login.title': 'Accedi a F1 TV',
+    'login.recommended': 'Consigliato: apri la pagina F1 nel browser integrato, accedi lì e il token viene salvato automaticamente.',
+    'login.withBrowser': 'Accedi con browser (apri pagina F1)',
+    'login.otherMethods': 'Altri metodi (email/password o incolla token)',
+    'login.emailPassword': 'Email / Password',
+    'login.pasteToken': 'Incolla token',
+    'login.email': 'Email',
+    'login.password': 'Password',
+    'login.emailPlaceholder': 'nome@esempio.com',
+    'login.signIn': 'Accedi',
+    'login.tokenHint': 'Token (DevTools → Network → by-password → copia Response)',
+    'login.tokenPlaceholder': 'Incolla il token JWT o la risposta JSON',
+    'login.signInWithToken': 'Accedi con token',
+    'login.errorCancelled': 'Accesso annullato o non riuscito.',
+    'login.errorSignIn': 'Errore di accesso.',
+    'login.errorInvalidToken': 'Token non valido.',
+
+    'dashboard.title': 'Contenuti F1 TV',
+    'dashboard.live': 'Live',
+    'dashboard.vodSeasons': 'Stagioni VOD',
+    'dashboard.status': 'Stato',
+    'dashboard.statusLoading': 'caricamento…',
+    'dashboard.statusReady': 'pronto',
+    'dashboard.refresh': 'Aggiorna',
+    'dashboard.liveSection': 'In diretta',
+    'dashboard.noLiveEvents': 'Nessun evento in diretta al momento.',
+    'dashboard.pastChampionships': 'Video · Campionati passati',
+    'dashboard.noSeasons': 'Nessuna stagione disponibile. Premi Aggiorna per ricaricare.',
+    'dashboard.season': 'Stagione',
+    'dashboard.loadingGps': 'Caricamento GP…',
+    'dashboard.noGpsFound': 'Nessun GP trovato.',
+    'dashboard.sessions': 'sessioni',
+    'dashboard.loadingSessions': 'Caricamento sessioni…',
+    'dashboard.noSessionsFound': 'Nessuna sessione trovata.',
+    'dashboard.stream': 'stream',
+    'dashboard.loadingStreams': 'Caricamento stream…',
+    'dashboard.mainFeed': 'Ripresa principale',
+    'dashboard.dataChannel': 'Data channel',
+    'dashboard.onboard': 'Onboard',
+    'dashboard.mainFeedOnly': 'Solo ripresa principale.',
+    'dashboard.sessionRace': 'Gara',
+    'dashboard.sessionQualifying': 'Qualifiche',
+    'dashboard.sessionPractice': 'Free Practice',
+    'dashboard.sessionSprint': 'Sprint',
+    'dashboard.sessionOnboard': 'Onboard',
+    'dashboard.sessionVideo': 'Video',
+
+    'player.title': 'Player',
+    'player.content': 'Contenuto',
+    'player.back': 'Indietro',
+    'player.preparingStream': 'Preparazione stream…',
+    'player.streamInfo': 'Info stream',
+    'player.manifest': 'Manifest',
+    'player.license': 'License',
+    'player.stream': 'Stream',
+    'player.fallback': 'Fallback',
+    'player.drm': 'DRM',
+    'player.widevine': 'Widevine',
+    'player.inline': '(inline)',
+    'player.na': 'n/d',
+    'player.errorStreamStart': 'Errore avvio stream.',
+
+    'drm.errorUnknown': 'Errore sconosciuto',
+    'drm.error6001': 'DRM Widevine non disponibile su questo sistema. I contenuti protetti (es. 2026) non possono essere riprodotti. Soluzioni: 1) Installa Google Chrome (il CDM viene rilevato automaticamente). 2) Imposta ELECTRON_WIDEVINE_CDM_PATH e ELECTRON_WIDEVINE_CDM_VERSION nel file .env. 3) Alcune app usano Electron castLabs per Widevine integrato.',
+    'drm.error6007': 'Licenza DRM rifiutata dal server (errore 403 / ACN_5002). Il fornitore Widevine di F1 TV può rifiutare client non certificati (VMP). Prova: 1) Accedi con «Accedi con browser» e riprova. 2) Se persiste, guarda questo contenuto su f1tv.formula1.com nel browser.',
+    'drm.error6012': 'URL licenza DRM non disponibile per questo contenuto. L\'API F1 non l\'ha restituito e non è stato trovato nel manifest.',
+    'drm.browserNotSupported': 'Shaka: browser non supportato.',
+    'drm.loadFailed': 'Caricamento fallito',
+    'drm.loadFailedFallback': 'Caricamento fallito (primario + fallback)',
+    'drm.initFailed': 'Init fallita',
+    'drm.ready': 'pronto',
+    'drm.initializing': 'inizializzazione',
+
+    'settings.title': 'Impostazioni',
+    'settings.account': 'Account',
+    'settings.accountSignedIn': 'Sei connesso a F1 TV.',
+    'settings.accountNotAvailable': 'Le info account sono disponibili solo quando sei connesso.',
+    'settings.language': 'Lingua',
+    'settings.languageLabel': 'Lingua',
+    'settings.logout': 'Esci',
+    'settings.back': 'Torna alla dashboard',
+
+    'error.catalogLoad': 'Errore caricamento catalogo.',
+  },
+};
+
+const STORAGE_KEY = 'f1openviewer-locale';
+
+export function getStoredLocale(): Locale {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (s === 'it' || s === 'en') return s;
+  } catch (_) {}
+  return 'en';
+}
+
+export function setStoredLocale(locale: Locale): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, locale);
+  } catch (_) {}
+}

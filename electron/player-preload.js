@@ -1,5 +1,5 @@
 /**
- * Preload per la finestra player: espone in modo sicuro la ricezione (on) e invio (send) di messaggi IPC.
+ * Preload for the player window: safely exposes IPC message receive (on) and send (send).
  */
 const { contextBridge, ipcRenderer } = require('electron');
 

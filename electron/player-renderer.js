@@ -1,13 +1,13 @@
 /**
- * Renderer della finestra player: riceve il payload via IPC (player:load) e avvia Shaka con DRM.
- * Logica allineata a ShakaVideo.tsx (init, config DRM, load, fallback su 6001).
+ * Player window renderer: receives payload via IPC (player:load) and starts Shaka with DRM.
+ * Logic aligned with ShakaVideo.tsx (init, DRM config, load, fallback on 6001).
  */
 (function () {
   const MSG_6001 =
-    'DRM Widevine non disponibile. Installa Chrome o imposta ELECTRON_WIDEVINE_CDM_PATH/VERSION nel .env.';
+    'DRM Widevine not available. Install Chrome or set ELECTRON_WIDEVINE_CDM_PATH/VERSION in .env.';
   const MSG_6007 =
-    'Licenza DRM rifiutata (403). Prova "Accedi con browser" e riprova, oppure guarda su f1tv.formula1.com.';
-  const MSG_6012 = 'URL licenza DRM non disponibile per questo contenuto.';
+    'DRM license rejected (403). Try "Sign in with browser" and retry, or watch on f1tv.formula1.com.';
+  const MSG_6012 = 'DRM license URL not available for this content.';
 
   function setStatus(text, isError) {
     const el = document.getElementById('status');
@@ -22,7 +22,7 @@
     try {
       return JSON.stringify(e);
     } catch (_) {
-      return 'Errore sconosciuto';
+      return 'Unknown error';
     }
   }
 
@@ -34,13 +34,13 @@
   }
 
   if (typeof shaka === 'undefined') {
-    setStatus('Shaka Player non caricato.', true);
+    setStatus('Shaka Player not loaded.', true);
     return;
   }
 
   const video = document.getElementById('video');
   if (!video) {
-    setStatus('Elemento video non trovato.', true);
+    setStatus('Video element not found.', true);
     return;
   }
 
@@ -48,21 +48,21 @@
 
   window.playerIpc.on('player:load', async function (payload) {
     if (!payload || !payload.manifestUrl) {
-      setStatus('Payload non valido (manca manifestUrl).', true);
+      setStatus('Invalid payload (missing manifestUrl).', true);
       if (window.playerIpc && window.playerIpc.send) {
-        window.playerIpc.send('player:error', 'Payload non valido');
+        window.playerIpc.send('player:error', 'Invalid payload');
       }
       return;
     }
 
-    setStatus('Preparazione stream…', false);
+    setStatus('Preparing stream…', false);
 
     shaka.polyfill.installAll();
 
     if (!shaka.Player.isBrowserSupported()) {
-      setStatus('Shaka: browser non supportato.', true);
+      setStatus('Shaka: browser not supported.', true);
       if (window.playerIpc && window.playerIpc.send) {
-        window.playerIpc.send('player:error', 'Browser non supportato');
+        window.playerIpc.send('player:error', 'Browser not supported');
       }
       return;
     }
@@ -127,7 +127,7 @@
       const loadPromise = player.load(manifestUrl);
       const timeoutPromise = new Promise(function (_, reject) {
         setTimeout(function () {
-          reject(new Error('Timeout caricamento stream (15s)'));
+          reject(new Error('Stream load timeout (15s)'));
         }, 15000);
       });
       await Promise.race([loadPromise, timeoutPromise]);
@@ -142,7 +142,7 @@
 
     try {
       await loadWith(manifestUrl, licenseUrl, licenseHeaders);
-      setStatus('Riproduzione in corso.', false);
+      setStatus('Playing.', false);
       if (window.playerIpc && window.playerIpc.send) {
         window.playerIpc.send('player:ready');
       }
@@ -154,7 +154,7 @@
       if (code === 6001 && fallbackManifestUrl) {
         try {
           await loadWith(fallbackManifestUrl, fallbackLicenseUrl, fallbackLicenseHeaders);
-          setStatus('Riproduzione in corso (fallback).', false);
+          setStatus('Playing (fallback).', false);
           if (window.playerIpc && window.playerIpc.send) {
             window.playerIpc.send('player:ready');
           }
@@ -166,7 +166,7 @@
           const fc = fallbackError && fallbackError.code;
           const msg =
             getMessageForCode(fc) ||
-            'Load fallito (primary + fallback): ' + safeErr(fallbackError);
+            'Load failed (primary + fallback): ' + safeErr(fallbackError);
           setStatus(msg, true);
           if (window.playerIpc && window.playerIpc.send) {
             window.playerIpc.send('player:error', msg);
@@ -175,7 +175,7 @@
         }
       }
       const errMsg =
-        getMessageForCode(code) || 'Load fallito: ' + safeErr(e);
+        getMessageForCode(code) || 'Load failed: ' + safeErr(e);
       setStatus(errMsg, true);
       if (window.playerIpc && window.playerIpc.send) {
         window.playerIpc.send('player:error', errMsg);

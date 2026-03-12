@@ -1,11 +1,11 @@
 import type { CatalogItem } from '../domain/catalog';
 
 /**
- * Catalogo da F1 TV: live now + VOD (search). Richiede sessione attiva (login).
+ * Catalog from F1 TV: live now + VOD (search). Requires active session (login).
  */
 export async function getCatalog(): Promise<CatalogItem[]> {
   if (!window.f1?.getLiveNow || !window.f1?.searchVod) {
-    throw new Error('Catalogo F1 TV non disponibile (avvia l’app in Electron).');
+    throw new Error('F1 TV catalog not available (run the app in Electron).');
   }
   const [liveItems, vodResult] = await Promise.all([
     window.f1.getLiveNow().catch(() => []) as Promise<Array<{ id?: string; title?: string; contentId: number; channelId?: number; meetingKey?: string; sessionKey?: string }>>,
