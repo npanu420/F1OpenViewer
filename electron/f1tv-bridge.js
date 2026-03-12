@@ -13,6 +13,36 @@ const F1TV_LANG = 'ENG';
 const F1TV_ENTITLEMENT = 'F1_TV_Pro_Annual';
 const F1TV_GROUP = '2';
 
+/**
+ * Extracts a user-facing error message from F1 API responses (axios error, response body, or Error).
+ * Use this so the UI can show the actual message from F1 (e.g. "Content not available in your region").
+ */
+function extractF1ErrorMessage(error, fallback = '') {
+  if (!error) return fallback;
+  const data = error.response?.data ?? error.body ?? error.data;
+  if (data && typeof data === 'object') {
+    const msg =
+      data.message ??
+      data.error ??
+      data.errormsg ??
+      data.resultObj?.keyos?.errormsg ??
+      data.resultObj?.message;
+    if (msg && typeof msg === 'string' && msg.trim()) return msg.trim();
+    if (data.resultCode && data.resultCode !== 'OK') {
+      return (data.message && typeof data.message === 'string' ? data.message : String(data.resultCode)).trim();
+    }
+  }
+  if (error.message && typeof error.message === 'string' && error.message.trim()) return error.message.trim();
+  return fallback;
+}
+
+/** Extracts message from a successful-looking response that has resultCode !== 'OK' (e.g. contentPlay). */
+function getMessageFromF1Response(res) {
+  if (!res || !res.resultCode || res.resultCode === 'OK') return '';
+  const msg = res.message ?? res.resultObj?.message ?? res.resultObj?.keyos?.errormsg;
+  return (msg && typeof msg === 'string' && msg.trim()) ? msg.trim() : String(res.resultCode);
+}
+
 /** Extracts the license server URL from the MPD manifest if present (fallback when API does not return it). */
 async function extractLicenseUrlFromManifest(manifestUrl) {
   try {
@@ -78,7 +108,10 @@ async function fetchPage(pageId) {
   const res = await undiciFetch(url, { headers });
   if (!res.ok) throw new Error(`fetchPage ${pageId} → HTTP ${res.status}`);
   const json = await res.json();
-  if (json.resultCode !== 'OK') throw new Error(`fetchPage ${pageId} → resultCode ${json.resultCode}: ${json.message}`);
+  if (json.resultCode !== 'OK') {
+    const msg = json.message && typeof json.message === 'string' ? json.message.trim() : `resultCode ${json.resultCode}`;
+    throw new Error(msg);
+  }
   return json.resultObj?.containers || [];
 }
 
@@ -498,7 +531,7 @@ async function getVodSeasons() {
   console.log('[VOD] getVodSeasons: caricamento archivio pagina', ARCHIVE_PAGE_ID);
   const archiveContainers = await fetchPage(ARCHIVE_PAGE_ID);
   const seasonItems = archiveContainers.flatMap((c) => c.retrieveItems?.resultObj?.containers || []);
-  if (!seasonItems.length) throw new Error('Nessun item stagione trovato nella pagina archivio');
+  if (!seasonItems.length) throw new Error('No season items found on archive page.');
   const seasonsMap = new Map();
   const unresolved = [];
   for (const s of seasonItems) {
@@ -647,7 +680,7 @@ async function getContentVideo(contentId) {
 async function contentPlay(contentId, channelId) {
   const client = getClient();
   if (!client.entitlement) {
-    throw new Error('Sessione non pronta: entitlement mancante. Esci e riloggati con "Accedi con browser", poi riprova.');
+    throw new Error('Session not ready: entitlement missing. Sign out and sign in again with "Sign in with browser", then retry.');
   }
   const contentIdNum = typeof contentId === 'string' ? parseInt(contentId, 10) : contentId;
   const platformOrder = [
@@ -660,11 +693,17 @@ async function contentPlay(contentId, channelId) {
   ];
   const candidates = [];
   let firstError = null;
+  let firstF1Message = '';
   for (const p of platformOrder) {
     const res = await client.contentPlay(contentIdNum, channelId, p).catch((e) => {
       if (!firstError) firstError = e;
+      if (!firstF1Message) firstF1Message = extractF1ErrorMessage(e) || getMessageFromF1Response(e?.response?.data);
       return null;
     });
+    if (res && !res?.resultObj?.url) {
+      const resMsg = getMessageFromF1Response(res);
+      if (resMsg && !firstF1Message) firstF1Message = resMsg;
+    }
     const obj = res?.resultObj;
     if (obj?.url) {
       candidates.push({
@@ -674,15 +713,16 @@ async function contentPlay(contentId, channelId) {
     }
   }
   if (!candidates.length) {
-    const detail = firstError ? (firstError.message || String(firstError)) : 'nessun URL restituito dall’API';
-    console.error('[playback] tutti i profili falliti. Primo errore:', detail);
-    throw new Error('Nessun profilo playback disponibile. ' + (firstError ? `Dettaglio: ${detail}` : 'Riloggati e riprova.'));
+    const f1Msg = firstF1Message || extractF1ErrorMessage(firstError);
+    const detail = f1Msg || (firstError ? (firstError.message || String(firstError)) : '');
+    console.error('[playback] all playback profiles failed. F1 message:', f1Msg || detail);
+    throw new Error(f1Msg ? `F1 TV: ${f1Msg}` : (firstError ? `Playback unavailable. ${detail}` : 'Playback unavailable. Sign out and sign in again with "Sign in with browser", then retry.'));
   }
   // Preferisci stream NON Widevine quando disponibile (evita Shaka 6001 su host senza key-system).
   const nonWv = candidates.find((c) => !String(c.streamType || '').toUpperCase().includes('WV'));
   const primary = nonWv || candidates[0];
   const fallback = candidates.find((c) => c !== primary) || null;
-  if (!primary?.url) throw new Error('Risposta content/play senza URL valido (DASH/HLS).');
+  if (!primary?.url) throw new Error('F1 TV returned no valid stream URL (DASH/HLS).');
 
   let licenseUrl = primary.laURL || primary.laUrl || '';
   if (!licenseUrl && primary.url) {

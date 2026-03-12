@@ -358,11 +358,15 @@ function openLoginWindow() {
       else resolve(token);
     };
 
+    // Use a unique in-memory partition so each sign-in has a clean session (no stale cookies/cache).
+    const loginPartition = 'temp-login-' + Date.now();
+
     const loginWin = new BrowserWindow({
       width: 900,
       height: 700,
       title: 'Sign in to F1 TV',
       webPreferences: {
+        partition: loginPartition,
         preload: path.join(__dirname, 'login-preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
