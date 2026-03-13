@@ -36,8 +36,12 @@ For **build and signing** (code signing, Widevine VMP, certificates): [docs/BUIL
 
 ## Screenshots
 
+Main Grid UI:
 ![Screenshot 1](assets/screenshot001.png)
 
+---
+
+Fullscreen view:
 ![Screenshot 2](assets/screenshot002.png)
 
 ---
