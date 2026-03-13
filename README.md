@@ -34,10 +34,11 @@ For **build and signing** (code signing, Widevine VMP, certificates): [docs/BUIL
 
 ---
 
-## Security
+## Screenshots
 
-- **Sensitive config in `.env`** — License servers, CDM paths, etc. go in `.env` (or environment); `.env` is in `.gitignore`.
-- **`.env.example`** — Contains only variable names and comments; copy to `.env` and fill in locally.
+| | |
+|---|---|
+| ![Screenshot 1](assets/screenshot001.png) | ![Screenshot 2](assets/screenshot002.png) |
 
 ---
 
