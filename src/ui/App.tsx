@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
+import { StandaloneMultiviewView } from './views/StandaloneMultiviewView';
 import { PlayerView } from './views/PlayerView';
 import type { CatalogItem } from '../domain/catalog';
 import { getCatalog } from '../services/catalog';
@@ -94,6 +95,10 @@ export function App() {
     setVodSeasons([]);
     setSelectedYear(2026);
     setRoute({ name: 'login' });
+  }
+
+  if (typeof window !== 'undefined' && window.location.hash === '#standalone-multiview') {
+    return <StandaloneMultiviewView />;
   }
 
   if (route.name === 'login') {

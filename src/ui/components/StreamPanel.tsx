@@ -23,6 +23,10 @@ interface StreamPanelProps {
   accessToken?: string;
   onPlayEmbedded?: (item: CatalogItem) => void;
   onEmbedError?: (msg: string) => void;
+  /** When true, panel fills container height (e.g. inside grid slot) */
+  fillHeight?: boolean;
+  /** When true, hide the header bar (label + volume) so content fills full height */
+  hideHeader?: boolean;
 }
 
 export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
@@ -40,6 +44,8 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       accessToken,
       onPlayEmbedded,
       onEmbedError,
+      fillHeight = false,
+      hideHeader = false,
     },
     ref
   ) {
@@ -65,13 +71,14 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
 
     return (
       <motion.div
-        className="stream-placeholder flex flex-col text-left overflow-hidden"
+        className={`stream-placeholder flex flex-col text-left overflow-hidden ${fillHeight ? 'flex-1 min-h-0' : ''}`}
         style={borderColor ? { borderColor, borderWidth: '1px' } : undefined}
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: index * 0.04, duration: 0.3 }}
       >
-        {/* Header bar */}
+        {/* Header bar — hidden when hideHeader (e.g. fullscreen with titles hidden) */}
+        {!hideHeader && (
         <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             {type === 'main' && <Monitor className="w-3.5 h-3.5 text-primary shrink-0" />}
@@ -116,11 +123,12 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
             )}
           </button>
         </div>
+        )}
 
         {/* Content area */}
-        <div className="flex-1 min-h-[120px] flex flex-col min-w-0 bg-black">
+        <div className={`flex-1 flex flex-col min-w-0 bg-black ${fillHeight ? 'min-h-0' : 'min-h-[120px]'}`}>
           {loading && (
-            <div className="flex-1 flex items-center justify-center carbon-texture">
+            <div className={`flex-1 flex items-center justify-center carbon-texture ${fillHeight ? 'min-h-0' : ''}`}>
               <div className="text-center">
                 <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto mb-2" />
                 <p className="text-[10px] text-muted-foreground font-heading tracking-wider">
@@ -148,7 +156,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
           )}
 
           {showPlaceholder && (
-            <div className="flex-1 min-h-[120px] flex items-center justify-center carbon-texture">
+            <div className={`flex-1 flex items-center justify-center carbon-texture ${fillHeight ? 'min-h-0' : 'min-h-[120px]'}`}>
               <div className="text-center px-2">
                 {canEmbed ? (
                   <>

@@ -431,6 +431,7 @@ export function DashboardView({
                       onPlayAllEmbedded={onPlayAllEmbedded}
                       accessToken={accessToken}
                       onEmbedError={onEmbedError}
+                      onEnterFullscreen={() => (window as unknown as { f1?: { openMultiviewWindow?: () => void } }).f1?.openMultiviewWindow?.()}
                     />
                   )}
                 </>

@@ -25,6 +25,7 @@
     "lucide-react": "^0.462.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-grid-layout": "^2.2.2",
     "shaka-player": "^5.0.5",
     "tailwind-merge": "^2.6.0"
   },
@@ -45,24 +46,24 @@
     "wait-on": "^9.0.4"
   },
   "build": {
-    "appId": "com.f1openviewer.app",
-    "productName": "F1 OpenViewer",
-    "icon": "build/icon",
-    "files": [
-      "dist/**",
-      "electron/**",
-      "package.json"
-    ],
-    "directories": {
-      "output": "release"
-    },
-    "electronDownload": {
-      "mirror": "https://github.com/castlabs/electron-releases/releases/download/v"
-    },
-    "win": {
-      "target": "nsis",
-      "icon": "build/icon.ico"
-    },
-    "afterSign": "scripts/evs-after-sign.js"
+  "appId": "com.f1openviewer.app",
+  "productName": "F1 OpenViewer",
+  "icon": "electron/icon",
+  "files": [
+    "dist/**",
+    "electron/**",
+    "package.json"
+  ],
+  "directories": {
+    "output": "release"
+  },
+  "electronDownload": {
+    "mirror": "https://github.com/castlabs/electron-releases/releases/download/v"
+  },
+  "win": {
+    "target": "nsis",
+    "icon": "electron/icon.ico"
+  },
+  "afterSign": "scripts/evs-after-sign.js"
   }
 }

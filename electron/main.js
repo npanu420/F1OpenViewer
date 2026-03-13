@@ -628,6 +628,35 @@ function createWindow() {
   return win;
 }
 
+/** URL della app principale (stesso usato da createWindow) per aprire la finestra multiview standalone. */
+function getMainAppUrl() {
+  const startUrl = process.env.ELECTRON_START_URL;
+  if (startUrl) return startUrl;
+  return 'file://' + path.join(__dirname, '..', 'dist', 'index.html').replace(/\\/g, '/');
+}
+
+/** Apre una nuova finestra con la griglia multiview in standalone (stesso session/DRM della main). */
+function createMultiviewWindow() {
+  const baseUrl = getMainAppUrl();
+  const multiviewUrl = baseUrl.includes('#') ? baseUrl.replace(/#.*$/, '') + '#standalone-multiview' : baseUrl + '#standalone-multiview';
+
+  const win = new BrowserWindow({
+    width: 1600,
+    height: 900,
+    backgroundColor: '#0b0f14',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      plugins: true,
+    },
+  });
+
+  win.loadURL(multiviewUrl).catch((e) => console.warn('[multiview] load failed:', e?.message));
+  return win;
+}
+
 function setupCorsRelaxForDev() {
   // Renderer uses IPC, not direct calls. We still enable a dev-only policy for cross-origin (manifest/segment).
   if (process.env.ELECTRON_RELAX_CORS === 'true') {
@@ -792,6 +821,15 @@ function setupIpc() {
     return { ok: true };
   });
   ipcMain.handle('player:getLastLicenseError', () => lastLicenseErrorMsg || '');
+
+  ipcMain.handle('multiview:openWindow', () => {
+    createMultiviewWindow();
+    return undefined;
+  });
+  ipcMain.handle('multiview:closeWindow', (evt) => {
+    const w = evt.sender.getOwnerBrowserWindow?.();
+    if (w && !w.isDestroyed()) w.close();
+  });
 
   ipcMain.handle('net:request', async (_evt, req) => {
     const method = req?.method;

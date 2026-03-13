@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { SyncStatus, SyncStreamInfo } from '../components/SyncOverlay';
+import { getSyncOffsetThreshold, getSyncDoneDelayMs } from '../../services/syncSettings';
 
 /**
  * VOD-safe sync: seek-only, no continuous loop.
@@ -7,9 +8,6 @@ import type { SyncStatus, SyncStreamInfo } from '../components/SyncOverlay';
  * No repeated reads and no playback-rate changes, so the main stream never buffers from sync.
  * (RaceControl uses rate-only for live; f1viewer sync is start-alignment via silence. For VOD with main ahead, seek-once is safest.)
  */
-
-/** Consider in sync when within this many seconds of reference (for overlay display). */
-const OFFSET_THRESHOLD = 0.05;
 
 export interface SyncEntry {
   id: string;
@@ -53,13 +51,16 @@ export function useSyncEngine() {
         e.video.playbackRate = 1;
       });
 
+      const offsetThreshold = getSyncOffsetThreshold();
+      const doneDelayMs = getSyncDoneDelayMs();
+
       const buildInfos = (refCurrentTime: number): SyncStreamInfo[] => {
         return withVideos.map((e) => {
           const currentTime = e.video.currentTime;
           const offset = currentTime - refCurrentTime;
           const isReference = e.id === refEntry.id;
           const absOffset = Math.abs(offset);
-          const done = isReference || absOffset < OFFSET_THRESHOLD;
+          const done = isReference || absOffset < offsetThreshold;
           return {
             id: e.id,
             label: e.label,
@@ -75,7 +76,6 @@ export function useSyncEngine() {
       setSyncStatus('syncing');
       setShowSyncOverlay(true);
 
-      // After a short delay, show "done". Streams may still be buffering to the new position; we don't touch them again.
       timeoutRef.current = setTimeout(() => {
         timeoutRef.current = null;
         withVideos.forEach((e) => {
@@ -84,7 +84,7 @@ export function useSyncEngine() {
         const refNow = refVideo.isConnected ? refVideo.currentTime : refTime;
         setSyncStreams(buildInfos(refNow).map((s) => ({ ...s, done: true, rate: 1 })));
         setSyncStatus('done');
-      }, 400);
+      }, doneDelayMs);
     },
     [cancelSync]
   );

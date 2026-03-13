@@ -1,7 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sun, Moon, Globe, RotateCcw } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleContext';
+import {
+  getSyncOffsetThreshold,
+  setSyncOffsetThreshold,
+  getSyncDoneDelayMs,
+  setSyncDoneDelayMs,
+  DEFAULT_SYNC_OFFSET_THRESHOLD,
+  DEFAULT_SYNC_DONE_DELAY_MS,
+  MIN_SYNC_OFFSET_THRESHOLD,
+  MAX_SYNC_OFFSET_THRESHOLD,
+  MIN_SYNC_DONE_DELAY_MS,
+  MAX_SYNC_DONE_DELAY_MS,
+} from '../../services/syncSettings';
 
 export type ThemeMode = 'dark' | 'light';
 
@@ -42,6 +54,13 @@ export function SettingsPanel({
   const { t, locale, setLocale } = useLocale();
   const [resetting, setResetting] = useState(false);
   const [resetDone, setResetDone] = useState(false);
+  const [syncTolerance, setSyncToleranceState] = useState(DEFAULT_SYNC_OFFSET_THRESHOLD);
+  const [syncDoneDelay, setSyncDoneDelayState] = useState(DEFAULT_SYNC_DONE_DELAY_MS);
+
+  useEffect(() => {
+    setSyncToleranceState(getSyncOffsetThreshold());
+    setSyncDoneDelayState(getSyncDoneDelayMs());
+  }, [isOpen]);
 
   async function handleFullReset() {
     if (!window.f1?.fullReset) return;
@@ -154,6 +173,51 @@ export function SettingsPanel({
                       {label}
                     </motion.button>
                   ))}
+                </div>
+              </SettingGroup>
+
+              <SettingGroup title={t('settings.syncSection')}>
+                <p className="text-sm text-muted-foreground pb-1">
+                  {t('settings.syncToleranceHint')}
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={MIN_SYNC_OFFSET_THRESHOLD}
+                    max={MAX_SYNC_OFFSET_THRESHOLD}
+                    step={0.005}
+                    value={syncTolerance}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!Number.isNaN(v)) {
+                        setSyncToleranceState(v);
+                        setSyncOffsetThreshold(v);
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 rounded-md border border-border bg-background text-sm font-heading"
+                  />
+                  <span className="text-xs text-muted-foreground shrink-0">s</span>
+                </div>
+                <p className="text-sm text-muted-foreground pt-2 pb-1">
+                  {t('settings.syncDoneDelayHint')}
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={MIN_SYNC_DONE_DELAY_MS}
+                    max={MAX_SYNC_DONE_DELAY_MS}
+                    step={50}
+                    value={syncDoneDelay}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      if (!Number.isNaN(v)) {
+                        setSyncDoneDelayState(v);
+                        setSyncDoneDelayMs(v);
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 rounded-md border border-border bg-background text-sm font-heading"
+                  />
+                  <span className="text-xs text-muted-foreground shrink-0">ms</span>
                 </div>
               </SettingGroup>
 

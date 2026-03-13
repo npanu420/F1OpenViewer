@@ -21,5 +21,7 @@ contextBridge.exposeInMainWorld('f1', {
   restoreSession: () => ipcRenderer.invoke('f1:restoreSession'),
   fullReset: () => ipcRenderer.invoke('f1:fullReset'),
   getLastLicenseError: () => ipcRenderer.invoke('player:getLastLicenseError'),
+  openMultiviewWindow: () => ipcRenderer.invoke('multiview:openWindow'),
+  closeMultiviewWindow: () => ipcRenderer.invoke('multiview:closeWindow'),
 });
 

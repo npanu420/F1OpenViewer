@@ -180,7 +180,16 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
 
     init().catch((e) => props.onError(`${initFailed}: ${safeErr(e) || unknownErr}`));
 
+    const onCanPlay = () => {
+      if (destroyed || !video) return;
+      if (video.paused) {
+        video.play().catch(() => {});
+      }
+    };
+    video.addEventListener('canplay', onCanPlay);
+
     return () => {
+      video.removeEventListener('canplay', onCanPlay);
       destroyed = true;
       const p = playerRef.current;
       playerRef.current = null;
@@ -205,6 +214,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
         controls
         autoPlay
         muted
+        playsInline
         className={compact ? 'w-full flex-1 min-h-0 object-contain bg-black' : ''}
       />
       {!compact && (

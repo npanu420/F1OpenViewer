@@ -89,6 +89,18 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  body::-webkit-scrollbar {
+    display: none;
+  }
+  html {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  html::-webkit-scrollbar {
+    display: none;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -207,4 +219,91 @@ video {
 }
 .kpi strong {
   color: hsl(var(--foreground));
+}
+
+/* Maniglie resize react-grid-layout: hit area ampia, estesa verso l'esterno per essere comode da prendere */
+.react-resizable-handle {
+  position: absolute;
+  z-index: 20;
+}
+
+/* Bordi orizzontali: 14px di hit area, centrata sul bordo (7px fuori + 7px dentro) */
+.react-resizable-handle-e,
+.react-resizable-handle-w {
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  cursor: ew-resize;
+}
+
+.react-resizable-handle-e {
+  right: -7px;
+}
+
+.react-resizable-handle-w {
+  left: -7px;
+}
+
+/* Bordi verticali: 14px di hit area */
+.react-resizable-handle-n,
+.react-resizable-handle-s {
+  left: 0;
+  right: 0;
+  height: 14px;
+  cursor: ns-resize;
+}
+
+.react-resizable-handle-n {
+  top: -7px;
+}
+
+.react-resizable-handle-s {
+  bottom: -7px;
+}
+
+/* Angoli: 20px × 20px di hit area */
+.react-resizable-handle-ne,
+.react-resizable-handle-nw,
+.react-resizable-handle-se,
+.react-resizable-handle-sw {
+  width: 20px;
+  height: 20px;
+}
+
+.react-resizable-handle-ne {
+  top: -10px;
+  right: -10px;
+  cursor: nesw-resize;
+}
+
+.react-resizable-handle-nw {
+  top: -10px;
+  left: -10px;
+  cursor: nwse-resize;
+}
+
+.react-resizable-handle-se {
+  bottom: -10px;
+  right: -10px;
+  cursor: nwse-resize;
+}
+
+.react-resizable-handle-sw {
+  bottom: -10px;
+  left: -10px;
+  cursor: nesw-resize;
+}
+
+/* Fullscreen: slot headers overlay (absolute), content fills full slot height */
+.grid-slot-hide-header-until-hover .grid-slot-header {
+  opacity: 0;
+}
+.grid-slot-hide-header-until-hover:hover .grid-slot-header {
+  opacity: 1;
+}
+/* Grid slot fills the cell so preset layouts show correct different sizes */
+.react-grid-item.grid-slot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
