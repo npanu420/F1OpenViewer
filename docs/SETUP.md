@@ -195,17 +195,6 @@ Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) 
 
 ---
 
-## App icon (logo)
-
-To use a custom logo for the app:
-
-- **Icona nella finestra** (barra del titolo): metti un file `icon.png` o `icon.ico` nella cartella **`electron/`**. L’app userà la prima che trova.
-- **Icona dell’eseguibile e dell’installer** (Windows): metti un file **`build/icon.ico`** nella root del progetto. electron-builder lo userà per l’exe e per l’installer NSIS. Formato consigliato: .ico con più dimensioni (es. 256×256, 48×48, 32×32, 16×16).
-
-Se `build/icon.ico` o `electron/icon.png` / `electron/icon.ico` non esistono, l’app funziona comunque con l’icona predefinita di Electron.
-
----
-
 ## Troubleshooting
 
 - **“Cannot create symbolic link” during build**  
