@@ -1,4 +1,3 @@
-![The First Open Source Desktop client for **F1 TV**](docs/assets/banner.png)
 
 # F1 OpenViewer by npanu420
 Official login, entitlement, and DRM (Widevine) playback in an Electron app. Authorized access only — no piracy.
