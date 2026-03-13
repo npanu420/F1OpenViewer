@@ -71,6 +71,15 @@ The app uses a `.env` file for configuration (no secrets are stored in the repo)
 
 You can leave the other options in `.env` as they are for now.
 
+4. **Application icon (optional)**  
+   The built installer and the portable `.exe` use the same icon file so that the app looks consistent everywhere (installer, desktop shortcut, taskbar, and the unpacked executable).
+
+   - **Location:** Place your Windows icon file at **`build/icon.ico`** (multi-size `.ico` recommended, e.g. 16×16, 32×32, 48×48, 256×256).
+   - **Build config:** In `package.json`, the `build` section already points to `build/icon` / `build/icon.ico` for Windows. The installer and the portable app in `release\win-unpacked\F1 OpenViewer.exe` both use this icon.
+   - **After signing:** If you use code signing and/or Widevine VMP signing, the signing step can replace the executable and drop the icon. The project’s `afterSign` script re-applies the icon from `build/icon.ico` to the portable exe so it still shows the correct icon.
+
+   If you don’t add `build/icon.ico`, the build will still succeed; the app will use the default Electron icon.
+
 ---
 
 ## Step 4 — Run in development (optional)

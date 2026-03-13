@@ -1,6 +1,6 @@
 /**
  * Copia la versione da config/appVersion.json a package.json.
- * Unico punto da modificare per la versione: config/appVersion.json
+ * Single place to change the app version: config/appVersion.json
  */
 const fs = require('fs');
 const path = require('path');

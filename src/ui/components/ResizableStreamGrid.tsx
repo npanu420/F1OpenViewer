@@ -32,7 +32,7 @@ export function getDefaultGridLayout(): Layout {
   return DEFAULT_LAYOUT.map((item) => ({ ...item }));
 }
 
-/** Size ratio options: (num, den) → grid w (12 cols), h (rows). Base righe in mezzo: 6 = slot molto larghe, 16 = quasi quadrate; 10 tiene proporzioni rettangolari ma non eccessivamente schiacciate. */
+/** Size ratio options: (num, den) → grid w (12 cols), h (rows). Row base: 6 = very wide slots, 16 = almost square; 10 gives rectangular proportions without being too flat. */
 const COLS = 12;
 const ROWS_BASE = 10;
 export const SIZE_RATIOS: { num: number; den: number }[] = [
@@ -70,7 +70,7 @@ interface ResizableStreamGridProps {
   fillHeight?: boolean;
   /** Called when user picks a size ratio from context menu for a slot */
   onSetSlotSize?: (slotId: string, w: number, h: number) => void;
-  /** In fullscreen: disabilita la ricompattazione così le proporzioni restano uguali al passaggio normale → fullscreen */
+  /** In fullscreen: disable re-compaction so proportions stay the same when switching to fullscreen */
   disableCompact?: boolean;
 }
 

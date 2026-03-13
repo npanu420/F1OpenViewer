@@ -2,9 +2,11 @@
  * electron-builder afterSign hook: VMP (Widevine) signing with Castlabs EVS.
  * On Windows, VMP must be applied AFTER code signing (order required by Castlabs).
  * Requires: pip install castlabs-evs and EVS login (python3 -m castlabs_evs.account reauth).
+ * After VMP signing, re-applies the icon to the exe (signing can replace the file and drop the icon).
  */
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 function runEvsSignPkg(appOutDir) {
   return new Promise((resolve, reject) => {
@@ -69,5 +71,20 @@ exports.default = async function afterSign(context) {
   } catch (e) {
     console.warn('[evs-after-sign] VMP not run:', e?.message || e);
     // don't throw: build continues without VMP signing
+  }
+
+  // Re-apply icon to the portable exe: VMP signing may have replaced the file without the icon
+  const productName = context.packager?.appInfo?.productFilename || 'F1 OpenViewer';
+  const exeName = productName + '.exe';
+  const exePath = path.join(appOutDir, exeName);
+  const iconPath = path.join(process.cwd(), 'build', 'icon.ico');
+  if (fs.existsSync(exePath) && fs.existsSync(iconPath)) {
+    try {
+      const rcedit = require('rcedit');
+      await rcedit(exePath, { icon: iconPath });
+      console.log('[evs-after-sign] Icon re-applied to', exeName);
+    } catch (err) {
+      console.warn('[evs-after-sign] Could not re-apply icon:', err?.message || err);
+    }
   }
 };

@@ -25,7 +25,7 @@ export type VodEvent = {
   meetingName: string;
   meetingNumber: number;
   country?: string;
-  /** pageId F1 TV per caricare le sessioni in lazy load */
+  /** F1 TV pageId for lazy-loading sessions */
   pageId?: number;
   sessions: VodSession[];
   onboard: VodOnboard[];

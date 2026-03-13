@@ -221,13 +221,13 @@ video {
   color: hsl(var(--foreground));
 }
 
-/* Maniglie resize react-grid-layout: hit area ampia, estesa verso l'esterno per essere comode da prendere */
+/* react-grid-layout resize handles: wide hit area, extended outward for easier grabbing */
 .react-resizable-handle {
   position: absolute;
   z-index: 20;
 }
 
-/* Bordi orizzontali: 14px di hit area, centrata sul bordo (7px fuori + 7px dentro) */
+/* Horizontal edges: 14px hit area, centered on the border (7px out + 7px in) */
 .react-resizable-handle-e,
 .react-resizable-handle-w {
   top: 0;
@@ -244,7 +244,7 @@ video {
   left: -7px;
 }
 
-/* Bordi verticali: 14px di hit area */
+/* Vertical edges: 14px hit area */
 .react-resizable-handle-n,
 .react-resizable-handle-s {
   left: 0;
@@ -261,7 +261,7 @@ video {
   bottom: -7px;
 }
 
-/* Angoli: 20px × 20px di hit area */
+/* Corners: 20px × 20px hit area */
 .react-resizable-handle-ne,
 .react-resizable-handle-nw,
 .react-resizable-handle-se,

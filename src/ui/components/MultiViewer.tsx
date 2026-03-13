@@ -15,7 +15,7 @@ export type StandaloneMultiviewState = {
   seasonYear: number;
 };
 
-/** Assegnazione semantica di uno slot: risolta contro la sessione corrente quando si applica il template. */
+/** Semantic slot assignment: resolved against the current session when applying the template. */
 export type SlotAssignment =
   | { type: 'main' }
   | { type: 'data'; index: number }
@@ -25,9 +25,9 @@ export type SavedGrid = {
   id: string;
   name: string;
   layout: Layout;
-  /** Legacy: usato se slotAssignments non presente. */
+  /** Legacy: used when slotAssignments is not present. */
   slotToItemId: Record<string, string>;
-  /** Assegnazioni per tipo/pilota: main, data (indice), onboard (racing number). */
+  /** Assignments by type/driver: main, data (index), onboard (racing number). */
   slotAssignments?: Record<string, SlotAssignment>;
 };
 
@@ -48,7 +48,7 @@ function saveSavedGrids(grids: SavedGrid[]) {
   } catch (_) {}
 }
 
-/** Da slotToItemId + streamOptions costruisce le assegnazioni semantiche per il template. */
+/** Builds semantic slot assignments for the template from slotToItemId + streamOptions. */
 function buildSlotAssignments(
   slotToItemId: Record<string, string>,
   streamOptions: StreamOption[]
@@ -76,7 +76,7 @@ function buildSlotAssignments(
   return out;
 }
 
-/** Risolve slotAssignments contro gli streamOptions correnti; slot non trovati (es. pilota assente) restano vuoti. */
+/** Resolves slotAssignments against current streamOptions; missing slots (e.g. driver not in session) stay empty. */
 function resolveSlotAssignments(
   layout: Layout,
   slotAssignments: Record<string, SlotAssignment> | undefined,
@@ -154,7 +154,7 @@ interface MultiViewerProps {
   isFullscreen?: boolean;
   onEnterFullscreen?: () => void;
   onExitFullscreen?: () => void;
-  /** Quando forniti (es. finestra standalone), lo stato iniziale non viene sovrascritto dall'effetto sessione/streams. */
+  /** When provided (e.g. standalone window), initial state is not overwritten by the session/streams effect. */
   initialLayout?: Layout;
   initialSlotToItemId?: Record<string, string>;
 }
@@ -218,7 +218,7 @@ export function MultiViewer({
     showSyncOverlay,
   } = useSyncEngine();
 
-  // Preseleziona automaticamente gli stream negli slot iniziali (solo quando cambiano sessione/stagione/streams). Salta se layout/slot sono forniti dall'esterno (finestra standalone).
+  // Auto-assign streams to initial slots when session/season/streams change. Skip if layout/slots are provided externally (standalone window).
   useEffect(() => {
     if (initialLayout != null && initialSlotToItemId != null) return;
 
@@ -398,7 +398,7 @@ export function MultiViewer({
             </div>
           )}
 
-          {/* Sezione layout salvati (solo quando non in fullscreen) */}
+          {/* Saved layouts section (only when not in fullscreen) */}
           {!isFullscreen && streamOptions.length > 0 && (
             <div className="rounded-lg border border-border/60 bg-card/40 p-4">
               <h4 className="text-xs font-heading font-bold tracking-widest text-muted-foreground mb-3">
@@ -480,7 +480,7 @@ export function MultiViewer({
             </div>
           )}
 
-          {/* Toolbar fullscreen: comparsa solo al passaggio del mouse in alto */}
+          {/* Fullscreen toolbar: shown only on mouse hover at the top */}
           {isFullscreen && onExitFullscreen && (
             <div className="fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-end px-4 bg-gradient-to-b from-black/70 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200">
               <div className="flex items-center gap-2">

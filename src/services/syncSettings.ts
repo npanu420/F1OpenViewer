@@ -1,6 +1,6 @@
-/** Chiave localStorage per la tolleranza di sync (secondi): considerati "allineati" se entro questo offset. */
+/** localStorage key for sync tolerance (seconds): streams considered "aligned" when within this offset. */
 const SYNC_OFFSET_THRESHOLD_KEY = 'f1openviewer-sync-offset-threshold';
-/** Chiave localStorage per il ritardo (ms) prima di mostrare "Completato" dopo il seek. */
+/** localStorage key for delay (ms) before showing "Done" after seek. */
 const SYNC_DONE_DELAY_KEY = 'f1openviewer-sync-done-delay-ms';
 
 export const DEFAULT_SYNC_OFFSET_THRESHOLD = 0.02;

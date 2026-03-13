@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const os = require('os');
 const electron = require('electron');
 const { app, BrowserWindow, ipcMain, session, Menu } = electron;
 const components = electron.components;
@@ -609,10 +610,15 @@ function createWindow() {
   win.webContents.on('responsive', () => {
     console.log('[window] renderer responsive');
   });
-  win.webContents.on('console-message', (_evt, level, message, line, sourceId) => {
-    // level: 0=log,1=warning,2=error
-    const tag = level === 2 ? 'error' : level === 1 ? 'warn' : 'log';
-    console.log(`[renderer:${tag}] ${message} (${sourceId}:${line})`);
+  win.webContents.on('console-message', (evt, level, message, line, sourceId) => {
+    const lvl = evt.level ?? level ?? 0;
+    const msg = evt.message ?? message ?? '';
+    const tag = lvl === 2 ? 'error' : lvl === 1 ? 'warn' : 'log';
+    if (process.env.ELECTRON_START_URL && typeof msg === 'string' && msg.includes('Electron Security Warning')) return;
+    const sid = evt.sourceId ?? sourceId;
+    const ln = evt.line ?? line;
+    const loc = sid && ln != null ? ` (${sid}:${ln})` : '';
+    console.log(`[renderer:${tag}] ${msg}${loc}`);
   });
 
   if (startUrl) {
@@ -888,6 +894,12 @@ configureWidevineFromEnv();
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('no-sandbox');
 }
+
+// Avoid "Unable to move the cache: Access denied" and "Gpu Cache Creation failed" on Windows:
+// use a dedicated per-process cache directory and disable GPU shader disk cache
+const cacheDir = path.join(os.tmpdir(), 'f1openviewer-cache', String(process.pid));
+app.commandLine.appendSwitch('disk-cache-dir', cacheDir);
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 
 app.whenReady().then(async () => {
   if (components && typeof components.whenReady === 'function') {

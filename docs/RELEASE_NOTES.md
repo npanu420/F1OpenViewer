@@ -1,5 +1,11 @@
 # Release Notes – F1 OpenViewer
 
+## v1.1.1
+
+This release adds a **resizable stream grid** for the multiview: you can arrange and resize streams in a flexible layout, save and reuse custom layouts, and open the multiview in a **separate fullscreen window**. A **clean-release** script is available to clear the build output folder before rebuilding (e.g. to avoid “Access denied” on Windows when the app or another process is using files in `release/`).
+
+---
+
 ## v1.1.0
 
 This release focuses on **stability, multi-stream playback, and UI fixes** built on the initial 1.0.0 client.
