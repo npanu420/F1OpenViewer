@@ -1,12 +1,14 @@
 {
   "name": "f1-openviewer",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "",
   "main": "electron/main.js",
   "scripts": {
+    "sync-version": "node scripts/sync-version.js",
     "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && npm run electron:dev\"",
     "vite": "vite",
     "electron:dev": "cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .",
+    "prebuild": "npm run sync-version",
     "build": "vite build && npm run electron:build",
     "build:signed": "node scripts/build-and-sign-vmp.js",
     "electron:build": "electron-builder"
