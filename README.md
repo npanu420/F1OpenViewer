@@ -36,9 +36,9 @@ For **build and signing** (code signing, Widevine VMP, certificates): [docs/BUIL
 
 ## Screenshots
 
-| | |
-|---|---|
-| ![Screenshot 1](assets/screenshot001.png) | ![Screenshot 2](assets/screenshot002.png) |
+![Screenshot 1](assets/screenshot001.png)
+
+![Screenshot 2](assets/screenshot002.png)
 
 ---
 
