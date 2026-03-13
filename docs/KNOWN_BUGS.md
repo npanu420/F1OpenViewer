@@ -8,11 +8,12 @@
 
 ### DRM
 
+- **Dev mode**: When running `npm run dev`, the Widevine CDM is in development mode. The F1 license server returns 403 with `DEVELOPMENT_CERTIFICATE_NOT_ALLOWED`. This is expected; use a signed production build (e.g. `release\win-unpacked\F1 OpenViewer.exe`) to play DRM content.
 - ~~DRM license rejected (403 / ACN_5002) with VMP-signed build~~ **Fixed**: `contentPlay` now performs a HEAD request on the manifest URL to obtain the `playToken` cookie required by the F1 license server. The cookie is injected into every license proxy request and set as a session cookie for CDN requests (see `f1tv-bridge.js` `fetchPlayToken`, `electron/main.js`).
 
 ### Video Players
 
-- ~~When a race player is open, the stream lists could show sessions/races from other years~~ **Fixed**: (1) LiveSection shows only catalog items for the selected year (live always; replay filtered by `season === selectedYear`). (2) Session cache is trimmed to the current event when switching race weekend, so only that weekend’s sessions are shown in the horizontal tabs.
+- When a race player is open, the stream lists could show sessions/races from other years **Working on it**: (1) LiveSection shows only catalog items for the selected year (live always; replay filtered by `season === selectedYear`). (2) Session cache is trimmed to the current event when switching race weekend, so only that weekend’s sessions are shown in the horizontal tabs. Doesn't seem to work though.
 - ~~Horizontal scroll (season/session tabs) not scrollable~~ **Fixed**: scroll containers now use `min-w-0` so flex children can shrink and overflow-x-auto works (Header, SessionTabs, DashboardView wrapper).
 - ~~CloudFront 403 "Request blocked" / "too much traffic" when opening many streams (Play all)~~ **Mitigated**: 450 ms delay between successive `contentPlay` requests to reduce rate limiting (see `electron/main.js`).
 

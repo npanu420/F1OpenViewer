@@ -9,8 +9,10 @@ const f1tv = require('./f1tv-bridge');
 
 const memSession = { accessToken: undefined };
 
-const LICENSE_PROXY_PORT = 18765;
-const LICENSE_PROXY_URL = `http://127.0.0.1:${LICENSE_PROXY_PORT}/la`;
+const LICENSE_PROXY_PORT_MIN = 18765;
+const LICENSE_PROXY_PORT_MAX = 18775;
+/** Set when the license proxy successfully binds; used for rewriting license URLs. */
+let licenseProxyUrl = `http://127.0.0.1:${LICENSE_PROXY_PORT_MIN}/la`;
 let licenseProxyTarget = '';
 /** Last error message from F1 license server (403 response), so the player UI can show it. */
 let lastLicenseErrorMsg = '';
@@ -81,7 +83,7 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
   let licenseUrl = result.licenseUrl || '';
   if (licenseUrl.startsWith('https://') && licenseUrl.includes('formula1.com')) {
     licenseProxyTarget = licenseUrl;
-    licenseUrl = LICENSE_PROXY_URL;
+    licenseUrl = licenseProxyUrl;
   }
   const licenseHeaders = {};
   if (result.drmToken) {
@@ -165,86 +167,103 @@ async function sendLicenseToF1(target, body, headers, playTokenOverride) {
 }
 
 function startLicenseProxy() {
-  const server = http.createServer(async (req, res) => {
-    if (req.method !== 'POST' || req.url !== '/la') {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
-    const chunks = [];
-    for await (const c of req) chunks.push(c);
-    const body = Buffer.concat(chunks);
-    const target = licenseProxyTarget;
-    if (!target || !target.startsWith('https://')) {
-      console.warn('[license-proxy] no LA target set');
-      res.writeHead(502);
-      res.end();
-      return;
-    }
-    try {
-      const playTokenFromRequest = req.headers['x-f1-play-token'] || req.headers['X-F1-Play-Token'];
-      const playTokenValue = Array.isArray(playTokenFromRequest) ? playTokenFromRequest[0] : playTokenFromRequest;
-
-      const headers = buildLicenseProxyHeaders(req);
-      let r = await sendLicenseToF1(target, body, { ...headers, 'Content-Type': req.headers['content-type'] || 'application/octet-stream' }, playTokenValue);
-
-      // On 403, try once to refresh session (ascendon/entitlement) and retry
-      if (r.status === 403 && memSession.accessToken) {
-        try {
-          await f1tv.initClient(memSession.accessToken);
-          const retryHeaders = buildLicenseProxyHeaders(req);
-          retryHeaders['Content-Type'] = req.headers['content-type'] || 'application/octet-stream';
-          const r2 = await sendLicenseToF1(target, body, retryHeaders, playTokenValue);
-          if (r2.status === 200) {
-            r = r2;
-            console.log('[license-proxy] F1 → 200 after session refresh retry');
-          }
-        } catch (_) {}
+  function createProxyServer() {
+    return http.createServer(async (req, res) => {
+      if (req.method !== 'POST' || req.url !== '/la') {
+        res.writeHead(404);
+        res.end();
+        return;
       }
-
-      const buf = Buffer.from(r.data);
-      const outHeaders = {};
-      if (r.headers['content-type']) outHeaders['Content-Type'] = r.headers['content-type'];
-      res.writeHead(r.status, outHeaders);
-      res.end(buf);
-      console.log('[license-proxy] F1 → status', r.status);
-      if (r.status === 403 && buf.length < 500) {
-        try {
-          const j = JSON.parse(buf.toString('utf8'));
-          lastLicenseErrorMsg = j?.resultObj?.keyos?.errormsg || j?.message || j?.resultObj?.message || '';
-          if (lastLicenseErrorMsg) console.log('[license-proxy] 403:', lastLicenseErrorMsg.slice(0, 80));
-        } catch (_) {}
-      } else if (r.status === 200) {
-        lastLicenseErrorMsg = '';
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      const body = Buffer.concat(chunks);
+      const target = licenseProxyTarget;
+      if (!target || !target.startsWith('https://')) {
+        console.warn('[license-proxy] no LA target set');
+        res.writeHead(502);
+        res.end();
+        return;
       }
-      if (r.status === 200 && r.headers['set-cookie']) {
-        const setCookies = Array.isArray(r.headers['set-cookie']) ? r.headers['set-cookie'] : [r.headers['set-cookie']];
-        const origin = new URL(target).origin;
-        for (const raw of setCookies) {
-          const [nameVal, ...rest] = raw.split(';').map((s) => s.trim());
-          const eq = nameVal.indexOf('=');
-          if (eq <= 0) continue;
-          const name = nameVal.slice(0, eq);
-          const value = nameVal.slice(eq + 1);
-          let path = '/';
-          for (const part of rest) {
-            if (part.toLowerCase().startsWith('path=')) path = part.slice(5).trim();
-          }
-          session.defaultSession.cookies.set({ url: origin, name, value, path }).catch(() => {});
+      try {
+        const playTokenFromRequest = req.headers['x-f1-play-token'] || req.headers['X-F1-Play-Token'];
+        const playTokenValue = Array.isArray(playTokenFromRequest) ? playTokenFromRequest[0] : playTokenFromRequest;
+
+        const headers = buildLicenseProxyHeaders(req);
+        let r = await sendLicenseToF1(target, body, { ...headers, 'Content-Type': req.headers['content-type'] || 'application/octet-stream' }, playTokenValue);
+
+        // On 403, try once to refresh session (ascendon/entitlement) and retry
+        if (r.status === 403 && memSession.accessToken) {
+          try {
+            await f1tv.initClient(memSession.accessToken);
+            const retryHeaders = buildLicenseProxyHeaders(req);
+            retryHeaders['Content-Type'] = req.headers['content-type'] || 'application/octet-stream';
+            const r2 = await sendLicenseToF1(target, body, retryHeaders, playTokenValue);
+            if (r2.status === 200) {
+              r = r2;
+              console.log('[license-proxy] F1 → 200 after session refresh retry');
+            }
+          } catch (_) {}
         }
+
+        const buf = Buffer.from(r.data);
+        const outHeaders = {};
+        if (r.headers['content-type']) outHeaders['Content-Type'] = r.headers['content-type'];
+        res.writeHead(r.status, outHeaders);
+        res.end(buf);
+        console.log('[license-proxy] F1 → status', r.status);
+        if (r.status === 403 && buf.length < 500) {
+          try {
+            const j = JSON.parse(buf.toString('utf8'));
+            lastLicenseErrorMsg = j?.resultObj?.keyos?.errormsg || j?.message || j?.resultObj?.message || '';
+            if (lastLicenseErrorMsg) console.log('[license-proxy] 403:', lastLicenseErrorMsg.slice(0, 80));
+          } catch (_) {}
+        } else if (r.status === 200) {
+          lastLicenseErrorMsg = '';
+        }
+        if (r.status === 200 && r.headers['set-cookie']) {
+          const setCookies = Array.isArray(r.headers['set-cookie']) ? r.headers['set-cookie'] : [r.headers['set-cookie']];
+          const origin = new URL(target).origin;
+          for (const raw of setCookies) {
+            const [nameVal, ...rest] = raw.split(';').map((s) => s.trim());
+            const eq = nameVal.indexOf('=');
+            if (eq <= 0) continue;
+            const name = nameVal.slice(0, eq);
+            const value = nameVal.slice(eq + 1);
+            let path = '/';
+            for (const part of rest) {
+              if (part.toLowerCase().startsWith('path=')) path = part.slice(5).trim();
+            }
+            session.defaultSession.cookies.set({ url: origin, name, value, path }).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.warn('[license-proxy] error:', e?.message);
+        res.writeHead(502);
+        res.end();
       }
-    } catch (e) {
-      console.warn('[license-proxy] error:', e?.message);
-      res.writeHead(502);
-      res.end();
+    });
+  }
+
+  function tryListen(port) {
+    if (port > LICENSE_PROXY_PORT_MAX) {
+      console.warn('[license-proxy] no free port in range', LICENSE_PROXY_PORT_MIN, '-', LICENSE_PROXY_PORT_MAX, '; DRM may not work');
+      return;
     }
-  });
-  server.listen(LICENSE_PROXY_PORT, '127.0.0.1', () => {
-    console.log('[license-proxy] listening on', LICENSE_PROXY_URL);
-  });
-  server.on('error', (e) => {
-    console.warn('[license-proxy] server error:', e?.message);
-  });
+    const server = createProxyServer();
+    server.on('error', (e) => {
+      if (e.code === 'EADDRINUSE') {
+        console.warn('[license-proxy] port', port, 'in use, trying', port + 1);
+        tryListen(port + 1);
+      } else {
+        console.warn('[license-proxy] server error:', e?.message);
+      }
+    });
+    server.listen(port, '127.0.0.1', () => {
+      licenseProxyUrl = `http://127.0.0.1:${port}/la`;
+      console.log('[license-proxy] listening on', licenseProxyUrl);
+    });
+  }
+  tryListen(LICENSE_PROXY_PORT_MIN);
 }
 
 function getSessionFilePath() {
@@ -570,6 +589,32 @@ function createWindow() {
   });
 
   const startUrl = process.env.ELECTRON_START_URL;
+  // Diagnostics for "black screen" / renderer crash: pipe renderer events to main logs.
+  win.webContents.on('did-start-loading', () => {
+    console.log('[window] did-start-loading');
+  });
+  win.webContents.on('did-finish-load', () => {
+    console.log('[window] did-finish-load | url:', win.webContents.getURL());
+  });
+  win.webContents.on('did-fail-load', (_evt, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;
+    console.warn('[window] did-fail-load:', errorCode, errorDescription, '| url:', validatedURL);
+  });
+  win.webContents.on('render-process-gone', (_evt, details) => {
+    console.warn('[window] render-process-gone:', details?.reason, details?.exitCode ?? '');
+  });
+  win.webContents.on('unresponsive', () => {
+    console.warn('[window] renderer unresponsive');
+  });
+  win.webContents.on('responsive', () => {
+    console.log('[window] renderer responsive');
+  });
+  win.webContents.on('console-message', (_evt, level, message, line, sourceId) => {
+    // level: 0=log,1=warning,2=error
+    const tag = level === 2 ? 'error' : level === 1 ? 'warn' : 'log';
+    console.log(`[renderer:${tag}] ${message} (${sourceId}:${line})`);
+  });
+
   if (startUrl) {
     win.loadURL(startUrl);
   } else {
@@ -731,7 +776,7 @@ function setupIpc() {
         }
         if (result?.licenseUrl && result.licenseUrl.startsWith('https://') && result.licenseUrl.includes('formula1.com')) {
           licenseProxyTarget = result.licenseUrl;
-          result.licenseUrl = LICENSE_PROXY_URL;
+          result.licenseUrl = licenseProxyUrl;
         }
         return result;
       })

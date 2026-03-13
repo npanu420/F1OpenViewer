@@ -118,6 +118,11 @@ export function DashboardView({
     setLoadingItemIds({});
   }, [activeSessionId]);
 
+  const eventKey =
+    selectedEvent && selectedYear !== -1
+      ? `${selectedYear}-${selectedEvent.meetingKey}`
+      : '';
+
   useEffect(() => {
     if (!eventKey) return;
     setSessionsByEvent((prev) => {
@@ -179,10 +184,6 @@ export function DashboardView({
       });
   }, [selectedYear, currentSeasonPageId, eventsBySeasonPageId]);
 
-  const eventKey =
-    selectedEvent && selectedYear !== -1
-      ? `${selectedYear}-${selectedEvent.meetingKey}`
-      : '';
   const currentSessions = eventKey ? sessionsByEvent[eventKey] : undefined;
   const loadingSess = eventKey ? loadingSessions[eventKey] : false;
 
@@ -192,12 +193,18 @@ export function DashboardView({
     setLoadingSessions((prev) => ({ ...prev, [eventKey]: true }));
     getVodSessions(selectedEvent.pageId)
       .then((sessions) => {
-        setSessionsByEvent((prev) => ({ ...prev, [eventKey]: sessions }));
+        const filtered = sessions.filter((s) => {
+          if (selectedYear === -1) return true;
+          const m = s.title.match(/\b(19|20)\d{2}\b/);
+          if (!m) return true;
+          return m[0] === String(selectedYear);
+        });
+        setSessionsByEvent((prev) => ({ ...prev, [eventKey]: filtered }));
       })
       .finally(() => {
         setLoadingSessions((prev) => ({ ...prev, [eventKey]: false }));
       });
-  }, [eventKey, selectedEvent?.pageId, sessionsByEvent]);
+  }, [eventKey, selectedEvent?.pageId, sessionsByEvent, selectedYear]);
 
   const activeSession = useMemo(() => {
     if (!currentSessions?.length) return null;
