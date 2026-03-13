@@ -25,6 +25,29 @@ function slugify(title) {
 }
 
 /**
+ * Refreshes the F1 client session (ascendon/entitlement) so license requests use valid tokens.
+ * Call before contentPlay when the app has been running for a while; F1 tokens can expire after hours.
+ */
+async function refreshSessionBeforePlayback() {
+  const token = memSession.accessToken;
+  if (!token) return;
+  try {
+    await f1tv.initClient(token);
+    console.log('[session] refreshed before playback');
+  } catch (e) {
+    console.warn('[session] refresh before playback failed:', e?.message);
+    persistSession(null);
+    memSession.accessToken = undefined;
+    const msg = e?.message || String(e);
+    throw new Error(
+      msg.includes('expired') || msg.includes('timeout') || msg.includes('verification')
+        ? 'Session expired or invalid. Please sign in again (e.g. "Sign in with browser") and retry.'
+        : msg
+    );
+  }
+}
+
+/**
  * Opens a window with the custom player (local page + Shaka). Same session partition for DRM;
  * license proxy and headers are used by the player window.
  */
@@ -34,6 +57,7 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
     console.warn('[player] invalid contentId:', contentId);
     return;
   }
+  await refreshSessionBeforePlayback();
   let result;
   try {
     result = await f1tv.contentPlay(id, channelId ?? undefined);
@@ -44,6 +68,15 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
   if (!result?.manifestUrl) {
     console.warn('[player] no manifestUrl in response');
     return;
+  }
+  // Store playToken for the license proxy and as session cookie for CDN requests
+  if (result.playToken) {
+    currentPlayToken = result.playToken;
+    console.log('[player] playToken stored for license proxy');
+    const cdnOrigins = ['https://f1tv.formula1.com', 'https://ott-video-fer-cf.formula1.com', 'https://ott-video-cf.formula1.com'];
+    for (const origin of cdnOrigins) {
+      session.defaultSession.cookies.set({ url: origin, name: 'playToken', value: currentPlayToken, path: '/' }).catch(() => {});
+    }
   }
   let licenseUrl = result.licenseUrl || '';
   if (licenseUrl.startsWith('https://') && licenseUrl.includes('formula1.com')) {
@@ -95,6 +128,42 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
   });
 }
 
+const LICENSE_PROXY_FORWARD_HEADERS = ['authorization', 'drmtoken', 'ascendontoken', 'entitlementtoken'];
+
+/** playToken for single-stream player window; dashboard streams send per-request X-F1-Play-Token. */
+let currentPlayToken = '';
+
+function buildLicenseProxyHeaders(req) {
+  const headers = f1tv.getLicenseRequestHeaders() || {};
+  for (const key of LICENSE_PROXY_FORWARD_HEADERS) {
+    const v = req.headers[key] || req.headers[key.toLowerCase()];
+    if (v) headers[key] = Array.isArray(v) ? v[0] : v;
+  }
+  return headers;
+}
+
+/**
+ * @param {Record<string, string>} headers - request headers (mutated with Cookie)
+ * @param {string} [playTokenOverride] - per-stream playToken from X-F1-Play-Token header (dashboard); else use currentPlayToken (player window)
+ */
+async function sendLicenseToF1(target, body, headers, playTokenOverride) {
+  const cookies = await session.defaultSession.cookies.get({ url: target });
+  const cookieParts = cookies.map((c) => `${c.name}=${c.value}`);
+  const playToken = playTokenOverride ?? currentPlayToken;
+  if (playToken && !cookieParts.some((p) => p.startsWith('playToken='))) {
+    cookieParts.push(`playToken=${playToken}`);
+  }
+  if (cookieParts.length) headers.Cookie = cookieParts.join('; ');
+  headers['Content-Type'] = headers['Content-Type'] || 'application/octet-stream';
+  return axios.post(target, body, {
+    headers,
+    responseType: 'arraybuffer',
+    validateStatus: () => true,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  });
+}
+
 function startLicenseProxy() {
   const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST' || req.url !== '/la') {
@@ -113,17 +182,26 @@ function startLicenseProxy() {
       return;
     }
     try {
-      const headers = f1tv.getLicenseRequestHeaders() || {};
-      const cookies = await session.defaultSession.cookies.get({ url: target });
-      if (cookies.length) headers.Cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-      headers['Content-Type'] = req.headers['content-type'] || 'application/octet-stream';
-      const r = await axios.post(target, body, {
-        headers,
-        responseType: 'arraybuffer',
-        validateStatus: () => true,
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-      });
+      const playTokenFromRequest = req.headers['x-f1-play-token'] || req.headers['X-F1-Play-Token'];
+      const playTokenValue = Array.isArray(playTokenFromRequest) ? playTokenFromRequest[0] : playTokenFromRequest;
+
+      const headers = buildLicenseProxyHeaders(req);
+      let r = await sendLicenseToF1(target, body, { ...headers, 'Content-Type': req.headers['content-type'] || 'application/octet-stream' }, playTokenValue);
+
+      // On 403, try once to refresh session (ascendon/entitlement) and retry
+      if (r.status === 403 && memSession.accessToken) {
+        try {
+          await f1tv.initClient(memSession.accessToken);
+          const retryHeaders = buildLicenseProxyHeaders(req);
+          retryHeaders['Content-Type'] = req.headers['content-type'] || 'application/octet-stream';
+          const r2 = await sendLicenseToF1(target, body, retryHeaders, playTokenValue);
+          if (r2.status === 200) {
+            r = r2;
+            console.log('[license-proxy] F1 → 200 after session refresh retry');
+          }
+        } catch (_) {}
+      }
+
       const buf = Buffer.from(r.data);
       const outHeaders = {};
       if (r.headers['content-type']) outHeaders['Content-Type'] = r.headers['content-type'];
@@ -628,13 +706,37 @@ function setupIpc() {
   ipcMain.handle('f1:getVodEvents', async (_evt, seasonPageId) => f1tv.getVodEvents(seasonPageId));
   ipcMain.handle('f1:getVodSessions', async (_evt, gpPageId) => f1tv.getVodSessions(gpPageId));
   ipcMain.handle('f1:getContentVideo', async (_evt, contentId) => f1tv.getContentVideo(contentId));
+
+  // Serialize contentPlay so "Play all" / multiple streams don't run initClient in parallel (client gets reset and "not ready")
+  // Add delay between requests to avoid CloudFront 403 "Request blocked" / "too much traffic" when opening many streams
+  const CONTENT_PLAY_DELAY_MS = 450;
+  let contentPlayQueue = Promise.resolve();
   ipcMain.handle('f1:contentPlay', async (_evt, contentId, channelId) => {
-    const result = await f1tv.contentPlay(contentId, channelId);
-    if (result?.licenseUrl && result.licenseUrl.startsWith('https://') && result.licenseUrl.includes('formula1.com')) {
-      licenseProxyTarget = result.licenseUrl;
-      result.licenseUrl = LICENSE_PROXY_URL;
-    }
-    return result;
+    contentPlayQueue = contentPlayQueue
+      .catch(() => null)
+      .then(async () => {
+        if (!f1tv.isClientReady) {
+          await refreshSessionBeforePlayback();
+        }
+        return f1tv.contentPlay(contentId, channelId);
+      })
+      .then((result) => {
+        if (result?.playToken) {
+          currentPlayToken = result.playToken;
+          console.log('[session] playToken stored for license proxy');
+          const cdnOrigins = ['https://f1tv.formula1.com', 'https://ott-video-fer-cf.formula1.com', 'https://ott-video-cf.formula1.com'];
+          for (const origin of cdnOrigins) {
+            session.defaultSession.cookies.set({ url: origin, name: 'playToken', value: currentPlayToken, path: '/' }).catch(() => {});
+          }
+        }
+        if (result?.licenseUrl && result.licenseUrl.startsWith('https://') && result.licenseUrl.includes('formula1.com')) {
+          licenseProxyTarget = result.licenseUrl;
+          result.licenseUrl = LICENSE_PROXY_URL;
+        }
+        return result;
+      })
+      .then((result) => new Promise((resolve) => setTimeout(() => resolve(result), CONTENT_PLAY_DELAY_MS)));
+    return contentPlayQueue;
   });
   ipcMain.handle('f1:openInF1TVWeb', async (_evt, contentId, title, channelId) => {
     await openCustomPlayerWindow(contentId, title, channelId);

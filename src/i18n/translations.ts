@@ -67,6 +67,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.playAllEmbedded': 'Start all streams',
     'dashboard.openInWindow': 'Open in window',
     'dashboard.loadingStream': 'Loading…',
+    'dashboard.sectionMainStream': 'Main stream',
+    'dashboard.sectionDataChannel': 'Data channel',
+    'dashboard.sectionOnboard': 'Driver onboard',
+    'dashboard.mainFeedOnlySession': 'Only main feed available for this session.',
 
     // Player
     'player.title': 'Player',
@@ -207,6 +211,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.playAllEmbedded': 'Avvia tutti gli stream',
     'dashboard.openInWindow': 'Apri in finestra',
     'dashboard.loadingStream': 'Caricamento…',
+    'dashboard.sectionMainStream': 'Stream principale',
+    'dashboard.sectionDataChannel': 'Canale dati',
+    'dashboard.sectionOnboard': 'Onboard piloti',
+    'dashboard.mainFeedOnlySession': 'Solo ripresa principale disponibile per questa sessione.',
 
     'player.title': 'Player',
     'player.content': 'Contenuto',

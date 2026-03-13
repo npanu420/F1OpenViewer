@@ -740,10 +740,23 @@ async function contentPlay(contentId, channelId) {
   if (fallback?.url) {
     console.log('[playback] fallback platform:', fallback.platform, '| streamType:', fallback.streamType, '| manifest:', fallback.url);
   }
+
+  // F1 TV requires a HEAD request to the manifest URL to receive the playToken cookie.
+  // This cookie must be included in subsequent license requests, otherwise the server
+  // returns 403/ACN_5002 even with a valid VMP-signed binary.
+  // See: https://github.com/robvdpol/RaceControl/issues/210
+  const playToken = await fetchPlayToken(primary.url, client);
+  if (playToken) {
+    console.log('[playback] playToken cookie obtained');
+  } else {
+    console.warn('[playback] playToken cookie not received – license may fail');
+  }
+
   return {
     manifestUrl: primary.url,
     licenseUrl,
     drmToken: primary.drmToken,
+    playToken: playToken || undefined,
     licenseAscendonToken: client.ascendon || undefined,
     licenseEntitlementToken: client.entitlement || undefined,
     streamType: primary.streamType || 'UNKNOWN',
@@ -752,6 +765,39 @@ async function contentPlay(contentId, channelId) {
     fallbackDrmToken: fallback?.drmToken || undefined,
     fallbackStreamType: fallback?.streamType || undefined,
   };
+}
+
+/**
+ * Performs a HEAD request to the manifest URL to obtain the playToken cookie that F1 TV
+ * requires for license acquisition. Returns the cookie value, or null if not found.
+ */
+async function fetchPlayToken(manifestUrl, client) {
+  try {
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      Origin: 'https://f1tv.formula1.com',
+      Referer: 'https://f1tv.formula1.com/',
+    };
+    if (client.ascendon) headers.ascendontoken = client.ascendon;
+    if (client.entitlement) headers.entitlementtoken = client.entitlement;
+
+    const res = await undiciFetch(manifestUrl, { method: 'HEAD', headers });
+    const setCookie = res.headers.get('set-cookie') || '';
+    const match = setCookie.match(/playToken=([^;,\s]+)/i);
+    if (match) return match[1];
+
+    // Some responses use multiple Set-Cookie headers; check getSetCookie if available
+    if (typeof res.headers.getSetCookie === 'function') {
+      for (const c of res.headers.getSetCookie()) {
+        const m = c.match(/playToken=([^;,\s]+)/i);
+        if (m) return m[1];
+      }
+    }
+    return null;
+  } catch (e) {
+    console.warn('[playback] fetchPlayToken error:', e?.message);
+    return null;
+  }
 }
 
 function getSubscriptionToken() {

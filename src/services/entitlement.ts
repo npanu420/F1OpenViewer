@@ -28,6 +28,8 @@ export async function resolvePlayback(item: CatalogItem): Promise<PlaybackInfo> 
   }
   if (play.licenseAscendonToken) licenseHeaders.ascendontoken = play.licenseAscendonToken;
   if (play.licenseEntitlementToken) licenseHeaders.entitlementtoken = play.licenseEntitlementToken;
+  // Per-stream playToken so the license proxy can use it when multiple streams are open
+  if (play.playToken) licenseHeaders['X-F1-Play-Token'] = play.playToken;
   const fallbackLicenseHeaders: Record<string, string> = {};
   if (play.fallbackDrmToken) {
     fallbackLicenseHeaders.Authorization = `Bearer ${play.fallbackDrmToken}`;

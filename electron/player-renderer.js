@@ -105,8 +105,8 @@
       const hasWidevineLicense = Boolean(licenseUrl && licenseUrl.trim().length > 0);
       const config = {
         streaming: {
-          bufferingGoal: 30,
-          rebufferingGoal: 10,
+          bufferingGoal: 20,
+          rebufferingGoal: 6,
         },
       };
       if (hasWidevineLicense) {

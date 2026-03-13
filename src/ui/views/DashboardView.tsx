@@ -118,6 +118,16 @@ export function DashboardView({
     setLoadingItemIds({});
   }, [activeSessionId]);
 
+  useEffect(() => {
+    if (!eventKey) return;
+    setSessionsByEvent((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.length === 0 || (keys.length === 1 && keys[0] === eventKey)) return prev;
+      const current = prev[eventKey];
+      return current !== undefined ? { [eventKey]: current } : {};
+    });
+  }, [eventKey]);
+
   const onPlayEmbedded = useCallback(async (item: CatalogItem) => {
     setLoadingItemIds((prev) => ({ ...prev, [item.id]: true }));
     try {
@@ -245,6 +255,14 @@ export function DashboardView({
     [currentSessions]
   );
 
+  const itemsForSelectedYear = useMemo(() => {
+    if (selectedYear === -1) return items;
+    return items.filter((item) => {
+      if (item.kind === 'live') return true;
+      return item.season === String(selectedYear);
+    });
+  }, [items, selectedYear]);
+
   return (
     <div className="min-h-screen bg-background">
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
@@ -264,7 +282,7 @@ export function DashboardView({
               transition={{ duration: 0.3 }}
             >
               <LiveSection
-                items={items}
+                items={itemsForSelectedYear}
                 onOpen={onOpen}
                 loading={busy}
               />
@@ -375,7 +393,7 @@ export function DashboardView({
                 </p>
               ) : sessionTabItems.length > 0 ? (
                 <>
-                  <div className="mb-6">
+                  <div className="mb-6 min-w-0">
                     <SessionTabs
                       sessions={sessionTabItems}
                       activeSessionId={activeSessionId}

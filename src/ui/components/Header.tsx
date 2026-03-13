@@ -47,7 +47,7 @@ export function Header({
 
         <div className="w-px h-6 bg-border hidden sm:block" />
 
-        <div className="flex-1 overflow-x-auto scrollbar-hide">
+        <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
           <SeasonSelector
             selectedYear={selectedYear}
             onSelectYear={onSelectYear}

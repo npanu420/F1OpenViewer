@@ -34,7 +34,7 @@ export function sessionToTabItem(s: VodSession): SessionTabItem {
 
 export function SessionTabs({ sessions, activeSessionId, onSelectSession }: SessionTabsProps) {
   return (
-    <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-hide">
+    <div className="flex items-center gap-1 min-w-0 overflow-x-auto pb-1 scrollbar-hide">
       {sessions.map((session) => {
         const Icon = sessionIcons[session.type] || Radio;
         const isActive = session.id === activeSessionId;

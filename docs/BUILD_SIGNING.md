@@ -139,7 +139,21 @@ Then run VMP signing **manually** in another terminal (after the build has finis
 
 ```powershell
 python -m castlabs_evs.vmp sign-pkg release\win-unpacked
-```  
+```
+
+**Force a fresh VMP signature** (recommended if you get DRM 403 with a build that worked before): set `FORCE_VMP_SIGN=1` so that the script uses `--force` and requests a new signature from EVS instead of reusing the cache:
+
+```powershell
+$env:FORCE_VMP_SIGN = "1"
+npm run build:signed
+```
+
+Or run the sign step manually with `--force`:
+
+```powershell
+py -m castlabs_evs.vmp sign-pkg --force release\win-unpacked
+```
+
 For apps that also support offline download you can use `--persistent`:
 
 ```bash
@@ -174,6 +188,14 @@ If **`npm run build:signed`** fails with **"Request for upload URL failed"**, **
    Re-enable them after.
 
 Running as Administrator does not fix connection/DNS issues; the problem is network access to **evs-api.castlabs.com**.
+
+#### 2.6 DRM 403 / ACN_5002 (license rejected)
+
+If you see "DRM license rejected by server (error 403 / ACN_5002)" with a build that previously worked:
+
+1. **Session/token expiry (most common)** — F1 TV session tokens (ascendon/entitlement) often expire after a few hours. The same build can work in the morning and return 403 in the afternoon; the server may report it like an uncertified client. The app now **refreshes the session before each playback** (and retries once on 403). If it still fails, **sign in again** with "Sign in with browser" and retry.
+2. **Re-sign with a fresh VMP signature** — If re-login does not help, the exe may no longer match the cached EVS signature. Run a new build with `FORCE_VMP_SIGN=1` and then `npm run build:signed`, or manually run `py -m castlabs_evs.vmp sign-pkg --force release\win-unpacked` on the same folder.
+3. **Ensure the license proxy receives the right headers** — The app forwards `drmToken`, `Authorization`, and entitlement headers from the player to the F1 license server. If you use a custom build, ensure the main process license proxy is used (dashboard and player both use it when `licenseUrl` is rewritten to the local proxy).
 
 - **macOS**: VMP signing must be done **before** code signing. So:
   1. Run the build (without code sign) or stop at the app folder (e.g. `release/mac/F1 OpenViewer.app`).

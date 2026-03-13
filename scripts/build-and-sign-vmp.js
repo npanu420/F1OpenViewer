@@ -32,10 +32,17 @@ if (!fs.existsSync(winUnpacked)) {
   process.exit(0);
 }
 
+// Use --force to request a fresh VMP signature (avoids DRM 403 when cached signature does not match the exe)
+const forceVmp = process.env.FORCE_VMP_SIGN === '1' || process.env.FORCE_VMP_SIGN === 'true';
+const signArgs = ['-m', 'castlabs_evs.vmp', 'sign-pkg', winUnpacked];
+if (forceVmp) {
+  signArgs.push('--force');
+  console.log('[build-and-sign-vmp] VMP signing with --force (FORCE_VMP_SIGN=1)');
+}
 console.log('\n[build-and-sign-vmp] Running VMP signing on', winUnpacked, '...');
 const py = 'py';
 
-const sign = spawnSync(py, ['-m', 'castlabs_evs.vmp', 'sign-pkg', winUnpacked], {
+const sign = spawnSync(py, signArgs, {
   cwd: root,
   stdio: 'inherit',
 });

@@ -91,9 +91,15 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
 
       const applyConfig = (licenseUrl: string) => {
         const hasWidevineLicense = Boolean(licenseUrl && licenseUrl.trim().length > 0);
-        const config: any = {
-          streaming: { bufferingGoal: 30, rebufferingGoal: 10 },
-        };
+        // Lower buffer when many streams (compact/embedded) to avoid all of them buffering heavily
+        const streaming =
+          props.compact
+            ? { bufferingGoal: 10, rebufferingGoal: 3 }
+            : { bufferingGoal: 20, rebufferingGoal: 6 };
+        const config: any = { streaming };
+        if (props.compact) {
+          config.abr = { restrictions: { maxHeight: 720 } };
+        }
         if (hasWidevineLicense) {
           config.drm = { servers: { 'com.widevine.alpha': licenseUrl } };
         }

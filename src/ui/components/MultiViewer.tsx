@@ -62,9 +62,11 @@ export function MultiViewer({
   ];
   const hasEmbedSupport = Boolean(onPlayEmbedded && onPlayAllEmbedded);
 
-  // Count how many embedded streams are actually playing
+  // Count how many embedded streams have playback info (loaded or loading)
   const playingCount = allItems.filter((it) => embeddedPlayback[it.id]).length;
-  const canSync = playingCount >= 2;
+  const hasMultipleStreams = allItems.length >= 2;
+  const canSync = hasMultipleStreams && playingCount >= 2;
+  const showSyncButton = hasMultipleStreams;
 
   function handleSync() {
     const entries = [];
@@ -132,11 +134,11 @@ export function MultiViewer({
                 {t('dashboard.playAllEmbedded')}
               </button>
 
-              {canSync && (
+              {showSyncButton && (
                 <button
                   type="button"
                   onClick={handleSync}
-                  disabled={syncStatus === 'syncing'}
+                  disabled={!canSync || syncStatus === 'syncing'}
                   className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <RefreshCw className={`w-4 h-4 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
@@ -150,7 +152,7 @@ export function MultiViewer({
           <div>
             <h3 className="font-heading text-sm text-muted-foreground tracking-widest mb-3 flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-              STREAM PRINCIPALE
+              {t('dashboard.sectionMainStream').toUpperCase()}
             </h3>
             <div className="max-w-4xl">
               <StreamPanel
@@ -172,7 +174,7 @@ export function MultiViewer({
           {streams && streams.dataChannel.length > 0 && (
             <div>
               <h3 className="font-heading text-sm text-muted-foreground tracking-widest mb-3">
-                CANALE DATI
+                {t('dashboard.sectionDataChannel').toUpperCase()}
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {streams.dataChannel.map((dc: VodOnboard, i: number) => {
@@ -205,7 +207,7 @@ export function MultiViewer({
           {streams && streams.onboard.length > 0 && (
             <div>
               <h3 className="font-heading text-sm text-muted-foreground tracking-widest mb-3">
-                ONBOARD PILOTI — {streams.onboard.length} STREAM
+                {t('dashboard.sectionOnboard').toUpperCase()} — {streams.onboard.length} {t('ui.stream')}
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {streams.onboard.map((ob: VodOnboard, i: number) => {
@@ -237,7 +239,7 @@ export function MultiViewer({
 
           {streams && streams.onboard.length === 0 && streams.dataChannel.length === 0 && (
             <p className="text-xs text-muted-foreground font-heading tracking-wider">
-              Solo ripresa principale disponibile per questa sessione.
+              {t('dashboard.mainFeedOnlySession')}
             </p>
           )}
         </motion.div>

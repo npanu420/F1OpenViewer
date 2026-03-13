@@ -94,7 +94,7 @@ npm run build
 ```
 
 - The build finishes and creates:
-  - **Installer:** `release\F1 OpenViewer Setup 1.0.0.exe`
+  - **Installer:** `release\F1 OpenViewer Setup 1.1.0.exe`
   - **Portable app:** `release\win-unpacked\F1 OpenViewer.exe`
 
 - You can run the installer or the `.exe` directly. The app will work for browsing and login.
@@ -179,7 +179,7 @@ Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) 
   This is the one that has been VMP-signed and can play DRM content.
 
 - **Installer:**  
-  `release\F1 OpenViewer Setup 1.0.0.exe`  
+  `release\F1 OpenViewer Setup 1.1.0.exe`  
   This installer was created before the VMP signing step, so the exe inside it is not VMP-signed. For DRM playback, use the exe in `release\win-unpacked` directly, or run the build script again and then create a new installer if your build process supports that.
 
 ---
