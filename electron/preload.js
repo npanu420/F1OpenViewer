@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('f1', {
   openInF1TVWeb: (contentId, title, channelId) => ipcRenderer.invoke('f1:openInF1TVWeb', contentId, title, channelId),
   isF1Ready: () => ipcRenderer.invoke('f1:isReady'),
   restoreSession: () => ipcRenderer.invoke('f1:restoreSession'),
+  fullReset: () => ipcRenderer.invoke('f1:fullReset'),
   getLastLicenseError: () => ipcRenderer.invoke('player:getLastLicenseError'),
 });
 

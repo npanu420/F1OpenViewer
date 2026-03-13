@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Sun, Moon, Globe } from 'lucide-react';
+import { X, Sun, Moon, Globe, RotateCcw } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleContext';
 
 export type ThemeMode = 'dark' | 'light';
@@ -39,6 +40,25 @@ export function SettingsPanel({
   onLogout,
 }: SettingsPanelProps) {
   const { t, locale, setLocale } = useLocale();
+  const [resetting, setResetting] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+
+  async function handleFullReset() {
+    if (!window.f1?.fullReset) return;
+    const confirmed = window.confirm(t('settings.resetConfirm'));
+    if (!confirmed) return;
+    setResetting(true);
+    setResetDone(false);
+    try {
+      await window.f1.fullReset();
+      setResetDone(true);
+      onClose();
+      setTimeout(() => window.location.reload(), 800);
+    } catch (e) {
+      console.warn('[Settings] fullReset failed:', e);
+      setResetting(false);
+    }
+  }
 
   return (
     <AnimatePresence>
@@ -135,6 +155,30 @@ export function SettingsPanel({
                     </motion.button>
                   ))}
                 </div>
+              </SettingGroup>
+
+              <SettingGroup title={t('settings.dataAndCache')}>
+                <p className="text-sm text-muted-foreground pb-1">
+                  {t('settings.resetDescription')}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleFullReset}
+                  disabled={resetting}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md font-heading text-sm font-bold tracking-wider bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+                >
+                  {resetting ? (
+                    <span className="animate-pulse">{t('settings.resetting')}</span>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-4 h-4" />
+                      {t('settings.resetData')}
+                    </>
+                  )}
+                </button>
+                {resetDone && (
+                  <p className="text-xs text-muted-foreground pt-1">{t('settings.resetDone')}</p>
+                )}
               </SettingGroup>
 
               <div className="pt-4 border-t border-border/50">

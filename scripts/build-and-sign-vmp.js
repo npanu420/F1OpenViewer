@@ -32,18 +32,17 @@ if (!fs.existsSync(winUnpacked)) {
   process.exit(0);
 }
 
-console.log('\n[build-and-sign-vmp] Running VMP signing on', winUnpacked, '...\n');
-console.log('[build-and-sign-vmp] NOTE: if you see messages like:');
-console.log("  - 'Signature invalid: Failed to verify signature'");
-console.log("  - 'Requesting VMP signature'");
-console.log('they indicate that the EVS/VMP service is still processing the request. This can take some time, please wait until the command finishes.\n');
+console.log('\n[build-and-sign-vmp] Running VMP signing on', winUnpacked, '...');
 const py = 'py';
+
 const sign = spawnSync(py, ['-m', 'castlabs_evs.vmp', 'sign-pkg', winUnpacked], {
   cwd: root,
   stdio: 'inherit',
 });
+
 if (sign.status !== 0) {
   console.warn('[build-and-sign-vmp] VMP signing failed (exit', sign.status, '). Exe in release\\win-unpacked is already code-signed.');
   process.exit(0);
 }
+
 console.log('\n[build-and-sign-vmp] Build and VMP signing complete.');

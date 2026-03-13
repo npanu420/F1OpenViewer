@@ -146,6 +146,35 @@ For apps that also support offline download you can use `--persistent`:
 python3 -m castlabs_evs.vmp sign-pkg --persistent path/to/release/win-unpacked
 ```
 
+#### 2.5 Connection errors (evs-api.castlabs.com unreachable or reset)
+
+If **`npm run build:signed`** fails with **"Request for upload URL failed"**, **"Failed to resolve 'evs-api.castlabs.com'"**, or **"Connection aborted / ConnectionResetError (10054)"**, your network (or firewall/antivirus/VPN) is blocking or resetting the connection to CastLabs. The script will retry **without** `--force` (using the cached signature) so the build still completes, but the cached signature may not match the new exe → **DRM 403** when playing.
+
+**What to do:**
+
+1. **Run the sign step from a network where CastLabs is reachable**  
+   Build locally as usual (or set `SKIP_VMP_FORCE=1` to skip the failing `--force` attempt and save time). Copy the folder `release/win-unpacked` to another PC or a network where you can reach the internet without VPN/firewall blocking it, then run:
+   ```powershell
+   py -m castlabs_evs.vmp sign-pkg --force release/win-unpacked
+   ```
+   Copy the signed exe back if needed.
+
+2. **Skip the --force attempt locally**  
+   If you know your network always blocks evs-api.castlabs.com, set before building:
+   ```powershell
+   $env:SKIP_VMP_FORCE = "1"
+   npm run build:signed
+   ```
+   The script will only use the cache (no connection to CastLabs). You still need to run the sign with `--force` somewhere else (see above) for DRM to work.
+
+3. **Temporarily disable VPN/firewall/antivirus** for the sign step only, then run:
+   ```powershell
+   py -m castlabs_evs.vmp sign-pkg --force release/win-unpacked
+   ```
+   Re-enable them after.
+
+Running as Administrator does not fix connection/DNS issues; the problem is network access to **evs-api.castlabs.com**.
+
 - **macOS**: VMP signing must be done **before** code signing. So:
   1. Run the build (without code sign) or stop at the app folder (e.g. `release/mac/F1 OpenViewer.app`).
   2. VMP sign:

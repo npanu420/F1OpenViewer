@@ -213,6 +213,40 @@ function persistCookies(cookieList) {
   }
 }
 
+/**
+ * Full reset: session, cookies, persisted files, F1 client, and all session storage/cache.
+ * Use from Settings to guarantee a clean state (e.g. before re-login to fix DRM 403).
+ */
+async function performFullReset() {
+  memSession.accessToken = undefined;
+  persistSession(null);
+  try {
+    const sessionPath = getSessionFilePath();
+    if (fs.existsSync(sessionPath)) fs.unlinkSync(sessionPath);
+    const cookiesPath = getCookiesFilePath();
+    if (fs.existsSync(cookiesPath)) fs.unlinkSync(cookiesPath);
+  } catch (e) {
+    console.warn('[reset] delete session/cookies files:', e?.message);
+  }
+  f1tv.clearSession();
+  try {
+    const urls = ['https://formula1.com', 'https://account.formula1.com', 'https://f1tv.formula1.com'];
+    for (const u of urls) {
+      const list = await session.defaultSession.cookies.get({ url: u });
+      for (const c of list) await session.defaultSession.cookies.remove(u, c.name).catch(() => {});
+    }
+  } catch (_) {}
+  try {
+    await session.defaultSession.clearCache();
+    await session.defaultSession.clearStorageData({
+      storages: ['localstorage', 'sessionstorage', 'cookies', 'cachestorage', 'indexdb'],
+    });
+  } catch (e) {
+    console.warn('[reset] clearStorageData/clearCache:', e?.message);
+  }
+  console.log('[reset] Full reset completed (session, cookies, cache, storage).');
+}
+
 /** Restores saved cookies into defaultSession (so the F1 TV window is already logged in). */
 async function restorePersistedCookies() {
   try {
@@ -606,6 +640,10 @@ function setupIpc() {
     await openCustomPlayerWindow(contentId, title, channelId);
   });
   ipcMain.handle('f1:isReady', () => f1tv.isClientReady);
+  ipcMain.handle('f1:fullReset', async () => {
+    await performFullReset();
+    return { ok: true };
+  });
   ipcMain.handle('player:getLastLicenseError', () => lastLicenseErrorMsg || '');
 
   ipcMain.handle('net:request', async (_evt, req) => {

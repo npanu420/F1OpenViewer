@@ -106,6 +106,12 @@ export const translations: Record<Locale, Record<string, string>> = {
     'settings.languageLabel': 'Language',
     'settings.logout': 'Sign out',
     'settings.back': 'Back to dashboard',
+    'settings.dataAndCache': 'Data & cache',
+    'settings.resetDescription': 'Clear session, cookies, cache and all saved data. The app will restart. Use this if you have DRM or login issues.',
+    'settings.resetData': 'Full reset',
+    'settings.resetConfirm': 'This will clear all saved data (session, cookies, cache) and restart the app. Continue?',
+    'settings.resetting': 'Resetting…',
+    'settings.resetDone': 'Done. Restarting…',
 
     // Catalog load error (generic)
     'error.catalogLoad': 'Catalog load error.',
@@ -237,6 +243,12 @@ export const translations: Record<Locale, Record<string, string>> = {
     'settings.languageLabel': 'Lingua',
     'settings.logout': 'Esci',
     'settings.back': 'Torna alla dashboard',
+    'settings.dataAndCache': 'Dati e cache',
+    'settings.resetDescription': 'Cancella sessione, cookie, cache e tutti i dati salvati. L\'app si riavvierà. Utile in caso di problemi DRM o di accesso.',
+    'settings.resetData': 'Reset completo',
+    'settings.resetConfirm': 'Verranno cancellati tutti i dati salvati (sessione, cookie, cache) e l\'app si riavvierà. Continuare?',
+    'settings.resetting': 'Reset in corso…',
+    'settings.resetDone': 'Fatto. Riavvio…',
 
     'error.catalogLoad': 'Errore caricamento catalogo.',
     'error.openPlayer': 'Impossibile aprire il player.',

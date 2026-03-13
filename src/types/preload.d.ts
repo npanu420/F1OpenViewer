@@ -49,6 +49,8 @@ export type PreloadApi = {
   openInF1TVWeb?(contentId: number, title?: string, channelId?: number): Promise<void>;
   isF1Ready?(): Promise<boolean>;
   restoreSession?(): Promise<{ accessToken: string | null; restored: boolean }>;
+  /** Full reset: session, cookies, cache and all saved data. App will reload. */
+  fullReset?(): Promise<{ ok: boolean }>;
   /** Last error message from F1 license server (e.g. 403 region/subscription). */
   getLastLicenseError?(): Promise<string>;
 };
