@@ -257,10 +257,15 @@ export function DashboardView({
       ? t('dashboard.pastChampionships') + ' — Archive'
       : `${t('dashboard.season')} ${selectedYear}`;
 
-  const sessionTabItems = useMemo(
-    () => (currentSessions ?? []).map(sessionToTabItem),
-    [currentSessions]
-  );
+  const sessionTabItems = useMemo(() => {
+    const items = (currentSessions ?? []).map(sessionToTabItem);
+    const seen = new Set<string>();
+    return items.filter((it) => {
+      if (seen.has(it.id)) return false;
+      seen.add(it.id);
+      return true;
+    });
+  }, [currentSessions]);
 
   const itemsForSelectedYear = useMemo(() => {
     if (selectedYear === -1) return items;

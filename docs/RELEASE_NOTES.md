@@ -13,7 +13,6 @@ This release focuses on **stability, multi-stream playback, and UI fixes** built
 ### Sync & buffering
 
 - **VOD sync**: Sync no longer causes the main stream to buffer indefinitely. Sync is now **seek-only**: the main stream is the reference; other streams are seeked once to match it, with no continuous rate-adjustment loop, so the main stream stays stable.
-- **Multi-stream buffering**: Lower buffer targets and 720p cap for embedded streams reduce constant buffering when many streams are open, in line with other F1 TV multiview apps.
 
 ### UI
 
