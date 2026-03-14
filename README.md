@@ -46,6 +46,11 @@ Fullscreen view:
 
 ---
 
+Home with Live Event:
+![Screenshot 3](assets/screenshot002.png)
+
+---
+
 ## Roadmap
 
 1. **Login / Auth** (Milestone 1) — Done: login UI, session token in memory, network layer.
