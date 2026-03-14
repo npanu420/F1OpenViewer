@@ -47,7 +47,7 @@ Fullscreen view:
 ---
 
 Home with Live Event:
-![Screenshot 3](assets/screenshot002.png)
+![Screenshot 3](assets/screenshot003.png)
 
 ---
 
