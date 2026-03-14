@@ -189,14 +189,36 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
                   </>
                 ) : (
                   <>
-                    <div className="w-10 h-10 rounded-full border border-border/50 flex items-center justify-center mx-auto mb-2">
-                      {type === 'main' && <Monitor className="w-5 h-5 text-muted-foreground" />}
-                      {type === 'driver' && <Radio className="w-5 h-5 text-muted-foreground" />}
-                      {type === 'data' && <BarChart3 className="w-5 h-5 text-muted-foreground" />}
-                    </div>
-                    <p className="text-[10px] text-muted-foreground font-heading tracking-wider">
-                      {onClick ? t('ui.clickToOpen') : t('ui.stream')}
-                    </p>
+                    {onClick ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onClick();
+                        }}
+                        className="flex flex-col items-center justify-center w-full h-full min-h-[120px] cursor-pointer hover:bg-white/5 transition-colors rounded focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      >
+                        <div className="w-10 h-10 rounded-full border border-border/50 flex items-center justify-center mx-auto mb-2">
+                          {type === 'main' && <Monitor className="w-5 h-5 text-muted-foreground" />}
+                          {type === 'driver' && <Radio className="w-5 h-5 text-muted-foreground" />}
+                          {type === 'data' && <BarChart3 className="w-5 h-5 text-muted-foreground" />}
+                        </div>
+                        <p className="text-[10px] text-primary font-heading tracking-wider hover:underline">
+                          {t('ui.clickToOpen')}
+                        </p>
+                      </button>
+                    ) : (
+                      <>
+                        <div className="w-10 h-10 rounded-full border border-border/50 flex items-center justify-center mx-auto mb-2">
+                          {type === 'main' && <Monitor className="w-5 h-5 text-muted-foreground" />}
+                          {type === 'driver' && <Radio className="w-5 h-5 text-muted-foreground" />}
+                          {type === 'data' && <BarChart3 className="w-5 h-5 text-muted-foreground" />}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground font-heading tracking-wider">
+                          {t('ui.stream')}
+                        </p>
+                      </>
+                    )}
                   </>
                 )}
               </div>

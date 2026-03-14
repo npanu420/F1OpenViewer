@@ -3,6 +3,7 @@ import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import { StandaloneMultiviewView } from './views/StandaloneMultiviewView';
 import { PlayerView } from './views/PlayerView';
+import { LiveEventView } from './views/LiveEventView';
 import type { CatalogItem } from '../domain/catalog';
 import { getCatalog } from '../services/catalog';
 import { getVodSeasons } from '../services/vod';
@@ -14,7 +15,8 @@ import { SettingsPanel, type ThemeMode } from './components/SettingsPanel';
 type Route =
   | { name: 'login' }
   | { name: 'dashboard' }
-  | { name: 'player'; item: CatalogItem };
+  | { name: 'player'; item: CatalogItem }
+  | { name: 'live'; item: CatalogItem };
 
 export function App() {
   const { t } = useLocale();
@@ -130,6 +132,43 @@ export function App() {
     );
   }
 
+  if (route.name === 'live') {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header
+          selectedYear={selectedYear}
+          onSelectYear={setSelectedYear}
+          onSettingsClick={() => setShowSettings(true)}
+          brandLabel={t('app.brand')}
+          subtitle={t('app.subtitle')}
+          availableYears={vodSeasons.length > 0 ? vodSeasons.map((s) => s.year) : undefined}
+          hasLive={true}
+        />
+        <SettingsPanel
+          isOpen={showSettings}
+          onClose={() => setShowSettings(false)}
+          theme={theme}
+          onThemeChange={setTheme}
+          isSignedIn={!!token}
+          onLogout={logout}
+        />
+        <LiveEventView
+          item={route.item}
+          accessToken={token}
+          onBack={() => setRoute({ name: 'dashboard' })}
+          onOpenExternal={async (item) => {
+            try {
+              await window.f1?.openInF1TVWeb?.(item.contentId, item.title, item.channelId);
+            } catch (e) {
+              setError(e instanceof Error ? e.message : t('error.openPlayer'));
+            }
+          }}
+          onEmbedError={setError}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header
@@ -160,6 +199,10 @@ export function App() {
         accessToken={token}
         onEmbedError={setError}
         onOpen={async (item) => {
+          if (item.kind === 'live') {
+            setRoute({ name: 'live', item });
+            return;
+          }
           try {
             await window.f1?.openInF1TVWeb?.(item.contentId, item.title, item.channelId);
           } catch (e) {

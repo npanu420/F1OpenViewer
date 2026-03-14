@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
-import { Monitor, Radio } from 'lucide-react';
+import { Monitor } from 'lucide-react';
 import type { CatalogItem } from '@/domain/catalog';
+import { useLocale } from '../../i18n/LocaleContext';
 import { StreamPanel } from './StreamPanel';
 
 interface LiveSectionProps {
@@ -10,7 +11,13 @@ interface LiveSectionProps {
 }
 
 export function LiveSection({ items, onOpen, loading }: LiveSectionProps) {
+  const { t } = useLocale();
   if (items.length === 0 && !loading) return null;
+
+  const contentCountText =
+    items.length === 1
+      ? t('dashboard.liveContentCountOne')
+      : t('dashboard.liveContentCountMany').replace('{count}', String(items.length));
 
   return (
     <motion.section
@@ -26,12 +33,12 @@ export function LiveSection({ items, onOpen, loading }: LiveSectionProps) {
               <span className="relative inline-flex rounded-full h-3 w-3 bg-primary" />
             </span>
             <span className="font-heading font-bold text-primary tracking-widest text-sm">
-              LIVE
+              {t('dashboard.liveBadge')}
             </span>
           </div>
           <div className="w-px h-5 bg-border" />
           <span className="font-heading font-bold text-sm tracking-wider">
-            {items.length} contenut{items.length === 1 ? 'o' : 'i'} in diretta
+            {contentCountText}
           </span>
         </div>
 
@@ -39,7 +46,7 @@ export function LiveSection({ items, onOpen, loading }: LiveSectionProps) {
           <div>
             <h4 className="font-heading text-xs text-muted-foreground tracking-widest mb-2 flex items-center gap-2">
               <Monitor className="w-3.5 h-3.5 text-primary" />
-              IN DIRETTA
+              {t('dashboard.liveSectionHeading').toUpperCase()}
             </h4>
             {loading ? (
               <div className="h-24 rounded-md bg-card border border-border animate-pulse" />
