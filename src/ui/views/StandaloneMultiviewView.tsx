@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodSession, VodOnboard } from '../../domain/vod';
 import { resolvePlayback, type PlaybackInfo } from '../../services/entitlement';
@@ -38,10 +38,49 @@ export function StandaloneMultiviewView() {
   const [embeddedPlayback, setEmbeddedPlayback] = useState<Record<string, PlaybackInfo>>({});
   const [loadingItemIds, setLoadingItemIds] = useState<Record<string, boolean>>({});
   const [embedError, setEmbedError] = useState<string | null>(null);
+  const hasResolvedPlayingRef = useRef(false);
 
   useEffect(() => {
     session.get().then((s) => setAccessToken(s.accessToken));
   }, []);
+
+  /** Re-resolve playback for items that were playing in main window (fresh tokens for this window). */
+  useEffect(() => {
+    const playingIds = state && 'playingItemIds' in state && state.playingItemIds?.length ? state.playingItemIds : [];
+    if (playingIds.length === 0 || hasResolvedPlayingRef.current) return;
+    hasResolvedPlayingRef.current = true;
+
+    const streamOptions: StreamOption[] = state
+      ? [
+          { item: toCatalogItem(state.session, state.seasonYear), label: state.session.title || '', type: 'main' as const },
+          ...(state.streams?.dataChannel?.map((dc) => ({ item: toCatalogItemOnboard(dc), label: dc.title, type: 'data' as const })) ?? []),
+          ...(state.streams?.onboard?.map((ob) => ({
+            item: toCatalogItemOnboard(ob),
+            label: ob.title || ob.driverName || '',
+            type: 'driver' as const,
+            driverNumber: ob.racingNumber,
+          })) ?? []),
+        ]
+      : [];
+
+    const itemsToResolve = playingIds
+      .map((id) => streamOptions.find((o) => o.item.id === id)?.item)
+      .filter((item): item is CatalogItem => item != null);
+
+    if (itemsToResolve.length === 0) return;
+
+    itemsToResolve.forEach((item) => setLoadingItemIds((prev) => ({ ...prev, [item.id]: true })));
+    Promise.allSettled(itemsToResolve.map((item) => resolvePlayback(item))).then((results) => {
+      setEmbeddedPlayback((prev) => {
+        const next = { ...prev };
+        results.forEach((result, i) => {
+          if (result.status === 'fulfilled' && itemsToResolve[i]) next[itemsToResolve[i].id] = result.value;
+        });
+        return next;
+      });
+      itemsToResolve.forEach((item) => setLoadingItemIds((prev) => ({ ...prev, [item.id]: false })));
+    });
+  }, [state]);
 
   const onPlayEmbedded = useCallback(async (item: CatalogItem) => {
     setLoadingItemIds((prev) => ({ ...prev, [item.id]: true }));
@@ -57,7 +96,7 @@ export function StandaloneMultiviewView() {
   }, []);
 
   const onPlayAllEmbedded = useCallback(async (items: CatalogItem[]) => {
-    const itemsToPlay = items.slice(0, 6);
+    const itemsToPlay = items;
     setLoadingItemIds((prev) => {
       const next = { ...prev };
       itemsToPlay.forEach((it) => { next[it.id] = true; });

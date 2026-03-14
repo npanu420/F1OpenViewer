@@ -1,5 +1,26 @@
 # Release Notes – F1 OpenViewer
 
+## v1.1.2
+
+This release improves **fullscreen multiview**, **live streaming**, and **user feedback** when loading multiple streams.
+
+### Fullscreen
+
+- **Streams in fullscreen**: When you open the multiview in the separate fullscreen window while streams are already playing, those streams are now handed off to the fullscreen window and stop in the main app. The fullscreen window re-resolves playback so streams start there with valid tokens instead of showing a blank or stuck state. “Start all streams” in fullscreen now starts all available streams (no cap).
+
+### Live
+
+- **Click to open**: The “Click to open” action on live stream cards now correctly opens the live event in a dedicated view with the same grid layout as a Grand Prix (main feed, data channel, onboard).
+- **Localized live section**: Live section labels and messages are fully localized.
+
+### UX
+
+- **Loading hint**: When you press “Start all streams”, a short localized message appears and then fades out, explaining that loading all streams may take a moment and that we are working to minimize this wait.
+
+**Note:** On Windows, unsigned or non–commercially signed builds may still trigger a **Microsoft Defender SmartScreen** warning. This is expected; you can use “More info” → “Run anyway” if you trust the source.
+
+---
+
 ## v1.1.1
 
 This release adds a **resizable stream grid** for the multiview: you can arrange and resize streams in a flexible layout, save and reuse custom layouts, and open the multiview in a **separate fullscreen window**. A **clean-release** script is available to clear the build output folder before rebuilding (e.g. to avoid “Access denied” on Windows when the app or another process is using files in `release/`).

@@ -13,6 +13,8 @@ export type StandaloneMultiviewState = {
   session: import('../../domain/vod').VodSession;
   streams: import('../../services/vod').SessionStreams | null;
   seasonYear: number;
+  /** Item IDs that were playing when entering fullscreen; fullscreen window will re-resolve playback for these to get fresh tokens. */
+  playingItemIds?: string[];
 };
 
 /** Semantic slot assignment: resolved against the current session when applying the template. */
@@ -153,6 +155,8 @@ interface MultiViewerProps {
   onEmbedError?: (msg: string) => void;
   isFullscreen?: boolean;
   onEnterFullscreen?: () => void;
+  /** Called before opening fullscreen window; parent can clear embedded playback so streams don't stay in play in main app. */
+  onBeforeEnterFullscreen?: () => void;
   onExitFullscreen?: () => void;
   /** When provided (e.g. standalone window), initial state is not overwritten by the session/streams effect. */
   initialLayout?: Layout;
@@ -174,6 +178,7 @@ export function MultiViewer({
   onEmbedError,
   isFullscreen = false,
   onEnterFullscreen,
+  onBeforeEnterFullscreen,
   onExitFullscreen,
   initialLayout,
   initialSlotToItemId,
@@ -324,6 +329,18 @@ export function MultiViewer({
   }, []);
 
   const [hideTitlesInFullscreen, setHideTitlesInFullscreen] = useState(false);
+  const [showPlayAllLoadingHint, setShowPlayAllLoadingHint] = useState(false);
+
+  useEffect(() => {
+    if (!showPlayAllLoadingHint) return;
+    const id = window.setTimeout(() => setShowPlayAllLoadingHint(false), 5500);
+    return () => clearTimeout(id);
+  }, [showPlayAllLoadingHint]);
+
+  const handlePlayAllEmbedded = useCallback(() => {
+    setShowPlayAllLoadingHint(true);
+    onPlayAllEmbedded?.(allItems);
+  }, [onPlayAllEmbedded, allItems]);
 
   useEffect(() => {
     if (!isFullscreen || !onExitFullscreen) return;
@@ -353,15 +370,16 @@ export function MultiViewer({
           className={isFullscreen ? 'flex-1 flex flex-col min-h-0' : 'space-y-6'}
         >
           {hasEmbedSupport && allItems.length > 0 && !isFullscreen && (
-            <div className="flex items-center gap-3 flex-wrap">
-              <button
-                type="button"
-                onClick={() => onPlayAllEmbedded?.(allItems)}
-                className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider bg-primary text-primary-foreground border border-primary hover:opacity-90 transition-opacity"
-              >
-                <Play className="w-4 h-4" />
-                {t('dashboard.playAllEmbedded')}
-              </button>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handlePlayAllEmbedded}
+                  className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider bg-primary text-primary-foreground border border-primary hover:opacity-90 transition-opacity"
+                >
+                  <Play className="w-4 h-4" />
+                  {t('dashboard.playAllEmbedded')}
+                </button>
 
               {showSyncButton && (
                 <button
@@ -385,7 +403,9 @@ export function MultiViewer({
                       session,
                       streams,
                       seasonYear,
+                      playingItemIds: Object.keys(embeddedPlayback).length > 0 ? Object.keys(embeddedPlayback) : undefined,
                     });
+                    onBeforeEnterFullscreen?.();
                     onEnterFullscreen();
                   }}
                   title={t('dashboard.multiviewFullscreen')}
@@ -395,6 +415,20 @@ export function MultiViewer({
                   {t('dashboard.multiviewFullscreen')}
                 </button>
               )}
+              </div>
+              <AnimatePresence>
+                {showPlayAllLoadingHint && (
+                  <motion.p
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="text-xs text-muted-foreground font-heading max-w-md"
+                  >
+                    {t('dashboard.playAllLoadingHint')}
+                  </motion.p>
+                )}
+              </AnimatePresence>
             </div>
           )}
 
@@ -483,17 +517,18 @@ export function MultiViewer({
           {/* Fullscreen toolbar: shown only on mouse hover at the top */}
           {isFullscreen && onExitFullscreen && (
             <div className="fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-end px-4 bg-gradient-to-b from-black/70 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200">
-              <div className="flex items-center gap-2">
-                {hasEmbedSupport && allItems.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => onPlayAllEmbedded?.(allItems)}
-                    className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold bg-primary text-primary-foreground border border-primary hover:opacity-90"
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                    {t('dashboard.playAllEmbedded')}
-                  </button>
-                )}
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  {hasEmbedSupport && allItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handlePlayAllEmbedded}
+                      className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold bg-primary text-primary-foreground border border-primary hover:opacity-90"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      {t('dashboard.playAllEmbedded')}
+                    </button>
+                  )}
                 <button
                   type="button"
                   onClick={() => setHideTitlesInFullscreen((v) => !v)}
@@ -524,6 +559,20 @@ export function MultiViewer({
                   <Minimize2 className="w-4 h-4" />
                   {t('dashboard.exitFullscreen')}
                 </button>
+              </div>
+              <AnimatePresence>
+                {showPlayAllLoadingHint && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="text-[10px] text-muted-foreground font-heading max-w-xs"
+                  >
+                    {t('dashboard.playAllLoadingHint')}
+                  </motion.p>
+                )}
+              </AnimatePresence>
               </div>
             </div>
           )}
