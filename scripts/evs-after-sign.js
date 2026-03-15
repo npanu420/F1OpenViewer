@@ -2,11 +2,13 @@
  * electron-builder afterSign hook: VMP (Widevine) signing with Castlabs EVS.
  * On Windows, VMP must be applied AFTER code signing (order required by Castlabs).
  * Requires: pip install castlabs-evs and EVS login (python3 -m castlabs_evs.account reauth).
- * After VMP signing, re-applies the icon to the exe (signing can replace the file and drop the icon).
+ *
+ * IMPORTANT: Do NOT modify the exe (e.g. with rcedit for icon) after VMP signing.
+ * Any change after VMP invalidates the Widevine signature and causes
+ * "Verified media path has been tampered" / PLATFORM_TAMPERED. The icon is
+ * already applied in afterPack (apply-exe-icon.js) before code sign.
  */
 const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
 
 function runEvsSignPkg(appOutDir) {
   return new Promise((resolve, reject) => {
@@ -73,18 +75,6 @@ exports.default = async function afterSign(context) {
     // don't throw: build continues without VMP signing
   }
 
-  // Re-apply icon to the portable exe: VMP signing may have replaced the file without the icon
-  const productName = context.packager?.appInfo?.productFilename || 'F1 OpenViewer';
-  const exeName = productName + '.exe';
-  const exePath = path.join(appOutDir, exeName);
-  const iconPath = path.join(process.cwd(), 'build', 'icon.ico');
-  if (fs.existsSync(exePath) && fs.existsSync(iconPath)) {
-    try {
-      const rcedit = require('rcedit');
-      await rcedit(exePath, { icon: iconPath });
-      console.log('[evs-after-sign] Icon re-applied to', exeName);
-    } catch (err) {
-      console.warn('[evs-after-sign] Could not re-apply icon:', err?.message || err);
-    }
-  }
+  // Do NOT re-apply icon here after VMP: modifying the exe after Widevine signing
+  // causes "Verified media path has been tampered". Icon is applied in afterPack.
 };

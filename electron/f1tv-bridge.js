@@ -683,35 +683,39 @@ async function contentPlay(contentId, channelId) {
     throw new Error('Session not ready: entitlement missing. Sign out and sign in again with "Sign in with browser", then retry.');
   }
   const contentIdNum = typeof contentId === 'string' ? parseInt(contentId, 10) : contentId;
+  // Try all platforms in parallel so we get one round-trip per stream instead of 6 sequential calls.
   const platformOrder = [
-    F1TV.Platform.WEB_DASH,
     F1TV.Platform.WEB_HLS,
     F1TV.Platform.BIG_SCREEN_HLS,
+    F1TV.Platform.WEB_DASH,
     F1TV.Platform.MOBILE_HLS,
     F1TV.Platform.TABLET_HLS,
     F1TV.Platform.BIG_SCREEN_DASH,
   ];
+  const results = await Promise.allSettled(
+    platformOrder.map((p) => client.contentPlay(contentIdNum, channelId, p))
+  );
   const candidates = [];
   let firstError = null;
   let firstF1Message = '';
-  for (const p of platformOrder) {
-    const res = await client.contentPlay(contentIdNum, channelId, p).catch((e) => {
+  results.forEach((outcome, idx) => {
+    const p = platformOrder[idx];
+    if (outcome.status === 'fulfilled') {
+      const res = outcome.value;
+      if (res && !res?.resultObj?.url) {
+        const resMsg = getMessageFromF1Response(res);
+        if (resMsg && !firstF1Message) firstF1Message = resMsg;
+      }
+      const obj = res?.resultObj;
+      if (obj?.url) candidates.push({ platform: p, ...obj });
+    } else {
+      const e = outcome.reason;
       if (!firstError) firstError = e;
       if (!firstF1Message) firstF1Message = extractF1ErrorMessage(e) || getMessageFromF1Response(e?.response?.data);
-      return null;
-    });
-    if (res && !res?.resultObj?.url) {
-      const resMsg = getMessageFromF1Response(res);
-      if (resMsg && !firstF1Message) firstF1Message = resMsg;
     }
-    const obj = res?.resultObj;
-    if (obj?.url) {
-      candidates.push({
-        platform: p,
-        ...obj,
-      });
-    }
-  }
+  });
+  // Preserve preference order: first candidate in platformOrder wins as primary.
+  candidates.sort((a, b) => platformOrder.indexOf(a.platform) - platformOrder.indexOf(b.platform));
   if (!candidates.length) {
     const f1Msg = firstF1Message || extractF1ErrorMessage(firstError);
     const detail = f1Msg || (firstError ? (firstError.message || String(firstError)) : '');

@@ -73,22 +73,20 @@ export function LiveEventView({
   }, []);
 
   const onPlayAllEmbedded = useCallback(async (itemsToPlay: CatalogItem[]) => {
-    const delayMs = 450;
-    for (let i = 0; i < itemsToPlay.length; i++) {
-      const item = itemsToPlay[i];
-      setLoadingItemIds((prev) => ({ ...prev, [item.id]: true }));
-      try {
-        const info = await resolvePlayback(item);
-        setEmbeddedPlayback((prev) => ({ ...prev, [item.id]: info }));
-      } catch (_) {
-        // per-panel error via onEmbedError if needed
-      } finally {
-        setLoadingItemIds((prev) => ({ ...prev, [item.id]: false }));
-      }
-      if (i < itemsToPlay.length - 1) {
-        await new Promise((r) => setTimeout(r, delayMs));
-      }
-    }
+    if (itemsToPlay.length === 0) return;
+    const loading = itemsToPlay.reduce<Record<string, boolean>>((acc, item) => ({ ...acc, [item.id]: true }), {});
+    setLoadingItemIds((prev) => ({ ...prev, ...loading }));
+    const results = await Promise.allSettled(
+      itemsToPlay.map((item) => resolvePlayback(item))
+    );
+    const nextPlayback: Record<string, PlaybackInfo> = {};
+    results.forEach((result, index) => {
+      const item = itemsToPlay[index];
+      if (result.status === 'fulfilled') nextPlayback[item.id] = result.value;
+    });
+    setEmbeddedPlayback((prev) => ({ ...prev, ...nextPlayback }));
+    const done = itemsToPlay.reduce<Record<string, boolean>>((acc, item) => ({ ...acc, [item.id]: false }), {});
+    setLoadingItemIds((prev) => ({ ...prev, ...done }));
   }, []);
 
   const onOpen = useCallback(

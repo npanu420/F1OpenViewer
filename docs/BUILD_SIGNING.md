@@ -189,7 +189,19 @@ If **`npm run build:signed`** fails with **"Request for upload URL failed"**, **
 
 Running as Administrator does not fix connection/DNS issues; the problem is network access to **evs-api.castlabs.com**.
 
-#### 2.6 DRM 403 / ACN_5002 (license rejected)
+#### 2.6 "Verified media path has been tampered" (Widevine VMP)
+
+If you see **"F1 TV: Widevine license generation failed >> Verified media path has been tampered"** (or similar), the Widevine CDM has detected that the executable was **modified after VMP signing**. Any change to the exe after Castlabs EVS signs it invalidates the Verified Media Path.
+
+**Common cause:** The project previously re-applied the app icon to the exe *after* VMP signing (via `rcedit` in the afterSign hook). That modification triggered the tamper check. This has been removed: the icon is applied only in `afterPack` (before code sign and before any VMP step), so the exe is never modified after VMP.
+
+**What to do:**
+
+1. **Use the correct exe** — Run **`release\win-unpacked\F1 OpenViewer.exe`** (the one that was VMP-signed). Do **not** run the app from the NSIS installer if the installer was built before the VMP step: the installed exe may not be VMP-signed, or may have been overwritten by a copy that was modified after signing.
+2. **Do not modify the exe after VMP** — Do not run any tool (rcedit, resource editors, etc.) on the exe after `castlabs_evs.vmp sign-pkg`. If you need to change the icon, do it in `afterPack` (see `scripts/apply-exe-icon.js`) so it happens before code sign and VMP.
+3. **Rebuild and re-sign** — Build with `npm run build:signed` so that VMP is applied to the final exe with no subsequent modifications. If you had previously applied the icon after VMP, do a clean build and use the new exe from `release\win-unpacked`.
+
+#### 2.7 DRM 403 / ACN_5002 (license rejected)
 
 If you see "DRM license rejected by server (error 403 / ACN_5002)" with a build that previously worked:
 

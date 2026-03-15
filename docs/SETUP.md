@@ -76,9 +76,9 @@ You can leave the other options in `.env` as they are for now.
 
    - **Location:** Place your Windows icon file at **`build/icon.ico`** (multi-size `.ico` recommended, e.g. 16×16, 32×32, 48×48, 256×256).
    - **Build config:** In `package.json`, the `build` section already points to `build/icon` / `build/icon.ico` for Windows. The installer and the portable app in `release\win-unpacked\F1 OpenViewer.exe` both use this icon.
-   - **After signing:** If you use code signing and/or Widevine VMP signing, the signing step can replace the executable and drop the icon. The project’s `afterSign` script re-applies the icon from `build/icon.ico` to the portable exe so it still shows the correct icon.
+   - **After signing:** The icon is applied in `afterPack` (before code sign and VMP). Do **not** modify the exe after Widevine VMP signing, or you will get "Verified media path has been tampered" and DRM will fail.
 
-   If you don’t add `build/icon.ico`, the build will still succeed; the app will use the default Electron icon.
+   If you don't add `build/icon.ico`, the build will still succeed; the app will use the default Electron icon.
 
 ---
 
@@ -219,7 +219,10 @@ Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) 
 - **Gray or blank window in the built app**  
   Make sure you did a fresh build after the project was updated (the build uses `base: './'` so that assets load correctly from the packaged app).
 
-- **DRM / 403 license errors**  
-  Use the **signed** build (`npm run build:signed` and then run `release\win-unpacked\F1 OpenViewer.exe`). Ensure you are logged in with “Sign in with browser” (or equivalent) so that the app has the right cookies for the license server.
+- **DRM / 403 license errors**
+  Use the **signed** build (`npm run build:signed`) and run **`release\win-unpacked\F1 OpenViewer.exe`** (not the installed app if the installer was built before VMP). Ensure you are logged in with "Sign in with browser". See BUILD_SIGNING.md for more.
+
+- **"Verified media path has been tampered"**
+  Run only **`release\win-unpacked\F1 OpenViewer.exe`** (the VMP-signed exe). Do not modify the exe after VMP signing. See **docs/BUILD_SIGNING.md** § 2.6.
 
 For more details on signing and certificates, see **docs/BUILD_SIGNING.md**.
