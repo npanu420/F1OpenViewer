@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
-import { Plus, GripVertical } from 'lucide-react';
+import { Plus, GripVertical, ChevronRight } from 'lucide-react';
 import type { Layout, LayoutItem } from 'react-grid-layout';
 import { ReactGridLayout, WidthProvider } from 'react-grid-layout/legacy';
 import { useLocale } from '../../i18n/LocaleContext';
@@ -70,6 +70,8 @@ interface ResizableStreamGridProps {
   fillHeight?: boolean;
   /** Called when user picks a size ratio from context menu for a slot */
   onSetSlotSize?: (slotId: string, w: number, h: number) => void;
+  /** Called when user chooses Reload from context menu for a slot that has a stream */
+  onReloadStream?: (itemId: string) => void;
   /** In fullscreen: disable re-compaction so proportions stay the same when switching to fullscreen */
   disableCompact?: boolean;
 }
@@ -94,11 +96,13 @@ export function ResizableStreamGrid({
   hideSlotHeadersUntilHover = false,
   fillHeight = false,
   onSetSlotSize,
+  onReloadStream,
   disableCompact = false,
 }: ResizableStreamGridProps) {
   const { t } = useLocale();
   const refsByItemId = useRef<Map<string, StreamPanelHandle>>(new Map());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; slotId: string } | null>(null);
+  const [sizesSubmenuVisible, setSizesSubmenuVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
@@ -133,7 +137,10 @@ export function ResizableStreamGrid({
 
   useEffect(() => {
     if (!contextMenu) return;
-    const close = () => setContextMenu(null);
+    const close = () => {
+      setContextMenu(null);
+      setSizesSubmenuVisible(false);
+    };
     window.addEventListener('click', close);
     window.addEventListener('contextmenu', close);
     return () => {
@@ -216,6 +223,7 @@ export function ResizableStreamGrid({
               <div className="flex-1 min-h-0 flex flex-col min-w-0 bg-black overflow-hidden">
                 {option ? (
                   <StreamPanel
+                    key={`${slotId}-${option.item.id}`}
                     ref={(r) => registerRef(option.item.id, r)}
                     label={option.label}
                     type={option.type}
@@ -243,30 +251,66 @@ export function ResizableStreamGrid({
         })}
       </GridLayoutWithWidth>
 
-      {contextMenu && (
-        <div
-          className="fixed z-[100] min-w-[140px] py-1 rounded-lg border border-border bg-popover shadow-lg"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-3 py-1.5 text-[10px] font-heading text-muted-foreground border-b border-border/50">
-            {t('dashboard.sizeRatio')}
-          </div>
-          {SIZE_RATIOS.map(({ num, den }) => (
-            <button
-              key={`${num}-${den}`}
-              type="button"
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/50 transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                applyRatio(contextMenu.slotId, num, den);
-              }}
+      {contextMenu && (() => {
+        const itemId = slotToItemId[contextMenu.slotId] || '';
+        const hasStream = Boolean(itemId && onReloadStream);
+        return (
+          <div
+            className="fixed z-[100] min-w-[140px] py-1 rounded-lg border border-border bg-popover shadow-lg"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {hasStream && (
+              <>
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/50 transition-colors flex items-center gap-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReloadStream?.(itemId);
+                    setContextMenu(null);
+                  }}
+                >
+                  {t('dashboard.reloadStream')}
+                </button>
+                <div className="border-t border-border/50 my-1" />
+              </>
+            )}
+            <div
+              className="relative"
+              onMouseEnter={() => setSizesSubmenuVisible(true)}
+              onMouseLeave={() => setSizesSubmenuVisible(false)}
             >
-              {num}/{den}
-            </button>
-          ))}
-        </div>
-      )}
+              <div className="px-3 py-1.5 text-sm flex items-center justify-between hover:bg-accent/50 transition-colors">
+                <span>{t('dashboard.sizesSubmenu')}</span>
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+              </div>
+              {sizesSubmenuVisible && (
+                <div
+                  className="absolute left-full top-0 ml-0.5 min-w-[100px] py-1 rounded-lg border border-border bg-popover shadow-lg max-h-[70vh] overflow-y-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {SIZE_RATIOS.map(({ num, den }) => (
+                    <button
+                      key={`${num}-${den}`}
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/50 transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        applyRatio(contextMenu.slotId, num, den);
+                        setContextMenu(null);
+                        setSizesSubmenuVisible(false);
+                      }}
+                    >
+                      {num}/{den}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {canAddSlot && onAddSlot && (
         <button

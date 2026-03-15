@@ -597,6 +597,14 @@ export function MultiViewer({
               hideSlotHeadersUntilHover={isFullscreen && hideTitlesInFullscreen}
               fillHeight={isFullscreen}
               onSetSlotSize={handleSetSlotSize}
+              onReloadStream={
+                onPlayEmbedded
+                  ? (itemId) => {
+                      const opt = streamOptions.find((o) => o.item.id === itemId);
+                      if (opt) onPlayEmbedded(opt.item);
+                    }
+                  : undefined
+              }
               disableCompact={isFullscreen}
             />
             </div>

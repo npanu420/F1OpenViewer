@@ -97,28 +97,23 @@ export function StandaloneMultiviewView() {
 
   const onPlayAllEmbedded = useCallback(async (items: CatalogItem[]) => {
     const itemsToPlay = items;
-    setLoadingItemIds((prev) => {
-      const next = { ...prev };
-      itemsToPlay.forEach((it) => { next[it.id] = true; });
-      return next;
-    });
+    const delayMs = 450;
     setEmbedError(null);
-    const results = await Promise.allSettled(
-      itemsToPlay.map((item) => resolvePlayback(item))
-    );
-    setEmbeddedPlayback((prev) => {
-      const next = { ...prev };
-      results.forEach((result, i) => {
-        if (result.status === 'fulfilled' && itemsToPlay[i])
-          next[itemsToPlay[i].id] = result.value;
-      });
-      return next;
-    });
-    setLoadingItemIds((prev) => {
-      const next = { ...prev };
-      itemsToPlay.forEach((it) => { next[it.id] = false; });
-      return next;
-    });
+    for (let i = 0; i < itemsToPlay.length; i++) {
+      const item = itemsToPlay[i];
+      setLoadingItemIds((prev) => ({ ...prev, [item.id]: true }));
+      try {
+        const info = await resolvePlayback(item);
+        setEmbeddedPlayback((prev) => ({ ...prev, [item.id]: info }));
+      } catch (_) {
+        // per-panel error via onEmbedError if needed
+      } finally {
+        setLoadingItemIds((prev) => ({ ...prev, [item.id]: false }));
+      }
+      if (i < itemsToPlay.length - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
   }, []);
 
   const handleExit = useCallback(() => {

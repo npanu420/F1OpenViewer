@@ -146,26 +146,22 @@ export function DashboardView({
   }, []);
 
   const onPlayAllEmbedded = useCallback(async (itemsToPlay: CatalogItem[]) => {
-    setLoadingItemIds((prev) => {
-      const next = { ...prev };
-      itemsToPlay.forEach((it) => { next[it.id] = true; });
-      return next;
-    });
-    const results = await Promise.allSettled(
-      itemsToPlay.map((item) => resolvePlayback(item))
-    );
-    setEmbeddedPlayback((prev) => {
-      const next = { ...prev };
-      results.forEach((result, i) => {
-        if (result.status === 'fulfilled') next[itemsToPlay[i].id] = result.value;
-      });
-      return next;
-    });
-    setLoadingItemIds((prev) => {
-      const next = { ...prev };
-      itemsToPlay.forEach((it) => { next[it.id] = false; });
-      return next;
-    });
+    const delayMs = 450;
+    for (let i = 0; i < itemsToPlay.length; i++) {
+      const item = itemsToPlay[i];
+      setLoadingItemIds((prev) => ({ ...prev, [item.id]: true }));
+      try {
+        const info = await resolvePlayback(item);
+        setEmbeddedPlayback((prev) => ({ ...prev, [item.id]: info }));
+      } catch (_) {
+        // per-panel error via onEmbedError if needed
+      } finally {
+        setLoadingItemIds((prev) => ({ ...prev, [item.id]: false }));
+      }
+      if (i < itemsToPlay.length - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
   }, []);
 
   useEffect(() => {
