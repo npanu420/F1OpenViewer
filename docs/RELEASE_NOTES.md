@@ -1,5 +1,12 @@
 # Release Notes – F1 OpenViewer
 
+## v1.1.3
+
+- **Localization**: Additional UI strings and live section texts are now fully localized (EN/IT).
+- **UI**: App logo icon in the header (top left) instead of the generic TV icon; minor aesthetic tweaks.
+
+---
+
 ## v1.1.2
 
 This release improves **fullscreen multiview**, **live streaming**, and **user feedback** when loading multiple streams.

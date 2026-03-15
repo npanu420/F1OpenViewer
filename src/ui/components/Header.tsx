@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Tv, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleContext';
 import { SeasonSelector } from './SeasonSelector';
 
@@ -32,9 +32,11 @@ export function Header({
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
         >
-          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center glow-red">
-            <Tv className="w-4 h-4 text-primary-foreground" />
-          </div>
+          <img
+            src={`${import.meta.env.BASE_URL}app-icon.png`}
+            alt=""
+            className="w-8 h-8 rounded object-contain"
+          />
           <div className="hidden sm:block">
             <h1 className="text-base font-heading font-bold tracking-wider leading-none">
               {brandLabel}
