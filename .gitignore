@@ -3,6 +3,7 @@ dist/
 dist-electron/
 out/
 release/
+.claude/
 DO_NOT_DISTRIBUTE/
 F1OpenViewer/
 certificatoBuildF1/

@@ -32,6 +32,13 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
   const playerRef = useRef<shaka.Player | null>(null);
   const [ready, setReady] = useState(false);
 
+  const redact = (v: unknown) => {
+    if (v == null) return '';
+    const s = String(v);
+    if (!s) return '';
+    return s.length <= 16 ? `${s.slice(0, 4)}…(len:${s.length})` : `${s.slice(0, 8)}…${s.slice(-4)}(len:${s.length})`;
+  };
+
   useImperativeHandle(ref, () => ({
     getVideoElement: () => videoRef.current,
   }));
@@ -41,6 +48,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
     if (!video) return;
 
     let destroyed = false;
+    let manifestFilter: ((type: any, response: any) => void) | null = null;
     const msg1001 = t('drm.error1001');
     const msg6001 = t('drm.error6001');
     const msg6007 = t('drm.error6007');
@@ -108,27 +116,85 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
 
       applyConfig(props.licenseUrl);
 
-      const setLicenseHeaders = (headers?: Record<string, string>) => {
+      const setLicenseHeaders = (headers?: Record<string, string>, stripManifestDrm = false) => {
         const net = player.getNetworkingEngine();
         if (!net) return;
         net.clearAllRequestFilters();
+        if (manifestFilter) {
+          (net as any).unregisterResponseFilter(manifestFilter);
+          manifestFilter = null;
+        }
+        if (typeof (net as any).clearAllResponseFilters === 'function') {
+          // shaka v4+ supports this; safe-guard for older builds
+          try { (net as any).clearAllResponseFilters(); } catch (_) {}
+        }
+        if (stripManifestDrm) {
+          manifestFilter = (type: any, response: any) => {
+            if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+              const text = new TextDecoder().decode(response.data);
+              // Log ContentProtection blocks before stripping — may contain laURL/laurl
+              const cpBlocks = text.match(/<ContentProtection[\s\S]*?(?:\/>|<\/ContentProtection>)/gi) ?? [];
+              // eslint-disable-next-line no-console
+              console.log('[manifest][ContentProtection blocks]', JSON.stringify(cpBlocks));
+              const stripped = text.replace(/<ContentProtection[^>]*(?:\/>|>[\s\S]*?<\/ContentProtection>)/gi, '');
+              response.data = new TextEncoder().encode(stripped).buffer;
+            }
+          };
+          (net as any).registerResponseFilter(manifestFilter);
+        }
+
+        // Debug: log LICENSE requests/responses so we can see actual body sizes and URLs
+        const debugResponseFilter = (type: any, response: any) => {
+          if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) {
+            const bytes = response?.data ? (response.data.byteLength ?? 0) : 0;
+            const ct = response?.headers?.['content-type'] || response?.headers?.['Content-Type'] || '';
+            // eslint-disable-next-line no-console
+            console.log('[shaka][LICENSE][resp]', { bytes, contentType: ct });
+          }
+        };
+        try { (net as any).registerResponseFilter(debugResponseFilter); } catch (_) {}
+
         net.registerRequestFilter((type, request) => {
           if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) {
+            try {
+              const uris = Array.isArray((request as any)?.uris) ? (request as any).uris : undefined;
+              const method = (request as any)?.method;
+              const body = (request as any)?.body;
+              const bodyBytes =
+                body instanceof ArrayBuffer ? body.byteLength
+                : ArrayBuffer.isView(body) ? body.byteLength
+                : (body?.byteLength ?? 0);
+              const headerKeys = request?.headers ? Object.keys(request.headers).sort() : [];
+              const headerSummary: Record<string, string> = {};
+              if (request?.headers) {
+                for (const [k, v] of Object.entries(request.headers)) {
+                  const lk = k.toLowerCase();
+                  if (lk.includes('token') || lk === 'authorization' || lk === 'cookie' || lk === 'customdata') headerSummary[k] = redact(v);
+                }
+              }
+              // Electron spesso serializza gli argomenti come "[object Object]" nel main log:
+              // logghiamo JSON per vedere davvero uris/bodyBytes.
+              // eslint-disable-next-line no-console
+              console.log('[shaka][LICENSE][req]', JSON.stringify({
+                method,
+                uris,
+                bodyBytes,
+                headerKeys,
+                headerSummary,
+              }));
+            } catch (_) {}
             if (headers) {
               for (const [k, v] of Object.entries(headers)) request.headers[k] = v;
-            }
-            if (props.accessToken && !request.headers.Authorization) {
-              request.headers.Authorization = `Bearer ${props.accessToken}`;
             }
           }
         });
       };
 
-      setLicenseHeaders(props.licenseHeaders);
+      setLicenseHeaders(props.licenseHeaders, !Boolean(props.licenseUrl?.trim()));
 
       const loadWith = async (manifestUrl: string, licenseUrl: string, headers?: Record<string, string>) => {
         applyConfig(licenseUrl);
-        setLicenseHeaders(headers);
+        setLicenseHeaders(headers, !Boolean(licenseUrl?.trim()));
         const loadPromise = player.load(manifestUrl);
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error(t('ui.timeoutStream'))), 15000);

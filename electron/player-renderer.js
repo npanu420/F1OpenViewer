@@ -28,6 +28,13 @@
     }
   }
 
+  function redact(v) {
+    if (v == null) return '';
+    const s = String(v);
+    if (!s) return '';
+    return s.length <= 16 ? `${s.slice(0, 4)}…(len:${s.length})` : `${s.slice(0, 8)}…${s.slice(-4)}(len:${s.length})`;
+  }
+
   function getMessageForCode(code) {
     if (code === 1001) return MSG_1001;
     if (code === 6001) return MSG_6001;
@@ -117,15 +124,72 @@
       player.configure(config);
     }
 
-    function setLicenseHeaders(headers) {
-      const net = player.getNetworkingEngine();
+    var _manifestFilter = null;
+    function setLicenseHeaders(headers, stripManifestDrm) {
+      var net = player.getNetworkingEngine();
       if (!net) return;
       net.clearAllRequestFilters();
+      if (typeof net.clearAllResponseFilters === 'function') {
+        try { net.clearAllResponseFilters(); } catch (_) {}
+      }
+      if (_manifestFilter && typeof net.unregisterResponseFilter === 'function') {
+        net.unregisterResponseFilter(_manifestFilter);
+        _manifestFilter = null;
+      }
+      if (stripManifestDrm) {
+        _manifestFilter = function (type, response) {
+          if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+            var text = new TextDecoder().decode(response.data);
+            // Log ContentProtection blocks before stripping — may contain laURL/laurl
+            var cpBlocks = text.match(/<ContentProtection[\s\S]*?(?:\/>|<\/ContentProtection>)/gi) || [];
+            console.log('[manifest][ContentProtection blocks]', JSON.stringify(cpBlocks));
+            var stripped = text.replace(/<ContentProtection[^>]*(?:\/>|>[\s\S]*?<\/ContentProtection>)/gi, '');
+            response.data = new TextEncoder().encode(stripped).buffer;
+          }
+        };
+        if (typeof net.registerResponseFilter === 'function') {
+          net.registerResponseFilter(_manifestFilter);
+        }
+      }
+
+      if (typeof net.registerResponseFilter === 'function') {
+        net.registerResponseFilter(function (type, response) {
+          if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) {
+            try {
+              var bytes = response && response.data ? (response.data.byteLength || 0) : 0;
+              var ct = (response && response.headers && (response.headers['content-type'] || response.headers['Content-Type'])) || '';
+              console.log('[shaka][LICENSE][resp]', { bytes: bytes, contentType: ct });
+            } catch (_) {}
+          }
+        });
+      }
       net.registerRequestFilter(function (type, request) {
-        if (type === shaka.net.NetworkingEngine.RequestType.LICENSE && headers) {
-          for (const k in headers) {
-            if (Object.prototype.hasOwnProperty.call(headers, k)) {
-              request.headers[k] = headers[k];
+        if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) {
+          try {
+            var uris = request && Array.isArray(request.uris) ? request.uris : undefined;
+            var method = request && request.method;
+            var body = request && request.body;
+            var bodyBytes = 0;
+            if (body && body.byteLength != null) bodyBytes = body.byteLength;
+            var headerKeys = request && request.headers ? Object.keys(request.headers).sort() : [];
+            var headerSummary = {};
+            if (request && request.headers) {
+              for (const hk in request.headers) {
+                if (!Object.prototype.hasOwnProperty.call(request.headers, hk)) continue;
+                const lk = String(hk).toLowerCase();
+                if (lk.includes('token') || lk === 'authorization' || lk === 'cookie' || lk === 'customdata') {
+                  headerSummary[hk] = redact(request.headers[hk]);
+                }
+              }
+            }
+            // Log JSON string to avoid "[object Object]" in Electron console forwarding.
+            console.log('[shaka][LICENSE][req]', JSON.stringify({ method: method, uris: uris, bodyBytes: bodyBytes, headerKeys: headerKeys, headerSummary: headerSummary }));
+          } catch (_) {}
+          if (headers) {
+            for (const k in headers) {
+              if (Object.prototype.hasOwnProperty.call(headers, k)) {
+                request.headers[k] = headers[k];
+              }
             }
           }
         }
@@ -134,7 +198,8 @@
 
     async function loadWith(manifestUrl, licenseUrl, headers) {
       applyConfig(licenseUrl);
-      setLicenseHeaders(headers || undefined);
+      var hasLicense = Boolean(licenseUrl && licenseUrl.trim().length > 0);
+      setLicenseHeaders(headers || undefined, !hasLicense);
       const loadPromise = player.load(manifestUrl);
       const timeoutPromise = new Promise(function (_, reject) {
         setTimeout(function () {

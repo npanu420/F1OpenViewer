@@ -96,7 +96,7 @@ The build with Electron castLabs is already signed for **development** (Widevine
 #### 2.1 Install the EVS client (Python 3.7+)
 
 ```bash
-python3 -m pip install --upgrade castlabs-evs
+python -m pip install --upgrade castlabs-evs
 ```
 
 (Optional: use a virtualenv.)
@@ -104,7 +104,7 @@ python3 -m pip install --upgrade castlabs-evs
 #### 2.2 Create an EVS account
 
 ```bash
-python3 -m castlabs_evs.account signup
+python -m castlabs_evs.account signup
 ```
 
 Follow the prompts (email, name, organisation, account name, password). Confirm the account with the code received by email.
@@ -112,7 +112,7 @@ Follow the prompts (email, name, organisation, account name, password). Confirm 
 #### 2.3 Login (on another PC or after changing account)
 
 ```bash
-python3 -m castlabs_evs.account reauth
+python -m castlabs_evs.account reauth
 ```
 
 #### 2.4 VMP sign the build
@@ -141,14 +141,16 @@ Then run VMP signing **manually** in another terminal (after the build has finis
 python -m castlabs_evs.vmp sign-pkg release\win-unpacked
 ```
 
-**Force a fresh VMP signature** (recommended if you get DRM 403 with a build that worked before): set `FORCE_VMP_SIGN=1` so that the script uses `--force` and requests a new signature from EVS instead of reusing the cache:
+**`npm run build:signed` uses `--force` by default** so each new build always gets a fresh VMP signature from EVS. A stale cached signature (from a previous build) no longer matches the new exe and causes DRM 403 / ACN_5002 on Widevine-protected content (e.g. 2026 on-demand races).
+
+If EVS is unreachable (VPN/firewall blocking `evs-api.castlabs.com`), set `SKIP_VMP_FORCE=1` to fall back to the cached signature:
 
 ```powershell
-$env:FORCE_VMP_SIGN = "1"
+$env:SKIP_VMP_FORCE = "1"
 npm run build:signed
 ```
 
-Or run the sign step manually with `--force`:
+To run the sign step manually with `--force`:
 
 ```powershell
 py -m castlabs_evs.vmp sign-pkg --force release\win-unpacked
@@ -206,7 +208,7 @@ If you see **"F1 TV: Widevine license generation failed >> Verified media path h
 If you see "DRM license rejected by server (error 403 / ACN_5002)" with a build that previously worked:
 
 1. **Session/token expiry (most common)** — F1 TV session tokens (ascendon/entitlement) often expire after a few hours. The same build can work in the morning and return 403 in the afternoon; the server may report it like an uncertified client. The app now **refreshes the session before each playback** (and retries once on 403). If it still fails, **sign in again** with "Sign in with browser" and retry.
-2. **Re-sign with a fresh VMP signature** — If re-login does not help, the exe may no longer match the cached EVS signature. Run a new build with `FORCE_VMP_SIGN=1` and then `npm run build:signed`, or manually run `py -m castlabs_evs.vmp sign-pkg --force release\win-unpacked` on the same folder.
+2. **Re-sign with a fresh VMP signature** — If re-login does not help, the exe may no longer match the cached EVS signature. Run `npm run build:signed` (which now uses `--force` by default to always get a fresh signature), or manually run `py -m castlabs_evs.vmp sign-pkg --force release\win-unpacked` on the same folder.
 3. **Ensure the license proxy receives the right headers** — The app forwards `drmToken`, `Authorization`, and entitlement headers from the player to the F1 license server. If you use a custom build, ensure the main process license proxy is used (dashboard and player both use it when `licenseUrl` is rewritten to the local proxy).
 
 - **macOS**: VMP signing must be done **before** code signing. So:

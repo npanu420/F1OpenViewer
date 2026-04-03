@@ -15,10 +15,224 @@ const LICENSE_PROXY_PORT_MAX = 18775;
 /** Set when the license proxy successfully binds; used for rewriting license URLs. */
 let licenseProxyUrl = `http://127.0.0.1:${LICENSE_PROXY_PORT_MIN}/la`;
 let licenseProxyTarget = '';
+/**
+ * Snapshot of last CONTENT/PLAY (before rewriting licenseUrl to the local proxy).
+ * Used for pipeline 5+ / missing laURL: try LA URL variants (query + KeyOS customdata).
+ * If two concurrent streams share the same LA path, the last contentPlay wins (rare for this app).
+ */
+let licensePlaybackContext = null;
+/** Dedupe CloudFront HTML error logs within one /la request (PRE text differs per Request ID). */
+let lastCloudFront403SemanticKey = '';
 /** Last error message from F1 license server (403 response), so the player UI can show it. */
 let lastLicenseErrorMsg = '';
 
 const F1TV_WEB_BASE = 'https://f1tv.formula1.com';
+
+function redact(value) {
+  if (value == null) return '';
+  const s = String(value);
+  if (!s) return '';
+  if (s.length <= 16) return `${s.slice(0, 4)}…(len:${s.length})`;
+  return `${s.slice(0, 8)}…${s.slice(-4)}(len:${s.length})`;
+}
+
+function summarizeHeaders(headers) {
+  if (!headers || typeof headers !== 'object') return {};
+  const out = {};
+  for (const [k, v] of Object.entries(headers)) {
+    const lk = k.toLowerCase();
+    if (lk.includes('token') || lk === 'authorization' || lk === 'cookie' || lk === 'customdata') out[k] = redact(v);
+    else out[k] = Array.isArray(v) ? v[0] : v;
+  }
+  return out;
+}
+
+function parseJwtPayload(jwt) {
+  if (!jwt || typeof jwt !== 'string' || !jwt.includes('.')) return null;
+  try {
+    const parts = jwt.split('.');
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = Buffer.from(b64 + '='.repeat((4 - (b64.length % 4)) % 4), 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch (_) {
+    return null;
+  }
+}
+
+function laUrlBase(u) {
+  if (!u || typeof u !== 'string') return '';
+  try {
+    const url = new URL(u);
+    return `${url.origin}${url.pathname}`;
+  } catch (_) {
+    return u.split('?')[0] || u;
+  }
+}
+
+function isCloudFrontHtmlBlock(status, headers, dataBuf) {
+  if (status !== 403 || !dataBuf || !dataBuf.length) return false;
+  const ct = String(headers?.['content-type'] || '').toLowerCase();
+  if (!ct.includes('text/html')) return false;
+  const head = dataBuf.slice(0, 80).toString('utf8').trim().toUpperCase();
+  return head.startsWith('<!DOCTYPE') || head.startsWith('<HTML');
+}
+
+/** Parses CloudFront default error HTML so logs show the real reason (not just "<!DOCTYPE..."). */
+function extractCloudFrontErrorSummary(html) {
+  if (!html || typeof html !== 'string') return null;
+  const h1 = html.match(/<H1[^>]*>([\s\S]*?)<\/H1>/i)?.[1]?.replace(/\s+/g, ' ')?.trim();
+  const h2 = html.match(/<H2[^>]*>([\s\S]*?)<\/H2>/i)?.[1]?.replace(/\s+/g, ' ')?.trim();
+  const pre = html.match(/<PRE[^>]*>([\s\S]*?)<\/PRE>/i)?.[1]?.replace(/\s+/g, ' ')?.trim();
+  const reqId = html.match(/Request ID:\s*([^<\s]+)/i)?.[1]?.trim();
+  const genBy = html.match(/Generated\s+by\s+cloudfront\s*\(([^)]+)\)/i)?.[1]?.trim();
+  return {
+    h1: h1 ? h1.slice(0, 200) : undefined,
+    h2: h2 ? h2.slice(0, 400) : undefined,
+    pre: pre ? pre.slice(0, 500) : undefined,
+    requestId: reqId,
+    generatedBy: genBy,
+  };
+}
+
+function cloudFront403SemanticKey(summary) {
+  if (!summary) return '';
+  // Ignore PRE/requestId — CloudFront changes Request ID every time so JSON never matches.
+  return [summary.h1 || '', summary.h2 || '', summary.generatedBy || ''].join('\u0001');
+}
+
+function logCloudFrontHtml403(dataBuf, cfIdHeader) {
+  try {
+    const html = dataBuf.slice(0, 12000).toString('utf8');
+    const summary = extractCloudFrontErrorSummary(html);
+    if (summary) {
+      const semKey = cloudFront403SemanticKey(summary);
+      if (semKey && semKey === lastCloudFront403SemanticKey) {
+        console.warn(
+          '[license-proxy] CloudFront 403 (stesso messaggio di prima; Request ID diverso nel PRE) | x-amz-cf-id:',
+          cfIdHeader || 'n/a'
+        );
+        return;
+      }
+      if (semKey) lastCloudFront403SemanticKey = semKey;
+      console.warn('[license-proxy] CloudFront 403 detail:', JSON.stringify(summary), cfIdHeader ? `| x-amz-cf-id: ${cfIdHeader}` : '');
+    } else {
+      console.warn('[license-proxy] CloudFront 403 (could not parse HTML) | len:', dataBuf.length);
+    }
+  } catch (e) {
+    console.warn('[license-proxy] CloudFront 403 parse error:', e?.message);
+  }
+}
+
+/** Short hint for tiny LICENSE POST bodies (often 2 bytes = Widevine cert/protocol, not full challenge). */
+function logLicenseBodyHint(bodyBuf) {
+  const n = bodyBuf ? bodyBuf.length : 0;
+  if (n === 0 || n > 64) return;
+  const hex = Buffer.from(bodyBuf).toString('hex');
+  console.warn(
+    '[license-proxy] LICENSE body is very small (',
+    n,
+    'bytes, hex:',
+    hex,
+    ') — if playback fails, the CDM may still be in cert/handshake; real challenges are usually hundreds+ bytes.'
+  );
+}
+
+/** Build alternate LA requests after CloudFront HTML 403 on standard F1 LA path. */
+function buildLaDiscoveryAttempts(ctx, playToken) {
+  const attempts = [];
+  if (!ctx?.baseLaUrl) return attempts;
+  const base = ctx.baseLaUrl;
+  const kid = ctx.paCfKeyGroup && String(ctx.paCfKeyGroup).trim();
+
+  const push = (label, url, extraHeaders) => {
+    if (!url) return;
+    const key = `${url}|${JSON.stringify(extraHeaders || {})}`;
+    if (attempts.some((a) => a._k === key)) return;
+    attempts.push({ label, url, extraHeaders: extraHeaders || {}, _k: key });
+  };
+
+  // If primary LA was WEB_DASH widevine (pipeline 5+), try BIG_SCREEN_DASH widevine — same pattern as older third-party clients (HLS/DASH).
+  if (ctx.contentId != null && !Number.isNaN(Number(ctx.contentId))) {
+    try {
+      const authMatch = String(ctx.baseLaUrl || '').match(/\/2\.0\/(R|A)\//);
+      const auth = authMatch ? authMatch[1] : 'R';
+      const u = new URL(`https://f1tv.formula1.com/2.0/${auth}/ENG/BIG_SCREEN_DASH/ALL/CONTENT/LA/widevine`);
+      u.searchParams.set('contentId', String(ctx.contentId));
+      if (ctx.channelId != null && ctx.channelId !== '' && !Number.isNaN(Number(ctx.channelId))) {
+        u.searchParams.set('channelId', String(ctx.channelId));
+      }
+      push('LA widevine BIG_SCREEN_DASH', u.toString(), {});
+    } catch (_) {}
+  }
+
+  try {
+    if (kid) {
+      const u1 = new URL(base);
+      u1.searchParams.set('kid', kid);
+      push(`LA ?kid=${kid}`, u1.toString(), {});
+      const u2 = new URL(base);
+      u2.searchParams.set('keygroup', kid);
+      push(`LA ?keygroup=${kid}`, u2.toString(), {});
+      const u3 = new URL(base);
+      u3.searchParams.set('KeyId', kid);
+      push(`LA ?KeyId=${kid}`, u3.toString(), {});
+    }
+  } catch (_) {}
+
+  if (ctx.licenseEntitlementToken) {
+    push('LA + customdata(entitlementToken JWT)', base, { customdata: ctx.licenseEntitlementToken });
+  }
+  if (playToken) {
+    push('LA + customdata(playToken)', base, { customdata: playToken });
+  }
+  try {
+    const pl = parseJwtPayload(ctx.licenseEntitlementToken);
+    if (pl?.SessionId) {
+      push('LA + customdata(SessionId from JWT)', base, { customdata: String(pl.SessionId) });
+    }
+  } catch (_) {}
+
+  push('LA + Accept: application/json', base, { Accept: 'application/json' });
+  return attempts;
+}
+
+function captureLicensePlaybackContext(result) {
+  const la = result?.licenseUrl;
+  if (!la || typeof la !== 'string') return;
+  if (!la.startsWith('https://') || !la.includes('formula1.com')) return;
+  licensePlaybackContext = {
+    baseLaUrl: laUrlBase(la),
+    pipelineVersion: result.pipelineVersion,
+    paCfKeyGroup: result.paCfKeyGroup != null ? String(result.paCfKeyGroup) : '',
+    licenseEntitlementToken: result.licenseEntitlementToken || '',
+    manifestUrl: result.manifestUrl || '',
+    contentId: result.contentId,
+    channelId: result.channelId,
+  };
+  console.log('[license-proxy] playback context captured | base:', licensePlaybackContext.baseLaUrl, '| pipeline:', licensePlaybackContext.pipelineVersion ?? 'n/a', '| paCfKid:', licensePlaybackContext.paCfKeyGroup || '(none)');
+}
+
+function pickDebugResponseHeaders(h) {
+  if (!h) return {};
+  const out = {};
+  const keys = [
+    'content-type',
+    'server',
+    'date',
+    'via',
+    'x-cache',
+    'x-amz-cf-id',
+    'x-amz-cf-pop',
+    'cf-ray',
+    'x-amzn-requestid',
+    'x-request-id',
+  ];
+  for (const k of keys) {
+    const v = h[k];
+    if (v != null) out[k] = v;
+  }
+  return out;
+}
 
 /** Slug for F1 TV detail URL: /detail/{contentId}/{slug} */
 function slugify(title) {
@@ -83,6 +297,7 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
   }
   let licenseUrl = result.licenseUrl || '';
   if (licenseUrl.startsWith('https://') && licenseUrl.includes('formula1.com')) {
+    captureLicensePlaybackContext(result);
     licenseProxyTarget = licenseUrl;
     licenseUrl = licenseProxyUrl;
   }
@@ -129,6 +344,11 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('player:load', payload);
   });
+  win.webContents.on('before-input-event', (_evt, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') {
+      win.webContents.isDevToolsOpened() ? win.webContents.closeDevTools() : win.webContents.openDevTools({ mode: 'detach' });
+    }
+  });
 }
 
 const LICENSE_PROXY_FORWARD_HEADERS = ['authorization', 'drmtoken', 'ascendontoken', 'entitlementtoken'];
@@ -137,10 +357,19 @@ const LICENSE_PROXY_FORWARD_HEADERS = ['authorization', 'drmtoken', 'ascendontok
 let currentPlayToken = '';
 
 function buildLicenseProxyHeaders(req) {
-  const headers = f1tv.getLicenseRequestHeaders() || {};
+  const headers = { ...(f1tv.getLicenseRequestHeaders() || {}) };
+  const forwarded = {};
   for (const key of LICENSE_PROXY_FORWARD_HEADERS) {
     const v = req.headers[key] || req.headers[key.toLowerCase()];
-    if (v) headers[key] = Array.isArray(v) ? v[0] : v;
+    if (v) forwarded[key] = Array.isArray(v) ? v[0] : v;
+  }
+  if (forwarded.ascendontoken) headers.ascendontoken = forwarded.ascendontoken;
+  if (forwarded.entitlementtoken) headers.entitlementtoken = forwarded.entitlementtoken;
+  if (forwarded.drmtoken) headers.drmtoken = forwarded.drmtoken;
+  // Only override Authorization when the player explicitly sends a DRM bearer token.
+  // The browser subscription token is not the license bearer token and causes 403s on protected streams.
+  if (forwarded.authorization && (forwarded.drmtoken || !headers.Authorization)) {
+    headers.Authorization = forwarded.authorization;
   }
   return headers;
 }
@@ -148,23 +377,86 @@ function buildLicenseProxyHeaders(req) {
 /**
  * @param {Record<string, string>} headers - request headers (mutated with Cookie)
  * @param {string} [playTokenOverride] - per-stream playToken from X-F1-Play-Token header (dashboard); else use currentPlayToken (player window)
+ * @param {{ quiet?: boolean }} [opts] - quiet: no per-request logs (used for LA discovery batch retries)
  */
-async function sendLicenseToF1(target, body, headers, playTokenOverride) {
-  const cookies = await session.defaultSession.cookies.get({ url: target });
-  const cookieParts = cookies.map((c) => `${c.name}=${c.value}`);
+async function sendLicenseToF1(target, body, headers, playTokenOverride, opts = {}) {
+  const quiet = !!opts.quiet;
   const playToken = playTokenOverride ?? currentPlayToken;
-  if (playToken && !cookieParts.some((p) => p.startsWith('playToken='))) {
-    cookieParts.push(`playToken=${playToken}`);
+  const targetUrl = new URL(target);
+
+  // Ensure playToken is set in session cookies for this origin BEFORE the request,
+  // because session.defaultSession.fetch() sends session cookies automatically.
+  if (playToken) {
+    const targetOrigin = targetUrl.origin;
+    await session.defaultSession.cookies.set({ url: targetOrigin, name: 'playToken', value: playToken, path: '/' }).catch(() => {});
   }
-  if (cookieParts.length) headers.Cookie = cookieParts.join('; ');
-  headers['Content-Type'] = headers['Content-Type'] || 'application/octet-stream';
-  return axios.post(target, body, {
-    headers,
-    responseType: 'arraybuffer',
-    validateStatus: () => true,
-    maxBodyLength: Infinity,
-    maxContentLength: Infinity,
+
+  // Build request headers without Cookie — session.defaultSession.fetch uses Chromium's
+  // network stack (same TLS fingerprint as Chrome) and sends session cookies automatically.
+  // This passes Imperva/CloudFront bot-protection (reese84) which rejects Node.js TLS.
+  const reqHeaders = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() !== 'cookie') reqHeaders[k] = v;
+  }
+  reqHeaders['Content-Type'] = reqHeaders['Content-Type'] || 'application/octet-stream';
+
+  const authMode = reqHeaders.drmtoken
+    ? 'drmToken'
+    : reqHeaders.Authorization
+      ? 'authorization'
+      : reqHeaders.ascendontoken
+        ? 'ascendon-only'
+        : 'none';
+  const sessionCookies = await session.defaultSession.cookies.get({ url: target });
+  const cookieNames = sessionCookies.map((c) => c.name).sort();
+  const bodyLen = body ? (Buffer.isBuffer(body) ? body.length : (body.byteLength ?? 0)) : 0;
+  if (!quiet) {
+    console.log(
+      '[license-proxy] sending to F1 (Chromium)',
+      '| url:', `${targetUrl.origin}${targetUrl.pathname}`,
+      '| host:', targetUrl.host,
+      '| headers:', Object.keys(reqHeaders).sort().join(','),
+      '| headers(summary):', JSON.stringify(summarizeHeaders(reqHeaders)),
+      '| auth:', authMode,
+      '| playToken:', playToken ? redact(playToken) : '(none)',
+      '| body(bytes):', bodyLen,
+      '| session cookies:', cookieNames.length ? `${cookieNames.length} [${cookieNames.join(',')}]` : '(none)'
+    );
+  }
+
+  const res = await session.defaultSession.fetch(target, {
+    method: 'POST',
+    headers: reqHeaders,
+    body,
   });
+
+  const arrayBuf = await res.arrayBuffer();
+  const data = Buffer.from(arrayBuf);
+
+  // Build plain headers object from Fetch API Response
+  const responseHeaders = {};
+  res.headers.forEach((value, key) => { responseHeaders[key] = value; });
+
+  // Extra debug for 4xx/5xx or HTML error pages (CloudFront often returns HTML for 403).
+  if (!quiet) {
+    try {
+      const ct = String(responseHeaders['content-type'] || '');
+      const isTextLike = ct.includes('text/') || ct.includes('application/json') || ct.includes('application/xml') || ct.includes('application/xhtml');
+      const prefix = data.slice(0, 700).toString(isTextLike ? 'utf8' : 'latin1').replace(/\s+/g, ' ');
+      console.log(
+        '[license-proxy] F1 response',
+        '| status:', res.status,
+        '| ct:', ct || '(none)',
+        '| headers(debug):', JSON.stringify(pickDebugResponseHeaders(responseHeaders)),
+        '| bodyPrefix:', prefix.slice(0, 300)
+      );
+      if (res.status === 403 && ct.toLowerCase().includes('text/html')) {
+        logCloudFrontHtml403(data, responseHeaders['x-amz-cf-id'] || responseHeaders['X-Amz-Cf-Id']);
+      }
+    } catch (_) {}
+  }
+
+  return { status: res.status, headers: responseHeaders, data };
 }
 
 function startLicenseProxy() {
@@ -178,6 +470,7 @@ function startLicenseProxy() {
       const chunks = [];
       for await (const c of req) chunks.push(c);
       const body = Buffer.concat(chunks);
+      lastCloudFront403SemanticKey = '';
       const target = licenseProxyTarget;
       if (!target || !target.startsWith('https://')) {
         console.warn('[license-proxy] no LA target set');
@@ -189,21 +482,81 @@ function startLicenseProxy() {
         const playTokenFromRequest = req.headers['x-f1-play-token'] || req.headers['X-F1-Play-Token'];
         const playTokenValue = Array.isArray(playTokenFromRequest) ? playTokenFromRequest[0] : playTokenFromRequest;
 
+        console.log(
+          '[license-proxy] incoming LA request',
+          '| ua:', String(req.headers['user-agent'] || '').slice(0, 60),
+          '| ct:', req.headers['content-type'] || '(none)',
+          '| origin:', req.headers.origin || '(none)',
+          '| referer:', req.headers.referer || '(none)',
+          '| x-f1-play-token:', playTokenValue ? redact(playTokenValue) : '(none)',
+          '| body(bytes):', body.length
+        );
+        if (body.length) {
+          // Widevine license challenge is binary; just log a tiny signature-like prefix.
+          const sig = body.slice(0, 24).toString('base64');
+          console.log('[license-proxy] challenge prefix (base64, 24 bytes):', sig);
+          if (body.length <= 64) logLicenseBodyHint(body);
+        }
+
         const headers = buildLicenseProxyHeaders(req);
-        let r = await sendLicenseToF1(target, body, { ...headers, 'Content-Type': req.headers['content-type'] || 'application/octet-stream' }, playTokenValue);
+        const licenseReqContentType = req.headers['content-type'] || 'application/octet-stream';
+        const baseFwd = { ...headers, 'Content-Type': licenseReqContentType };
+        console.log('[license-proxy] built forward headers:', JSON.stringify(summarizeHeaders(headers)));
+
+        let r = await sendLicenseToF1(target, body, baseFwd, playTokenValue);
 
         // On 403, try once to refresh session (ascendon/entitlement) and retry
         if (r.status === 403 && memSession.accessToken) {
           try {
             await f1tv.initClient(memSession.accessToken);
-            const retryHeaders = buildLicenseProxyHeaders(req);
-            retryHeaders['Content-Type'] = req.headers['content-type'] || 'application/octet-stream';
+            const retryHeaders = { ...buildLicenseProxyHeaders(req), 'Content-Type': licenseReqContentType };
+            console.log('[license-proxy] retry after session refresh | headers:', JSON.stringify(summarizeHeaders(retryHeaders)));
             const r2 = await sendLicenseToF1(target, body, retryHeaders, playTokenValue);
             if (r2.status === 200) {
               r = r2;
               console.log('[license-proxy] F1 → 200 after session refresh retry');
+            } else {
+              r = r2;
             }
           } catch (_) {}
+        }
+
+        // Pipeline 5+: fallback LA often hits CloudFront HTML 403; try query params + KeyOS customdata.
+        if (r.status === 403 && isCloudFrontHtmlBlock(r.status, r.headers, r.data)) {
+          const ctx = licensePlaybackContext;
+          const targetBase = laUrlBase(target);
+          if (ctx && ctx.baseLaUrl === targetBase) {
+            const attempts = buildLaDiscoveryAttempts(ctx, playTokenValue);
+            if (attempts.length) {
+              console.log('[license-proxy] LA discovery:', attempts.length, 'varianti (log silenziati; dettaglio solo sulla prima richiesta sopra)');
+            }
+            let discoveryIdx = 0;
+            for (const att of attempts) {
+              discoveryIdx += 1;
+              const variantHeaders = { ...buildLicenseProxyHeaders(req), 'Content-Type': licenseReqContentType, ...att.extraHeaders };
+              const rTry = await sendLicenseToF1(att.url, body, variantHeaders, playTokenValue, { quiet: true });
+              if (rTry.status === 200) {
+                r = rTry;
+                console.log('[license-proxy] LA discovery OK:', att.label, '| tentativo', discoveryIdx, '/', attempts.length);
+                break;
+              }
+              if (!isCloudFrontHtmlBlock(rTry.status, rTry.headers, rTry.data)) {
+                r = rTry;
+                console.warn('[license-proxy] LA discovery: risposta non-HTML', att.label, '| status', rTry.status);
+                const ctTry = String(rTry.headers?.['content-type'] || '').toLowerCase();
+                if (rTry.status !== 403 || ctTry.includes('json')) break;
+              }
+            }
+            if (discoveryIdx > 0 && r.status === 403 && isCloudFrontHtmlBlock(r.status, r.headers, r.data)) {
+              console.warn(
+                '[license-proxy] LA discovery esaurita:',
+                discoveryIdx,
+                'varianti, ancora CloudFront 403 (stesso errore della prima richiesta)'
+              );
+            }
+          } else if (ctx) {
+            console.warn('[license-proxy] LA discovery skipped (target != context):', targetBase, '!==', ctx.baseLaUrl);
+          }
         }
 
         const buf = Buffer.from(r.data);
@@ -211,12 +564,19 @@ function startLicenseProxy() {
         if (r.headers['content-type']) outHeaders['Content-Type'] = r.headers['content-type'];
         res.writeHead(r.status, outHeaders);
         res.end(buf);
-        console.log('[license-proxy] F1 → status', r.status);
-        if (r.status === 403 && buf.length < 500) {
+        try {
+          const u = new URL(target);
+          console.log('[license-proxy] F1 → status', r.status, '| target:', `${u.origin}${u.pathname}`);
+        } catch (_) {
+          console.log('[license-proxy] F1 → status', r.status, '| target:', target.slice(0, 120));
+        }
+        if (r.status === 403) {
+          const bodyStr = buf.toString('utf8');
+          console.warn('[license-proxy] 403 body (raw):', bodyStr.slice(0, 300));
           try {
-            const j = JSON.parse(buf.toString('utf8'));
+            const j = JSON.parse(bodyStr);
             lastLicenseErrorMsg = j?.resultObj?.keyos?.errormsg || j?.message || j?.resultObj?.message || '';
-            if (lastLicenseErrorMsg) console.log('[license-proxy] 403:', lastLicenseErrorMsg.slice(0, 80));
+            if (lastLicenseErrorMsg) console.warn('[license-proxy] 403 message:', lastLicenseErrorMsg.slice(0, 200));
           } catch (_) {}
         } else if (r.status === 200) {
           lastLicenseErrorMsg = '';
@@ -631,6 +991,12 @@ function createWindow() {
     win.webContents.openDevTools({ mode: 'detach' });
   }
 
+  win.webContents.on('before-input-event', (_evt, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') {
+      win.webContents.isDevToolsOpened() ? win.webContents.closeDevTools() : win.webContents.openDevTools({ mode: 'detach' });
+    }
+  });
+
   return win;
 }
 
@@ -810,6 +1176,7 @@ function setupIpc() {
           }
         }
         if (result?.licenseUrl && result.licenseUrl.startsWith('https://') && result.licenseUrl.includes('formula1.com')) {
+          captureLicensePlaybackContext(result);
           licenseProxyTarget = result.licenseUrl;
           result.licenseUrl = licenseProxyUrl;
         }

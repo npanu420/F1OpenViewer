@@ -9,7 +9,10 @@
 ### DRM
 
 - **Dev mode**: When running `npm run dev`, the Widevine CDM is in development mode. The F1 license server returns 403 with `DEVELOPMENT_CERTIFICATE_NOT_ALLOWED`. This is expected; use a signed production build (e.g. `release\win-unpacked\F1 OpenViewer.exe`) to play DRM content.
-- ~~DRM license rejected (403 / ACN_5002) with VMP-signed build~~ **Fixed**: `contentPlay` now performs a HEAD request on the manifest URL to obtain the `playToken` cookie required by the F1 license server. The cookie is injected into every license proxy request and set as a session cookie for CDN requests (see `f1tv-bridge.js` `fetchPlayToken`, `electron/main.js`).
+
+- ~~playToken / license failures (403 / ACN_5002) with VMP-signed builds~~ **Fixed**: `contentPlay` loads the DASH manifest with **GET** (`fetchManifestData` in `f1tv-bridge.js`) so CloudFront can set the `playToken` cookie. **HEAD** responses do not carry `Set-Cookie` for that CDN, so the older HEAD-only flow could miss the cookie. The session cookie is then available to the license proxy and Chromium. `npm run build:signed` defaults to **`--force`** so Widevine VMP signing does not reuse a stale cached signature.
+
+- ~~2026+ VOD / pipelineVersion 5+ — license POST returns CloudFront HTML 403~~ **Fixed**: On newer pipelines, `CONTENT/PLAY` often omits `laURL` and `drmToken`, and the MPD has no LA URL inside the XML. The app used to fall back to `.../CONTENT/LA/{entitlement}/{groupId}`, which frequently hit a **generic CloudFront 403** (not a KeyOS license body). The fallback is now **`.../CONTENT/LA/widevine?contentId=...`** (and `channelId` when applicable), consistent with F1’s license acquisition pattern. The license proxy also **deduplicates** repetitive CloudFront HTML error logs and uses **quiet retries** during LA discovery (see `electron/main.js`).
 
 ### Video Players
 

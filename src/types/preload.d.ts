@@ -37,9 +37,16 @@ export type PreloadApi = {
     manifestUrl: string;
     licenseUrl?: string;
     drmToken?: string;
+    playToken?: string;
     licenseAscendonToken?: string;
     licenseEntitlementToken?: string;
     streamType?: string;
+    /** F1 pipeline version from API (e.g. 5 for 2026+ VOD). */
+    pipelineVersion?: number;
+    /** CloudFront key-group id from pa_ manifest URL (not Widevine KID). */
+    paCfKeyGroup?: string;
+    contentId?: number;
+    channelId?: number;
     fallbackManifestUrl?: string;
     fallbackLicenseUrl?: string;
     fallbackDrmToken?: string;
