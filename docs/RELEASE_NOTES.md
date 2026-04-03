@@ -13,6 +13,11 @@ This release fixes **DRM playback for newer F1 TV pipelines** (e.g. **2026 VOD**
 
 - **KNOWN_BUGS**: DRM section updated to describe the **GET**-manifest / `playToken` cookie fix and the **widevine** LA fallback separately and accurately.
 
+### macOS
+
+- **Building for Mac**: The project can now be built for **macOS** (see `docs/SETUP.md` / `docs/BUILD_SIGNING.md`): use `npm run build` on a Mac to produce a `.app` bundle, with the same Widevine (Castlabs) and EVS signing considerations as on Windows.
+- **Apple silicon release**: A **Mac ARM64** build has been published for distribution (Apple Silicon / M-series).
+
 ---
 
 ## v1.1.3
