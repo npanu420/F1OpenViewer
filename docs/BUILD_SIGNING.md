@@ -9,7 +9,7 @@ There are **two types of signing** useful for F1 OpenViewer:
 
 ## Recommended: build then sign with `npm run build:signed`
 
-**We recommend** using **`npm run build:signed`** to build the app and then run the VMP (Widevine) signing in one go. This command runs the script in the **`scripts/`** folder (`scripts/build-and-sign-vmp.js`): it first runs a normal build (with VMP signing disabled during the build), then runs the VMP signing step on the built app. **This approach is recommended** because building with `npm run build` and having signing run automatically during the build did not work reliably in our experience (e.g. the build hangs on "Requesting VMP signature" or the EVS step never completes). So use `npm run build:signed` and the script in `scripts/` for a signed, DRM-capable build. See [SETUP.md](SETUP.md) for the full step-by-step (certificate, EVS account, `CSC_LINK` / `CSC_KEY_PASSWORD`, then `npm run build:signed`). If during `npm run build:signed` the output stays on **"Requesting VMP signature"**, we recommend **just waiting**, for up to **3–5 minutes**; the step often takes that long and then completes.
+**We recommend** using **`npm run build:signed`** to build the app and then run the VMP (Widevine) signing in one go **on Windows**: the script in **`scripts/build-and-sign-vmp.js`** runs a normal build (with EVS during `afterSign` disabled via `SKIP_EVS_SIGN`), then runs **`castlabs_evs.vmp sign-pkg`** on **`release/win-unpacked`**. **On macOS**, the same command only runs **`npm run build`** and exits — you must run VMP **manually** on the folder that contains the `.app` (e.g. `release/mac-arm64`); see [§2.4](#24-vmp-sign-the-build). **This approach is recommended** on Windows because building with `npm run build` and having EVS run inside the build did not work reliably in our experience (e.g. the build hangs on "Requesting VMP signature" or the EVS step never completes). See [SETUP.md](SETUP.md) for the full step-by-step (certificate, EVS account, `CSC_LINK` / `CSC_KEY_PASSWORD`, then `npm run build:signed`). If during `npm run build:signed` on Windows the output stays on **"Requesting VMP signature"**, we recommend **just waiting**, for up to **3–5 minutes**; the step often takes that long and then completes.
 
 ---
 
@@ -83,7 +83,9 @@ export CSC_KEY_PASSWORD="password"
 export CSC_NAME="Developer ID Application: Name (TEAM_ID)"
 ```
 
-- Then `npm run build` on macOS.
+- Then run **`npm run build`** on macOS (or `npm run build:signed` — see below).
+
+**Widevine VMP on macOS:** `scripts/build-and-sign-vmp.js` runs the Castlabs EVS step **only on Windows** (`release/win-unpacked`). On macOS it stops after the build and prints a reminder to run VMP **manually** (see [§2.4 macOS](#24-vmp-sign-the-build)). You still need **`pip install castlabs-evs`** and **`python -m castlabs_evs.account reauth`** for that step.
 
 ---
 
@@ -162,6 +164,24 @@ For apps that also support offline download you can use `--persistent`:
 python3 -m castlabs_evs.vmp sign-pkg --persistent path/to/release/win-unpacked
 ```
 
+- **macOS (manual VMP):** `castlabs_evs.vmp sign-pkg` does **not** take the path to the `.app` bundle. It expects the **same directory electron-builder uses as output for that target** — the folder that **contains** `F1 OpenViewer.app` (electron-builder’s `appOutDir`), for example:
+  - **Apple Silicon:** `release/mac-arm64`
+  - **Intel:** often `release/mac` (name depends on arch / your `package.json` build config)
+
+```bash
+# Correct: directory that contains F1 OpenViewer.app
+python3 -m castlabs_evs.vmp sign-pkg --force "/path/to/project/release/mac-arm64"
+```
+
+Passing the `.app` itself (e.g. dragging `F1 OpenViewer.app` into the terminal) causes **`FileNotFoundError: No matching executable found`**, because the tool looks for `*.app` **inside** the path you give, and searches for the Electron Framework there.
+
+**macOS — signing order:** EVS signs binaries inside the bundle (e.g. `Electron Framework`). **Apple code signing must include those files**, so either:
+
+1. **Preferred:** build an **unsigned** app (do not set `CSC_*`), run `sign-pkg` on `release/mac-arm64` (or `release/mac`), then **code sign and notarize** the `.app` yourself; or  
+2. Run **`npm run build`** with Developer ID so electron-builder signs first, then run `sign-pkg` on the output folder above, then **re-sign the whole `.app`** (VMP changes files after the first signature) and notarize if you ship to users.
+
+The `afterSign` hook in this repo runs EVS **only on Windows**; macOS is not signed by EVS during the build.
+
 #### 2.5 Connection errors (evs-api.castlabs.com unreachable or reset)
 
 If **`npm run build:signed`** fails with **"Request for upload URL failed"**, **"Failed to resolve 'evs-api.castlabs.com'"**, or **"Connection aborted / ConnectionResetError (10054)"**, your network (or firewall/antivirus/VPN) is blocking or resetting the connection to CastLabs. The script will retry **without** `--force` (using the cached signature) so the build still completes, but the cached signature may not match the new exe → **DRM 403** when playing.
@@ -208,18 +228,16 @@ If you see **"F1 TV: Widevine license generation failed >> Verified media path h
 If you see "DRM license rejected by server (error 403 / ACN_5002)" with a build that previously worked:
 
 1. **Session/token expiry (most common)** — F1 TV session tokens (ascendon/entitlement) often expire after a few hours. The same build can work in the morning and return 403 in the afternoon; the server may report it like an uncertified client. The app now **refreshes the session before each playback** (and retries once on 403). If it still fails, **sign in again** with "Sign in with browser" and retry.
-2. **Re-sign with a fresh VMP signature** — If re-login does not help, the exe may no longer match the cached EVS signature. Run `npm run build:signed` (which now uses `--force` by default to always get a fresh signature), or manually run `py -m castlabs_evs.vmp sign-pkg --force release\win-unpacked` on the same folder.
+2. **Re-sign with a fresh VMP signature** — If re-login does not help, the binary may no longer match the cached EVS signature. On **Windows**, run `npm run build:signed` (uses `--force` by default), or manually: `py -m castlabs_evs.vmp sign-pkg --force release\win-unpacked`. On **macOS**, run `python3 -m castlabs_evs.vmp sign-pkg --force` on the folder that **contains** `F1 OpenViewer.app` (e.g. `release/mac-arm64`), then **re-sign** the `.app` if you had already code-signed it (see §2.4).
 3. **Ensure the license proxy receives the right headers** — The app forwards `drmToken`, `Authorization`, and entitlement headers from the player to the F1 license server. If you use a custom build, ensure the main process license proxy is used (dashboard and player both use it when `licenseUrl` is rewritten to the local proxy).
 
-- **macOS**: VMP signing must be done **before** code signing. So:
-  1. Run the build (without code sign) or stop at the app folder (e.g. `release/mac/F1 OpenViewer.app`).
-  2. VMP sign:
+**macOS (same DRM issues):** If VMP is missing or stale, re-run EVS on the **output folder** (not the `.app`), with `--force` when the network allows:
 
 ```bash
-python3 -m castlabs_evs.vmp sign-pkg path/to/F1\ OpenViewer.app
+python3 -m castlabs_evs.vmp sign-pkg --force "/path/to/project/release/mac-arm64"
 ```
 
-  3. Then apply code signing (Developer ID certificate) to that app.
+After that, if you had already code-signed the app, **re-sign** the bundle so Gatekeeper matches the VMP-updated binaries.
 
 ### Automation (Windows): afterSign hook
 
@@ -234,7 +252,7 @@ You can run VMP signing right after code signing using electron-builder’s **af
 
 3. Make sure `castlabs-evs` is installed (`pip install castlabs-evs`) and you have logged in to EVS (`python3 -m castlabs_evs.account reauth`) before building.
 
-The example script `scripts/evs-after-sign.js` (if present in the repo) calls `castlabs_evs.vmp sign-pkg` on `context.appOutDir` on Windows only, so the order “code sign first, then VMP” is respected.
+The script `scripts/evs-after-sign.js` calls `castlabs_evs.vmp sign-pkg` on `context.appOutDir` **on Windows only**, so the order “code sign first, then VMP” matches Castlabs’ guidance for Windows. **macOS** is not handled in that hook; use the manual path and folder described in [§2.4 macOS](#24-vmp-sign-the-build).
 
 ---
 
@@ -242,8 +260,10 @@ The example script `scripts/evs-after-sign.js` (if present in the repo) calls `c
 
 | Platform  | Correct order |
 |-----------|----------------|
-| **Windows** | 1) Code signing (electron-builder) → 2) VMP signing (EVS `sign-pkg`) |
-| **macOS**   | 1) VMP signing (EVS `sign-pkg`) → 2) Code signing |
+| **Windows** | 1) Code signing (electron-builder) → 2) VMP signing (EVS `sign-pkg` on `release/win-unpacked`) |
+| **macOS**   | 1) VMP signing (EVS `sign-pkg` on the folder **containing** `F1 OpenViewer.app`, e.g. `release/mac-arm64`) → 2) Apple code signing / notarization of the whole `.app` **if** you started from an unsigned build; **if** you already signed with electron-builder, run VMP then **re-sign** the bundle. |
+
+**`sign-pkg` path:** Always pass the **directory that contains the `.app`**, not `Something.app` itself (see §2.4).
 
 ---
 
