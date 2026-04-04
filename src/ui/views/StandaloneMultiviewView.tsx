@@ -31,7 +31,12 @@ function toCatalogItemOnboard(ob: VodOnboard): CatalogItem {
   };
 }
 
-export function StandaloneMultiviewView() {
+type StandaloneMultiviewViewProps = {
+  /** Da hash ?mv= (Electron); titolo finestra e menu. */
+  multiviewInstanceId?: number;
+};
+
+export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMultiviewViewProps) {
   const { t } = useLocale();
   const [state, setState] = useState(loadStandaloneMultiviewState());
   const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
@@ -43,6 +48,12 @@ export function StandaloneMultiviewView() {
   useEffect(() => {
     session.get().then((s) => setAccessToken(s.accessToken));
   }, []);
+
+  useEffect(() => {
+    const base = 'F1 OpenViewer';
+    document.title =
+      multiviewInstanceId != null ? `${base} — Multiview #${multiviewInstanceId}` : `${base} — Multiview`;
+  }, [multiviewInstanceId]);
 
   /** Re-resolve playback for items that were playing in main window (fresh tokens for this window). */
   useEffect(() => {
@@ -179,6 +190,7 @@ export function StandaloneMultiviewView() {
           onExitFullscreen={handleExit}
           initialLayout={layout}
           initialSlotToItemId={slotToItemId}
+          multiviewInstanceId={multiviewInstanceId}
         />
       </div>
     </div>

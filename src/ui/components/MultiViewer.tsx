@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, RefreshCw, Maximize2, Minimize2, Type, Save, Trash2 } from 'lucide-react';
+import { Play, RefreshCw, Maximize2, Minimize2, Type, Save, Trash2, MoreHorizontal, X } from 'lucide-react';
 import type { Layout } from 'react-grid-layout';
 import { useLocale } from '../../i18n/LocaleContext';
 
@@ -136,9 +136,143 @@ import type { SessionStreams } from '../../services/vod';
 import type { CatalogItem } from '../../domain/catalog';
 import type { PlaybackInfo } from '../../services/entitlement';
 import type { StreamPanelHandle } from './StreamPanel';
-import { ResizableStreamGrid, getDefaultGridLayout, type StreamOption } from './ResizableStreamGrid';
+import {
+  ResizableStreamGrid,
+  getDefaultGridLayout,
+  getDefaultNewSlotGridSize,
+  type StreamOption,
+} from './ResizableStreamGrid';
 import { SyncOverlay } from './SyncOverlay';
 import { useSyncEngine } from '../hooks/useSyncEngine';
+import { useMultiviewWindows } from '../hooks/useMultiviewWindows';
+
+function SavedLayoutsSection({
+  t,
+  savedGrids,
+  showSaveInput,
+  setShowSaveInput,
+  saveLayoutName,
+  setSaveLayoutName,
+  onSave,
+  onApply,
+  onDelete,
+  compact,
+}: {
+  t: (key: string) => string;
+  savedGrids: SavedGrid[];
+  showSaveInput: boolean;
+  setShowSaveInput: (v: boolean) => void;
+  saveLayoutName: string;
+  setSaveLayoutName: (v: string) => void;
+  onSave: () => void;
+  onApply: (preset: SavedGrid) => void;
+  onDelete: (id: string) => void;
+  compact?: boolean;
+}) {
+  const box = compact
+    ? 'rounded-lg border border-border/60 bg-card/80 p-2'
+    : 'rounded-lg border border-border/60 bg-card/40 p-4';
+  const titleClass = compact
+    ? 'text-[10px] font-heading font-bold tracking-widest text-muted-foreground mb-2'
+    : 'text-xs font-heading font-bold tracking-widest text-muted-foreground mb-3';
+  const listClass = compact ? 'max-h-40 overflow-y-auto space-y-1 pr-0.5' : 'space-y-1.5';
+
+  return (
+    <div className={box}>
+      <h4 className={titleClass}>{t('dashboard.savedLayouts')}</h4>
+      <div className={`flex flex-wrap items-center gap-2 ${compact ? 'mb-2' : 'mb-3'}`}>
+        {showSaveInput ? (
+          <>
+            <input
+              type="text"
+              value={saveLayoutName}
+              onChange={(e) => setSaveLayoutName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && onSave()}
+              placeholder={t('dashboard.savedLayoutNamePlaceholder')}
+              className={`rounded-lg border border-border bg-background font-heading ${
+                compact ? 'px-2 py-1 text-xs w-32' : 'px-3 py-1.5 text-sm w-40'
+              }`}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={onSave}
+              className={`flex items-center gap-1 rounded-lg font-heading font-bold bg-primary text-primary-foreground hover:opacity-90 ${
+                compact ? 'py-1 px-2 text-[10px]' : 'gap-1.5 py-1.5 px-3 text-xs'
+              }`}
+            >
+              <Save className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
+              {t('dashboard.saveLayout')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowSaveInput(false);
+                setSaveLayoutName('');
+              }}
+              className={`rounded-lg font-heading border border-border hover:bg-accent/50 ${
+                compact ? 'py-1 px-2 text-[10px]' : 'py-1.5 px-3 text-xs'
+              }`}
+            >
+              {t('ui.cancel')}
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowSaveInput(true)}
+            className={`flex items-center gap-1 rounded-lg font-heading font-bold border border-border bg-accent/20 hover:bg-accent/40 ${
+              compact ? 'py-1 px-2 text-[10px]' : 'gap-1.5 py-1.5 px-3 text-xs'
+            }`}
+          >
+            <Save className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
+            {t('dashboard.saveCurrentLayout')}
+          </button>
+        )}
+      </div>
+      {savedGrids.length > 0 && (
+        <ul className={listClass}>
+          {savedGrids.map((preset) => (
+            <li
+              key={preset.id}
+              className={`flex items-center justify-between gap-2 rounded bg-background/50 ${
+                compact ? 'py-1 px-1.5' : 'py-1.5 px-2'
+              }`}
+            >
+              <span className={`font-heading truncate min-w-0 ${compact ? 'text-[10px]' : 'text-sm'}`}>
+                {preset.name}
+              </span>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onApply(preset)}
+                  className={`rounded font-heading border border-border hover:bg-accent/50 ${
+                    compact ? 'py-0.5 px-1.5 text-[10px]' : 'py-1 px-2 text-xs'
+                  }`}
+                >
+                  {t('dashboard.applyLayout')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(preset.id)}
+                  title={t('dashboard.deleteLayout')}
+                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {savedGrids.length === 0 && !showSaveInput && (
+        <p className={`text-muted-foreground font-heading ${compact ? 'text-[10px]' : 'text-xs'}`}>
+          {t('dashboard.savedLayoutsEmpty')}
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface MultiViewerProps {
   session: VodSession;
@@ -161,6 +295,8 @@ interface MultiViewerProps {
   /** When provided (e.g. standalone window), initial state is not overwritten by the session/streams effect. */
   initialLayout?: Layout;
   initialSlotToItemId?: Record<string, string>;
+  /** Finestra standalone Electron: numero finestra (hash ?mv=). */
+  multiviewInstanceId?: number;
 }
 
 export function MultiViewer({
@@ -182,8 +318,15 @@ export function MultiViewer({
   onExitFullscreen,
   initialLayout,
   initialSlotToItemId,
+  multiviewInstanceId,
 }: MultiViewerProps) {
   const { t } = useLocale();
+  const multiviewOpenIds = useMultiviewWindows();
+  const [canOpenMultiviewWindow, setCanOpenMultiviewWindow] = useState(false);
+
+  useEffect(() => {
+    setCanOpenMultiviewWindow(typeof window.f1?.openMultiviewWindow === 'function');
+  }, []);
 
   const mainItem = toCatalogItem(session, seasonYear);
   const streamOptions: StreamOption[] = [
@@ -272,10 +415,11 @@ export function MultiViewer({
   }
 
   const handleAddSlot = useCallback(() => {
+    const { w, h } = getDefaultNewSlotGridSize();
     setLayout((prev) => {
       const maxY = Math.max(0, ...prev.map((item) => item.y + item.h));
       const nextIndex = prev.length;
-      return [...prev, { i: `slot-${nextIndex}`, x: 0, y: maxY, w: 4, h: 2, minW: 2, minH: 1 }];
+      return [...prev, { i: `slot-${nextIndex}`, x: 0, y: maxY, w, h, minW: 2, minH: 2 }];
     });
   }, []);
 
@@ -330,6 +474,9 @@ export function MultiViewer({
 
   const [hideTitlesInFullscreen, setHideTitlesInFullscreen] = useState(false);
   const [showPlayAllLoadingHint, setShowPlayAllLoadingHint] = useState(false);
+  const [fullscreenToolbarOpen, setFullscreenToolbarOpen] = useState(false);
+  const fullscreenToolbarRef = useRef<HTMLDivElement>(null);
+  const fullscreenToolbarToggleRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!showPlayAllLoadingHint) return;
@@ -345,11 +492,33 @@ export function MultiViewer({
   useEffect(() => {
     if (!isFullscreen || !onExitFullscreen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onExitFullscreen();
+      if (e.key === 'Escape') {
+        if (fullscreenToolbarOpen) {
+          setFullscreenToolbarOpen(false);
+        } else {
+          onExitFullscreen();
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isFullscreen, onExitFullscreen]);
+  }, [isFullscreen, onExitFullscreen, fullscreenToolbarOpen]);
+
+  useEffect(() => {
+    if (!isFullscreen) setFullscreenToolbarOpen(false);
+  }, [isFullscreen]);
+
+  useEffect(() => {
+    if (!fullscreenToolbarOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (fullscreenToolbarRef.current?.contains(t)) return;
+      if (fullscreenToolbarToggleRef.current?.contains(t)) return;
+      setFullscreenToolbarOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [fullscreenToolbarOpen]);
 
   return (
     <>
@@ -393,29 +562,46 @@ export function MultiViewer({
                 </button>
               )}
 
-              {onEnterFullscreen && (
+              {(canOpenMultiviewWindow || onEnterFullscreen != null) && (
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     saveStandaloneMultiviewState({
                       layout: layout.map((item) => ({ ...item })),
                       slotToItemId: { ...slotToItemId },
                       session,
                       streams,
                       seasonYear,
-                      playingItemIds: Object.keys(embeddedPlayback).length > 0 ? Object.keys(embeddedPlayback) : undefined,
+                      playingItemIds:
+                        Object.keys(embeddedPlayback).length > 0 ? Object.keys(embeddedPlayback) : undefined,
                     });
                     onBeforeEnterFullscreen?.();
-                    onEnterFullscreen();
+                    if (onEnterFullscreen != null) {
+                      await Promise.resolve(onEnterFullscreen());
+                    } else if (window.f1?.openMultiviewWindow) {
+                      await window.f1.openMultiviewWindow();
+                    }
                   }}
                   title={t('dashboard.multiviewFullscreen')}
-                  className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 transition-colors"
+                  className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 transition-colors shrink-0"
                 >
-                  <Maximize2 className="w-4 h-4" />
-                  {t('dashboard.multiviewFullscreen')}
+                  <Maximize2 className="w-4 h-4 shrink-0" />
+                  {multiviewOpenIds.length > 0
+                    ? t('dashboard.multiviewFullscreenExtra')
+                    : t('dashboard.multiviewFullscreen')}
                 </button>
               )}
               </div>
+              {(canOpenMultiviewWindow || onEnterFullscreen != null) && (
+                <p className="text-xs text-muted-foreground font-heading max-w-2xl leading-snug pl-0.5">
+                  <span className="font-bold text-foreground/90">{t('dashboard.multiviewWindowsLabel')}:</span>{' '}
+                  {multiviewOpenIds.length === 0
+                    ? t('dashboard.multiviewWindowsNone')
+                    : `${multiviewOpenIds.length} (${t('dashboard.multiviewWindowsList')}: ${multiviewOpenIds
+                        .map((id) => `#${id}`)
+                        .join(', ')})`}
+                </p>
+              )}
               <AnimatePresence>
                 {showPlayAllLoadingHint && (
                   <motion.p
@@ -432,149 +618,137 @@ export function MultiViewer({
             </div>
           )}
 
-          {/* Saved layouts section (only when not in fullscreen) */}
           {!isFullscreen && streamOptions.length > 0 && (
-            <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-              <h4 className="text-xs font-heading font-bold tracking-widest text-muted-foreground mb-3">
-                {t('dashboard.savedLayouts')}
-              </h4>
-              <div className="flex flex-wrap items-center gap-2 mb-3">
-                {showSaveInput ? (
-                  <>
-                    <input
-                      type="text"
-                      value={saveLayoutName}
-                      onChange={(e) => setSaveLayoutName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveCurrentLayout()}
-                      placeholder={t('dashboard.savedLayoutNamePlaceholder')}
-                      className="px-3 py-1.5 rounded-lg border border-border bg-background text-sm font-heading w-40"
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveCurrentLayout}
-                      className="flex items-center gap-1.5 py-1.5 px-3 rounded-lg font-heading text-xs font-bold bg-primary text-primary-foreground hover:opacity-90"
-                    >
-                      <Save className="w-3.5 h-3.5" />
-                      {t('dashboard.saveLayout')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setShowSaveInput(false); setSaveLayoutName(''); }}
-                      className="py-1.5 px-3 rounded-lg font-heading text-xs border border-border hover:bg-accent/50"
-                    >
-                      {t('ui.cancel')}
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setShowSaveInput(true)}
-                    className="flex items-center gap-1.5 py-1.5 px-3 rounded-lg font-heading text-xs font-bold border border-border bg-accent/20 hover:bg-accent/40"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    {t('dashboard.saveCurrentLayout')}
-                  </button>
-                )}
-              </div>
-              {savedGrids.length > 0 && (
-                <ul className="space-y-1.5">
-                  {savedGrids.map((preset) => (
-                    <li
-                      key={preset.id}
-                      className="flex items-center justify-between gap-2 py-1.5 px-2 rounded bg-background/50"
-                    >
-                      <span className="text-sm font-heading truncate min-w-0">{preset.name}</span>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleApplySavedGrid(preset)}
-                          className="py-1 px-2 rounded text-xs font-heading border border-border hover:bg-accent/50"
-                        >
-                          {t('dashboard.applyLayout')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteSavedGrid(preset.id)}
-                          title={t('dashboard.deleteLayout')}
-                          className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {savedGrids.length === 0 && !showSaveInput && (
-                <p className="text-xs text-muted-foreground font-heading">
-                  {t('dashboard.savedLayoutsEmpty')}
-                </p>
-              )}
-            </div>
+            <SavedLayoutsSection
+              t={t}
+              savedGrids={savedGrids}
+              showSaveInput={showSaveInput}
+              setShowSaveInput={setShowSaveInput}
+              saveLayoutName={saveLayoutName}
+              setSaveLayoutName={setSaveLayoutName}
+              onSave={handleSaveCurrentLayout}
+              onApply={handleApplySavedGrid}
+              onDelete={handleDeleteSavedGrid}
+            />
           )}
 
-          {/* Fullscreen toolbar: shown only on mouse hover at the top */}
+          {/* Fullscreen: floating toggle (no hover strip — avoids blocking drag toward top) */}
           {isFullscreen && onExitFullscreen && (
-            <div className="fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-end px-4 bg-gradient-to-b from-black/70 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  {hasEmbedSupport && allItems.length > 0 && (
+            <>
+              <button
+                ref={fullscreenToolbarToggleRef}
+                type="button"
+                onClick={() => setFullscreenToolbarOpen((v) => !v)}
+                title={fullscreenToolbarOpen ? t('dashboard.fullscreenToolbarHide') : t('dashboard.fullscreenToolbarShow')}
+                aria-expanded={fullscreenToolbarOpen}
+                className="fixed top-2 right-2 z-[60] flex h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-black/75 text-foreground shadow-lg backdrop-blur-sm transition-colors hover:bg-black/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                {fullscreenToolbarOpen ? (
+                  <X className="h-5 w-5" aria-hidden />
+                ) : (
+                  <MoreHorizontal className="h-5 w-5" aria-hidden />
+                )}
+              </button>
+
+              {fullscreenToolbarOpen && (
+                <div
+                  ref={fullscreenToolbarRef}
+                  className="fixed top-14 right-2 z-[59] flex max-w-[min(100vw-1rem,26rem)] max-h-[min(100vh-4rem,32rem)] flex-col gap-2 overflow-y-auto rounded-xl border border-border/80 bg-background/95 p-3 shadow-xl backdrop-blur-md"
+                >
+                  <div className="shrink-0 border-b border-border/60 pb-2 mb-1">
+                    {multiviewInstanceId != null ? (
+                      <p className="text-sm font-heading font-bold tracking-wide text-primary">
+                        {t('dashboard.multiviewWindowNumber')}
+                        {multiviewInstanceId}
+                      </p>
+                    ) : (
+                      <p className="text-sm font-heading font-bold tracking-wide text-muted-foreground">
+                        {t('dashboard.multiviewFullscreen')}
+                      </p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground font-heading mt-0.5">
+                      {t('dashboard.multiviewWindowsLabel')}:{' '}
+                      {multiviewOpenIds.length === 0
+                        ? t('dashboard.multiviewWindowsNone')
+                        : `${multiviewOpenIds.length} (${t('dashboard.multiviewWindowsList')}: ${multiviewOpenIds
+                            .map((id) => `#${id}`)
+                            .join(', ')})`}
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    {hasEmbedSupport && allItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handlePlayAllEmbedded}
+                        className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold bg-primary text-primary-foreground border border-primary hover:opacity-90"
+                      >
+                        <Play className="w-3.5 h-3.5 shrink-0" />
+                        {t('dashboard.playAllEmbedded')}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={handlePlayAllEmbedded}
-                      className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold bg-primary text-primary-foreground border border-primary hover:opacity-90"
+                      onClick={() => setHideTitlesInFullscreen((v) => !v)}
+                      title={hideTitlesInFullscreen ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
+                      className={`flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border transition-colors ${hideTitlesInFullscreen ? 'bg-primary/20 border-primary text-primary' : 'border-border bg-accent/40 hover:bg-accent/60'}`}
                     >
-                      <Play className="w-3.5 h-3.5" />
-                      {t('dashboard.playAllEmbedded')}
+                      <Type className="w-3.5 h-3.5 shrink-0" />
+                      {hideTitlesInFullscreen ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
                     </button>
+                    {showSyncButton && (
+                      <button
+                        type="button"
+                        onClick={handleSync}
+                        disabled={!canSync || syncStatus === 'syncing'}
+                        title={t('sync.inProgressDescription')}
+                        className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border border-border bg-accent/40 hover:bg-accent/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                        {syncStatus === 'syncing' ? t('sync.inProgress') : t('sync.inProgressDescription')}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onExitFullscreen}
+                      title={t('dashboard.exitFullscreen')}
+                      className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-sm font-bold border border-border bg-card hover:bg-accent/50 transition-colors"
+                    >
+                      <Minimize2 className="w-4 h-4 shrink-0" />
+                      {t('dashboard.exitFullscreen')}
+                    </button>
+                  </div>
+
+                  {streamOptions.length > 0 && (
+                    <SavedLayoutsSection
+                      t={t}
+                      savedGrids={savedGrids}
+                      showSaveInput={showSaveInput}
+                      setShowSaveInput={setShowSaveInput}
+                      saveLayoutName={saveLayoutName}
+                      setSaveLayoutName={setSaveLayoutName}
+                      onSave={handleSaveCurrentLayout}
+                      onApply={handleApplySavedGrid}
+                      onDelete={handleDeleteSavedGrid}
+                      compact
+                    />
                   )}
-                <button
-                  type="button"
-                  onClick={() => setHideTitlesInFullscreen((v) => !v)}
-                  title={hideTitlesInFullscreen ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
-                  className={`flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border transition-colors ${hideTitlesInFullscreen ? 'bg-primary/20 border-primary text-primary' : 'border-border bg-background/90 hover:bg-accent/50'}`}
-                >
-                  <Type className="w-3.5 h-3.5" />
-                  {hideTitlesInFullscreen ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
-                </button>
-                {showSyncButton && (
-                  <button
-                    type="button"
-                    onClick={handleSync}
-                    disabled={!canSync || syncStatus === 'syncing'}
-                    title={t('sync.inProgressDescription')}
-                    className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border border-border bg-background/90 hover:bg-accent/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                    {syncStatus === 'syncing' ? t('sync.inProgress') : t('sync.inProgressDescription')}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={onExitFullscreen}
-                  title={t('dashboard.exitFullscreen')}
-                  className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-sm font-bold border border-border bg-background/95 hover:bg-accent/50 transition-colors"
-                >
-                  <Minimize2 className="w-4 h-4" />
-                  {t('dashboard.exitFullscreen')}
-                </button>
-              </div>
-              <AnimatePresence>
-                {showPlayAllLoadingHint && (
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="text-[10px] text-muted-foreground font-heading max-w-xs"
-                  >
-                    {t('dashboard.playAllLoadingHint')}
-                  </motion.p>
-                )}
-              </AnimatePresence>
-              </div>
-            </div>
+
+                  <AnimatePresence>
+                    {showPlayAllLoadingHint && (
+                      <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="text-[10px] text-muted-foreground font-heading"
+                      >
+                        {t('dashboard.playAllLoadingHint')}
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+            </>
           )}
 
           {streamOptions.length > 0 ? (

@@ -99,8 +99,18 @@ export function App() {
     setRoute({ name: 'login' });
   }
 
-  if (typeof window !== 'undefined' && window.location.hash === '#standalone-multiview') {
-    return <StandaloneMultiviewView />;
+  if (typeof window !== 'undefined') {
+    const raw = window.location.hash.replace(/^#/, '');
+    if (raw === 'standalone-multiview' || raw.startsWith('standalone-multiview?')) {
+      let multiviewInstanceId: number | undefined;
+      const q = raw.includes('?') ? raw.split('?')[1] : '';
+      const mv = new URLSearchParams(q).get('mv');
+      if (mv != null) {
+        const n = parseInt(mv, 10);
+        if (Number.isFinite(n) && n > 0) multiviewInstanceId = n;
+      }
+      return <StandaloneMultiviewView multiviewInstanceId={multiviewInstanceId} />;
+    }
   }
 
   if (route.name === 'login') {

@@ -1007,15 +1007,35 @@ function getMainAppUrl() {
   return 'file://' + path.join(__dirname, '..', 'dist', 'index.html').replace(/\\/g, '/');
 }
 
-/** Apre una nuova finestra con la griglia multiview in standalone (stesso session/DRM della main). */
+/** Istanze multiview aperte: id → finestra (più monitor / più layout). */
+const multiviewWindows = new Map();
+let multiviewInstanceSeq = 0;
+
+function broadcastMultiviewWindows() {
+  const ids = Array.from(multiviewWindows.keys()).sort((a, b) => a - b);
+  const payload = { ids, count: ids.length };
+  for (const bw of BrowserWindow.getAllWindows()) {
+    try {
+      if (bw.isDestroyed()) continue;
+      bw.webContents.send('multiview:windowsChanged', payload);
+    } catch (_) {}
+  }
+}
+
+/** Apre una nuova finestra multiview numerata (#standalone-multiview?mv=n). */
 function createMultiviewWindow() {
+  const id = ++multiviewInstanceSeq;
   const baseUrl = getMainAppUrl();
-  const multiviewUrl = baseUrl.includes('#') ? baseUrl.replace(/#.*$/, '') + '#standalone-multiview' : baseUrl + '#standalone-multiview';
+  const fragment = `standalone-multiview?mv=${id}`;
+  const multiviewUrl = baseUrl.includes('#')
+    ? baseUrl.replace(/#.*$/, '') + '#' + fragment
+    : baseUrl + '#' + fragment;
 
   const win = new BrowserWindow({
     width: 1600,
     height: 900,
     backgroundColor: '#0b0f14',
+    title: `F1 OpenViewer — Multiview #${id}`,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1025,8 +1045,15 @@ function createMultiviewWindow() {
     },
   });
 
+  multiviewWindows.set(id, win);
+  win.on('closed', () => {
+    multiviewWindows.delete(id);
+    broadcastMultiviewWindows();
+  });
+
   win.loadURL(multiviewUrl).catch((e) => console.warn('[multiview] load failed:', e?.message));
-  return win;
+  broadcastMultiviewWindows();
+  return { win, id };
 }
 
 function setupCorsRelaxForDev() {
@@ -1195,9 +1222,25 @@ function setupIpc() {
   });
   ipcMain.handle('player:getLastLicenseError', () => lastLicenseErrorMsg || '');
 
+  ipcMain.on('player:resetAspect', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win && !win.isDestroyed()) win.setAspectRatio(0);
+  });
+  ipcMain.on('player:intrinsicVideoSize', (e, w, h) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win || win.isDestroyed()) return;
+    const ww = Number(w);
+    const hh = Number(h);
+    if (!Number.isFinite(ww) || !Number.isFinite(hh) || ww <= 0 || hh <= 0) return;
+    win.setAspectRatio(ww / hh);
+  });
+
   ipcMain.handle('multiview:openWindow', () => {
-    createMultiviewWindow();
-    return undefined;
+    const { id } = createMultiviewWindow();
+    return { id };
+  });
+  ipcMain.handle('multiview:listWindows', () => {
+    return Array.from(multiviewWindows.keys()).sort((a, b) => a - b);
   });
   ipcMain.handle('multiview:closeWindow', (evt) => {
     const w = evt.sender.getOwnerBrowserWindow?.();

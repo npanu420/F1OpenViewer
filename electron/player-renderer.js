@@ -56,6 +56,16 @@
 
   let player = null;
 
+  function reportVideoIntrinsicSize() {
+    var w = video.videoWidth;
+    var h = video.videoHeight;
+    if (w > 0 && h > 0 && window.playerIpc && window.playerIpc.send) {
+      window.playerIpc.send('player:intrinsicVideoSize', w, h);
+    }
+  }
+  video.addEventListener('loadedmetadata', reportVideoIntrinsicSize);
+  video.addEventListener('resize', reportVideoIntrinsicSize);
+
   window.playerIpc.on('player:load', async function (payload) {
     if (!payload || !payload.manifestUrl) {
       setStatus('Invalid payload (missing manifestUrl).', true);
@@ -63,6 +73,10 @@
         window.playerIpc.send('player:error', 'Invalid payload');
       }
       return;
+    }
+
+    if (window.playerIpc && window.playerIpc.send) {
+      window.playerIpc.send('player:resetAspect');
     }
 
     setStatus('Preparing stream…', false);

@@ -11,7 +11,13 @@ contextBridge.exposeInMainWorld('playerIpc', {
     return () => ipcRenderer.removeListener(channel, fn);
   },
   send: (channel, ...args) => {
-    const allowed = ['player:error', 'player:ready', 'player:closed'];
+    const allowed = [
+      'player:error',
+      'player:ready',
+      'player:closed',
+      'player:resetAspect',
+      'player:intrinsicVideoSize',
+    ];
     if (allowed.includes(channel)) {
       ipcRenderer.send(channel, ...args);
     }

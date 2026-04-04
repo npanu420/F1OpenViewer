@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { Plus, GripVertical, ChevronRight } from 'lucide-react';
-import type { Layout, LayoutItem } from 'react-grid-layout';
+import type { EventCallback, Layout, LayoutItem } from 'react-grid-layout';
+import { calcGridColWidth, calcGridItemWHPx } from 'react-grid-layout/core';
 import { ReactGridLayout, WidthProvider } from 'react-grid-layout/legacy';
 import { useLocale } from '../../i18n/LocaleContext';
 import type { CatalogItem } from '../../domain/catalog';
@@ -18,35 +19,112 @@ export type StreamOption = {
   driverNumber?: number;
 };
 
+/**
+ * Initial multiview grid: main feed large (4/6), two onboard-sized columns (2/6), four half-width rows (1/2).
+ * Every w×h matches ratioToGridSize for an entry in SIZE_RATIOS.
+ */
 const DEFAULT_LAYOUT: Layout = [
-  { i: 'slot-0', x: 0, y: 0, w: 8, h: 4, minW: 2, minH: 2 },
-  { i: 'slot-1', x: 8, y: 0, w: 4, h: 4, minW: 2, minH: 2 },
-  { i: 'slot-2', x: 0, y: 4, w: 4, h: 3, minW: 2, minH: 2 },
-  { i: 'slot-3', x: 4, y: 4, w: 4, h: 3, minW: 2, minH: 2 },
-  { i: 'slot-4', x: 8, y: 4, w: 4, h: 3, minW: 2, minH: 2 },
-  { i: 'slot-5', x: 0, y: 7, w: 6, h: 2, minW: 2, minH: 1 },
-  { i: 'slot-6', x: 6, y: 7, w: 6, h: 2, minW: 2, minH: 1 },
+  { i: 'slot-0', x: 0, y: 0, w: 8, h: 7, minW: 2, minH: 2 }, // 4/6 — main
+  { i: 'slot-1', x: 8, y: 0, w: 4, h: 3, minW: 2, minH: 2 }, // 2/6
+  { i: 'slot-2', x: 8, y: 3, w: 4, h: 3, minW: 2, minH: 2 }, // 2/6
+  { i: 'slot-3', x: 0, y: 7, w: 6, h: 5, minW: 2, minH: 2 }, // 1/2
+  { i: 'slot-4', x: 6, y: 7, w: 6, h: 5, minW: 2, minH: 2 }, // 1/2
+  { i: 'slot-5', x: 0, y: 12, w: 6, h: 5, minW: 2, minH: 2 }, // 1/2
+  { i: 'slot-6', x: 6, y: 12, w: 6, h: 5, minW: 2, minH: 2 }, // 1/2
 ];
 
 export function getDefaultGridLayout(): Layout {
   return DEFAULT_LAYOUT.map((item) => ({ ...item }));
 }
 
-/** Size ratio options: (num, den) → grid w (12 cols), h (rows). Row base: 6 = very wide slots, 16 = almost square; 10 gives rectangular proportions without being too flat. */
+/** (num, den) → grid w (12 cols), h (rows); ROWS_BASE scales vertical units. */
 const COLS = 12;
 const ROWS_BASE = 10;
+
+/**
+ * Preset size fractions for context menu, ordered by grid area (w×h) largest → smallest
+ * (same formula as ratioToGridSize).
+ */
 export const SIZE_RATIOS: { num: number; den: number }[] = [
-  { num: 1, den: 6 }, { num: 2, den: 6 }, { num: 3, den: 6 }, { num: 4, den: 6 }, { num: 5, den: 6 }, { num: 6, den: 6 },
-  { num: 1, den: 5 }, { num: 2, den: 5 }, { num: 3, den: 5 }, { num: 4, den: 5 }, { num: 5, den: 5 },
-  { num: 1, den: 4 }, { num: 2, den: 4 }, { num: 3, den: 4 }, { num: 4, den: 4 },
-  { num: 1, den: 3 }, { num: 2, den: 3 }, { num: 3, den: 3 },
-  { num: 1, den: 2 }, { num: 2, den: 2 },
+  { num: 3, den: 4 },
+  { num: 4, den: 6 },
+  { num: 2, den: 3 },
+  { num: 3, den: 5 },
+  { num: 1, den: 2 },
+  { num: 2, den: 4 },
+  { num: 3, den: 6 },
+  { num: 2, den: 5 },
+  { num: 2, den: 6 },
+  { num: 1, den: 3 },
+  { num: 1, den: 4 },
 ];
 
 export function ratioToGridSize(num: number, den: number): { w: number; h: number } {
   const w = Math.max(1, Math.round((COLS * num) / den));
   const h = Math.max(1, Math.round((ROWS_BASE * num) / den));
   return { w, h };
+}
+
+/** Grid size for a newly added slot (preset 2/6). */
+export function getDefaultNewSlotGridSize(): { w: number; h: number } {
+  return ratioToGridSize(2, 6);
+}
+
+/** Horizontal + vertical gap between grid cells (must match GridLayoutWithWidth margin). */
+const GRID_MARGIN: readonly [number, number] = [12, 12];
+const GRID_CONTAINER_PADDING: readonly [number, number] = [0, 0];
+/** Approx. chrome above the video: grid slot header + StreamPanel header when both in layout flow. */
+const SLOT_CHROME_TOP_PX = 88;
+
+function snapLayoutItemToStreamAspect(
+  item: LayoutItem,
+  oldItem: LayoutItem,
+  streamAspectRatio: number,
+  containerWidth: number,
+  rowHeight: number,
+  chromeTopPx: number,
+  cols: number
+): LayoutItem {
+  if (!Number.isFinite(streamAspectRatio) || streamAspectRatio <= 0) return item;
+
+  const colWidth = calcGridColWidth({
+    margin: GRID_MARGIN,
+    containerPadding: GRID_CONTAINER_PADDING,
+    containerWidth,
+    cols,
+    rowHeight,
+    maxRows: 1_000_000,
+  });
+
+  let w = item.w;
+  let h = item.h;
+  const x = item.x;
+  const minW = item.minW ?? 1;
+  const minH = item.minH ?? 1;
+
+  const dw = Math.abs(w - oldItem.w);
+  const dh = Math.abs(h - oldItem.h);
+
+  if (dw >= dh) {
+    const slotW = calcGridItemWHPx(w, colWidth, GRID_MARGIN[0]);
+    const contentW = Math.max(1, slotW);
+    const targetContentH = contentW / streamAspectRatio;
+    const targetSlotH = targetContentH + chromeTopPx;
+    h = Math.round((targetSlotH + GRID_MARGIN[1]) / (rowHeight + GRID_MARGIN[1]));
+  } else {
+    const slotH = calcGridItemWHPx(h, rowHeight, GRID_MARGIN[1]);
+    const contentH = Math.max(1, slotH - chromeTopPx);
+    const targetContentW = contentH * streamAspectRatio;
+    const targetSlotW = Math.max(1, targetContentW);
+    w = Math.round((targetSlotW + GRID_MARGIN[0]) / (colWidth + GRID_MARGIN[0]));
+  }
+
+  w = Math.max(minW, w);
+  h = Math.max(minH, h);
+  w = Math.min(w, cols - x);
+  w = Math.max(minW, w);
+
+  return { ...item, w, h, x };
 }
 
 interface ResizableStreamGridProps {
@@ -105,6 +183,9 @@ export function ResizableStreamGrid({
   const [sizesSubmenuVisible, setSizesSubmenuVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  /** slotId → videoWidth/videoHeight ratio when the slot is playing */
+  const [slotStreamAspectRatio, setSlotStreamAspectRatio] = useState<Record<string, number>>({});
+  const prevSlotToItemId = useRef<Record<string, string>>({});
 
   useEffect(() => {
     const el = containerRef.current;
@@ -117,6 +198,32 @@ export function ResizableStreamGrid({
     return () => ro.disconnect();
   }, []);
 
+  useEffect(() => {
+    const prev = prevSlotToItemId.current;
+    const cur = slotToItemId;
+    const slotIds = new Set([...Object.keys(prev), ...Object.keys(cur)]);
+    let needsClear = false;
+    for (const sid of slotIds) {
+      if (prev[sid] !== cur[sid]) needsClear = true;
+    }
+    prevSlotToItemId.current = { ...cur };
+    if (!needsClear) return;
+    setSlotStreamAspectRatio((ratios) => {
+      const next = { ...ratios };
+      for (const sid of slotIds) {
+        if (prev[sid] !== cur[sid]) delete next[sid];
+      }
+      return next;
+    });
+  }, [slotToItemId]);
+
+  const chromeTopPx = hideSlotHeadersUntilHover ? 0 : SLOT_CHROME_TOP_PX;
+
+  const rowHeight =
+    disableCompact && containerWidth > 0
+      ? Math.max(20, (containerWidth / 12) * 0.65)
+      : DEFAULT_ROW_HEIGHT;
+
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, slotId: string) => {
       e.preventDefault();
@@ -128,11 +235,53 @@ export function ResizableStreamGrid({
 
   const applyRatio = useCallback(
     (slotId: string, num: number, den: number) => {
-      const { w, h } = ratioToGridSize(num, den);
-      onSetSlotSize?.(slotId, w, h);
+      const ar = slotStreamAspectRatio[slotId];
+      if (ar && ar > 0 && containerWidth > 0) {
+        const colWidth = calcGridColWidth({
+          margin: GRID_MARGIN,
+          containerPadding: GRID_CONTAINER_PADDING,
+          containerWidth,
+          cols: COLS,
+          rowHeight,
+          maxRows: 1_000_000,
+        });
+        const targetW = Math.max(2, Math.round((COLS * num) / den));
+        const slotW = calcGridItemWHPx(targetW, colWidth, GRID_MARGIN[0]);
+        const targetContentH = slotW / ar;
+        const targetSlotH = targetContentH + chromeTopPx;
+        const targetH = Math.max(
+          1,
+          Math.round((targetSlotH + GRID_MARGIN[1]) / (rowHeight + GRID_MARGIN[1]))
+        );
+        onSetSlotSize?.(slotId, targetW, targetH);
+      } else {
+        const { w, h } = ratioToGridSize(num, den);
+        onSetSlotSize?.(slotId, w, h);
+      }
       setContextMenu(null);
     },
-    [onSetSlotSize]
+    [onSetSlotSize, slotStreamAspectRatio, containerWidth, rowHeight, chromeTopPx]
+  );
+
+  const handleResizeStop: EventCallback = useCallback(
+    (layout, oldItem, newItem) => {
+      if (!newItem || !oldItem || containerWidth <= 0) return;
+      const ar = slotStreamAspectRatio[newItem.i];
+      if (!ar || ar <= 0) return;
+      const snapped = snapLayoutItemToStreamAspect(
+        newItem,
+        oldItem,
+        ar,
+        containerWidth,
+        rowHeight,
+        chromeTopPx,
+        COLS
+      );
+      if (snapped.w === newItem.w && snapped.h === newItem.h) return;
+      const nextLayout = layout.map((li) => (li.i === snapped.i ? snapped : li));
+      onLayoutChange(nextLayout);
+    },
+    [containerWidth, rowHeight, chromeTopPx, slotStreamAspectRatio, onLayoutChange]
   );
 
   useEffect(() => {
@@ -158,11 +307,6 @@ export function ResizableStreamGrid({
     [onRegisterPanelRef]
   );
 
-  const rowHeight =
-    disableCompact && containerWidth > 0
-      ? Math.max(20, (containerWidth / 12) * 0.65)
-      : DEFAULT_ROW_HEIGHT;
-
   return (
     <div
       ref={containerRef}
@@ -172,10 +316,11 @@ export function ResizableStreamGrid({
         className={`layout ${fillHeight ? 'flex-1 min-h-0' : ''}`}
         layout={layout}
         onLayoutChange={onLayoutChange}
+        onResizeStop={handleResizeStop}
         cols={12}
         rowHeight={rowHeight}
-        margin={[12, 12]}
-        containerPadding={[0, 0]}
+        margin={[GRID_MARGIN[0], GRID_MARGIN[1]]}
+        containerPadding={[GRID_CONTAINER_PADDING[0], GRID_CONTAINER_PADDING[1]]}
         isDraggable={true}
         isResizable={true}
         draggableHandle=".grid-drag-handle"
@@ -237,6 +382,11 @@ export function ResizableStreamGrid({
                     onClick={() => onOpen?.(option.item)}
                     fillHeight
                     hideHeader={hideSlotHeadersUntilHover}
+                    onVideoIntrinsicSize={(vw, vh) => {
+                      if (vw > 0 && vh > 0) {
+                        setSlotStreamAspectRatio((prev) => ({ ...prev, [slotId]: vw / vh }));
+                      }
+                    }}
                   />
                 ) : (
                   <div className="flex-1 min-h-0 flex items-center justify-center carbon-texture w-full h-full">

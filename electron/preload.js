@@ -22,6 +22,16 @@ contextBridge.exposeInMainWorld('f1', {
   fullReset: () => ipcRenderer.invoke('f1:fullReset'),
   getLastLicenseError: () => ipcRenderer.invoke('player:getLastLicenseError'),
   openMultiviewWindow: () => ipcRenderer.invoke('multiview:openWindow'),
+  getMultiviewWindows: () => ipcRenderer.invoke('multiview:listWindows'),
+  onMultiviewWindowsChanged: (callback) => {
+    const handler = (_event, payload) => {
+      try {
+        callback(payload);
+      } catch (_) {}
+    };
+    ipcRenderer.on('multiview:windowsChanged', handler);
+    return () => ipcRenderer.removeListener('multiview:windowsChanged', handler);
+  },
   closeMultiviewWindow: () => ipcRenderer.invoke('multiview:closeWindow'),
 });
 

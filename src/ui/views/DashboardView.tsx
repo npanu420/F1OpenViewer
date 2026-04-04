@@ -426,7 +426,6 @@ export function DashboardView({
                       accessToken={accessToken}
                       onEmbedError={onEmbedError}
                       onBeforeEnterFullscreen={() => setEmbeddedPlayback({})}
-                      onEnterFullscreen={() => (window as unknown as { f1?: { openMultiviewWindow?: () => void } }).f1?.openMultiviewWindow?.()}
                     />
                   )}
                 </>

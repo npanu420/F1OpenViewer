@@ -13,6 +13,7 @@ type Props = {
 export function PlayerView({ item, accessToken, onBack }: Props) {
   const { t } = useLocale();
   const [error, setError] = useState<string | null>(null);
+  const [videoIntrinsic, setVideoIntrinsic] = useState<{ w: number; h: number } | null>(null);
   const [playback, setPlayback] = useState<{
     manifestUrl: string;
     licenseUrl: string;
@@ -27,6 +28,7 @@ export function PlayerView({ item, accessToken, onBack }: Props) {
   useEffect(() => {
     setError(null);
     setPlayback(null);
+    setVideoIntrinsic(null);
     resolvePlayback(item)
       .then(setPlayback)
       .catch((e) => setError(e instanceof Error ? e.message : t('player.errorStreamStart')));
@@ -52,7 +54,18 @@ export function PlayerView({ item, accessToken, onBack }: Props) {
         </div>
       ) : (
         <div className="playerWrap">
-          <div style={{ minWidth: 0 }}>
+          <div
+            className="inline-player-aspect"
+            style={
+              videoIntrinsic
+                ? {
+                    aspectRatio: `${videoIntrinsic.w} / ${videoIntrinsic.h}`,
+                    maxHeight: '70vh',
+                    width: '100%',
+                  }
+                : { minWidth: 0, width: '100%' }
+            }
+          >
             <ShakaVideo
               manifestUrl={playback.manifestUrl}
               licenseUrl={playback.licenseUrl}
@@ -62,6 +75,7 @@ export function PlayerView({ item, accessToken, onBack }: Props) {
               fallbackLicenseUrl={playback.fallbackLicenseUrl}
               fallbackLicenseHeaders={playback.fallbackLicenseHeaders}
               onError={setError}
+              onIntrinsicVideoSize={(w, h) => setVideoIntrinsic({ w, h })}
             />
           </div>
           <div className="panel" style={{ alignSelf: 'start', minWidth: 0 }}>

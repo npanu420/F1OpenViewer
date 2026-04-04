@@ -27,6 +27,8 @@ interface StreamPanelProps {
   fillHeight?: boolean;
   /** When true, hide the header bar (label + volume) so content fills full height */
   hideHeader?: boolean;
+  /** videoWidth/videoHeight from the element once known (layout only) */
+  onVideoIntrinsicSize?: (width: number, height: number) => void;
 }
 
 export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
@@ -46,6 +48,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       onEmbedError,
       fillHeight = false,
       hideHeader = false,
+      onVideoIntrinsicSize,
     },
     ref
   ) {
@@ -60,6 +63,8 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
     const borderColor = teamColor ? `hsl(${teamColor})` : undefined;
     const canEmbed = catalogItem && onPlayEmbedded;
     const showPlaceholder = !playback && !loading;
+    /** Evita spinner + video insieme (es. "play all" con stream già attive: loading true ma playback ancora presente). */
+    const showLoadingOverlay = loading && !playback;
 
     function toggleMute() {
       const video = shakaRef.current?.getVideoElement();
@@ -127,7 +132,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
 
         {/* Content area */}
         <div className={`flex-1 flex flex-col min-w-0 bg-black ${fillHeight ? 'min-h-0' : 'min-h-[120px]'}`}>
-          {loading && (
+          {showLoadingOverlay && (
             <div className={`flex-1 flex items-center justify-center carbon-texture ${fillHeight ? 'min-h-0' : ''}`}>
               <div className="text-center">
                 <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto mb-2" />
@@ -150,6 +155,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
                 fallbackLicenseHeaders={playback.fallbackLicenseHeaders}
                 accessToken={accessToken}
                 onError={(msg) => onEmbedError?.(msg)}
+                onIntrinsicVideoSize={onVideoIntrinsicSize}
                 compact
               />
             </div>

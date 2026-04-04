@@ -60,6 +60,13 @@ export type PreloadApi = {
   fullReset?(): Promise<{ ok: boolean }>;
   /** Last error message from F1 license server (e.g. 403 region/subscription). */
   getLastLicenseError?(): Promise<string>;
+  /** Apre una nuova finestra multiview numerata; ritorna `{ id }`. */
+  openMultiviewWindow?(): Promise<{ id: number }>;
+  /** Id numerici delle finestre multiview aperte (ordinati). */
+  getMultiviewWindows?(): Promise<number[]>;
+  /** Notifica quando si apre/chiude una finestra multiview. */
+  onMultiviewWindowsChanged?(callback: (payload: { ids: number[]; count: number }) => void): () => void;
+  closeMultiviewWindow?(): Promise<void>;
 };
 
 declare global {

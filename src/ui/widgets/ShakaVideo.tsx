@@ -18,6 +18,11 @@ type Props = {
   onError: (msg: string) => void;
   /** Hide status pills and let video fill container (for embedded slots) */
   compact?: boolean;
+  /**
+   * Emits decoded frame dimensions from the video element (videoWidth / videoHeight).
+   * UI-only; does not affect Shaka configuration or playback.
+   */
+  onIntrinsicVideoSize?: (width: number, height: number) => void;
 };
 
 function safeErr(e: unknown): string {
@@ -31,6 +36,8 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<shaka.Player | null>(null);
   const [ready, setReady] = useState(false);
+  const intrinsicCbRef = useRef(props.onIntrinsicVideoSize);
+  intrinsicCbRef.current = props.onIntrinsicVideoSize;
 
   const redact = (v: unknown) => {
     if (v == null) return '';
@@ -42,6 +49,25 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
   useImperativeHandle(ref, () => ({
     getVideoElement: () => videoRef.current,
   }));
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const report = () => {
+      const cb = intrinsicCbRef.current;
+      if (!cb) return;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (vw > 0 && vh > 0) cb(vw, vh);
+    };
+    video.addEventListener('loadedmetadata', report);
+    video.addEventListener('resize', report);
+    report();
+    return () => {
+      video.removeEventListener('loadedmetadata', report);
+      video.removeEventListener('resize', report);
+    };
+  }, [props.manifestUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
