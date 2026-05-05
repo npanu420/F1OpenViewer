@@ -154,7 +154,14 @@ export function LiveEventView({
               onPlayAllEmbedded={onPlayAllEmbedded}
               accessToken={accessToken}
               onEmbedError={onEmbedError}
-              onBeforeEnterFullscreen={() => setEmbeddedPlayback({})}
+              onPortStreamsToWindow={(ids) => {
+                if (!ids.length) return;
+                setEmbeddedPlayback((prev) => {
+                  const next = { ...prev };
+                  for (const id of ids) delete next[id];
+                  return next;
+                });
+              }}
             />
           </motion.div>
         )}

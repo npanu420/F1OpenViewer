@@ -12,19 +12,34 @@ const memSession = { accessToken: undefined };
 
 const LICENSE_PROXY_PORT_MIN = 18765;
 const LICENSE_PROXY_PORT_MAX = 18775;
-/** Set when the license proxy successfully binds; used for rewriting license URLs. */
-let licenseProxyUrl = `http://127.0.0.1:${LICENSE_PROXY_PORT_MIN}/la`;
-let licenseProxyTarget = '';
+/** Base proxy URL (without query); per-stream license URL becomes `${licenseProxyBaseUrl}?stream=<key>`. */
+let licenseProxyBaseUrl = `http://127.0.0.1:${LICENSE_PROXY_PORT_MIN}/la`;
+
 /**
- * Snapshot of last CONTENT/PLAY (before rewriting licenseUrl to the local proxy).
- * Used for pipeline 5+ / missing laURL: try LA URL variants (query + KeyOS customdata).
- * If two concurrent streams share the same LA path, the last contentPlay wins (rare for this app).
+ * Per-stream proxy state. Each contentPlay registers an entry keyed by `${contentId}:${channelId|0}`,
+ * so multiple concurrent streams (multiview / Play All) each forward to their own LA target with
+ * their own playToken and entitlement context. Replaces the previous singletons that caused the
+ * "last contentPlay wins" race when multiple streams ran at once.
  */
-let licensePlaybackContext = null;
+const licenseProxyStreams = new Map();
+/** Legacy single-stream identifier used by the custom player window (no streamKey in its license URL). */
+const LEGACY_PLAYER_STREAM_KEY = '__player_window__';
 /** Dedupe CloudFront HTML error logs within one /la request (PRE text differs per Request ID). */
 let lastCloudFront403SemanticKey = '';
-/** Last error message from F1 license server (403 response), so the player UI can show it. */
-let lastLicenseErrorMsg = '';
+
+function buildStreamKey(contentId, channelId) {
+  const c = contentId == null ? '' : String(contentId);
+  const ch = channelId == null || channelId === '' || Number.isNaN(Number(channelId)) ? '0' : String(channelId);
+  return `${c}:${ch}`;
+}
+
+function streamProxyUrl(streamKey) {
+  return `${licenseProxyBaseUrl}?stream=${encodeURIComponent(streamKey)}`;
+}
+
+function getStreamEntry(streamKey) {
+  return licenseProxyStreams.get(streamKey || LEGACY_PLAYER_STREAM_KEY) || null;
+}
 
 const F1TV_WEB_BASE = 'https://f1tv.formula1.com';
 
@@ -196,11 +211,11 @@ function buildLaDiscoveryAttempts(ctx, playToken) {
   return attempts;
 }
 
-function captureLicensePlaybackContext(result) {
+function buildLicensePlaybackContext(result) {
   const la = result?.licenseUrl;
-  if (!la || typeof la !== 'string') return;
-  if (!la.startsWith('https://') || !la.includes('formula1.com')) return;
-  licensePlaybackContext = {
+  if (!la || typeof la !== 'string') return null;
+  if (!la.startsWith('https://') || !la.includes('formula1.com')) return null;
+  return {
     baseLaUrl: laUrlBase(la),
     pipelineVersion: result.pipelineVersion,
     paCfKeyGroup: result.paCfKeyGroup != null ? String(result.paCfKeyGroup) : '',
@@ -209,7 +224,36 @@ function captureLicensePlaybackContext(result) {
     contentId: result.contentId,
     channelId: result.channelId,
   };
-  console.log('[license-proxy] playback context captured | base:', licensePlaybackContext.baseLaUrl, '| pipeline:', licensePlaybackContext.pipelineVersion ?? 'n/a', '| paCfKid:', licensePlaybackContext.paCfKeyGroup || '(none)');
+}
+
+/**
+ * Registers (or refreshes) the per-stream license proxy entry. Returns the proxy URL to expose
+ * to the renderer. Caller must replace the original `result.licenseUrl` with this string.
+ */
+function registerLicenseStream(streamKey, result) {
+  const target = result?.licenseUrl && typeof result.licenseUrl === 'string' && result.licenseUrl.startsWith('https://')
+    ? result.licenseUrl
+    : '';
+  if (!target) return null;
+  const ctx = buildLicensePlaybackContext(result);
+  const entry = {
+    target,
+    ctx,
+    playToken: result.playToken || '',
+    licenseEntitlementToken: result.licenseEntitlementToken || '',
+    licenseAscendonToken: result.licenseAscendonToken || '',
+    drmToken: result.drmToken || '',
+    lastError: '',
+  };
+  licenseProxyStreams.set(streamKey, entry);
+  console.log(
+    '[license-proxy] stream registered | key:', streamKey,
+    '| base:', ctx?.baseLaUrl || '(n/a)',
+    '| pipeline:', ctx?.pipelineVersion ?? 'n/a',
+    '| paCfKid:', ctx?.paCfKeyGroup || '(none)',
+    '| total streams:', licenseProxyStreams.size
+  );
+  return streamProxyUrl(streamKey);
 }
 
 function pickDebugResponseHeaders(h) {
@@ -286,20 +330,19 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
     console.warn('[player] no manifestUrl in response');
     return;
   }
-  // Store playToken for the license proxy and as session cookie for CDN requests
+  f1tv.setPlaybackEntitlementOverride(result.licenseEntitlementToken || null);
   if (result.playToken) {
-    currentPlayToken = result.playToken;
     console.log('[player] playToken stored for license proxy');
     const cdnOrigins = ['https://f1tv.formula1.com', 'https://ott-video-fer-cf.formula1.com', 'https://ott-video-cf.formula1.com'];
     for (const origin of cdnOrigins) {
-      session.defaultSession.cookies.set({ url: origin, name: 'playToken', value: currentPlayToken, path: '/' }).catch(() => {});
+      session.defaultSession.cookies.set({ url: origin, name: 'playToken', value: result.playToken, path: '/' }).catch(() => {});
     }
   }
   let licenseUrl = result.licenseUrl || '';
   if (licenseUrl.startsWith('https://') && licenseUrl.includes('formula1.com')) {
-    captureLicensePlaybackContext(result);
-    licenseProxyTarget = licenseUrl;
-    licenseUrl = licenseProxyUrl;
+    const streamKey = buildStreamKey(result.contentId ?? id, result.channelId ?? channelId);
+    const proxied = registerLicenseStream(streamKey, result);
+    if (proxied) licenseUrl = proxied;
   }
   const licenseHeaders = {};
   if (result.drmToken) {
@@ -353,52 +396,72 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
 
 const LICENSE_PROXY_FORWARD_HEADERS = ['authorization', 'drmtoken', 'ascendontoken', 'entitlementtoken'];
 
-/** playToken for single-stream player window; dashboard streams send per-request X-F1-Play-Token. */
-let currentPlayToken = '';
-
-function buildLicenseProxyHeaders(req) {
-  const headers = { ...(f1tv.getLicenseRequestHeaders() || {}) };
+/**
+ * Builds headers for the outgoing F1 LA fetch. Per-stream tokens (from `entry`) take precedence
+ * over both the global f1tv defaults and the renderer-supplied request headers, so concurrent
+ * streams never clobber each other's entitlement / DRM tokens.
+ */
+function buildLicenseProxyHeaders(req, entry) {
+  const base = { ...(f1tv.getLicenseRequestHeaders() || {}) };
   const forwarded = {};
   for (const key of LICENSE_PROXY_FORWARD_HEADERS) {
     const v = req.headers[key] || req.headers[key.toLowerCase()];
     if (v) forwarded[key] = Array.isArray(v) ? v[0] : v;
   }
-  if (forwarded.ascendontoken) headers.ascendontoken = forwarded.ascendontoken;
-  if (forwarded.entitlementtoken) headers.entitlementtoken = forwarded.entitlementtoken;
-  if (forwarded.drmtoken) headers.drmtoken = forwarded.drmtoken;
-  // Only override Authorization when the player explicitly sends a DRM bearer token.
-  // The browser subscription token is not the license bearer token and causes 403s on protected streams.
-  if (forwarded.authorization && (forwarded.drmtoken || !headers.Authorization)) {
-    headers.Authorization = forwarded.authorization;
+  if (forwarded.ascendontoken) base.ascendontoken = forwarded.ascendontoken;
+  if (forwarded.entitlementtoken) base.entitlementtoken = forwarded.entitlementtoken;
+  if (forwarded.drmtoken) base.drmtoken = forwarded.drmtoken;
+  if (forwarded.authorization && (forwarded.drmtoken || !base.Authorization)) {
+    base.Authorization = forwarded.authorization;
   }
-  return headers;
+  if (entry) {
+    if (entry.licenseEntitlementToken) base.entitlementtoken = entry.licenseEntitlementToken;
+    if (entry.licenseAscendonToken) base.ascendontoken = entry.licenseAscendonToken;
+    if (entry.drmToken) {
+      base.drmtoken = entry.drmToken;
+      base.Authorization = `Bearer ${entry.drmToken}`;
+    }
+  }
+  return base;
 }
 
 /**
- * @param {Record<string, string>} headers - request headers (mutated with Cookie)
- * @param {string} [playTokenOverride] - per-stream playToken from X-F1-Play-Token header (dashboard); else use currentPlayToken (player window)
- * @param {{ quiet?: boolean }} [opts] - quiet: no per-request logs (used for LA discovery batch retries)
+ * @param {string} target - F1 LA URL to forward the Widevine challenge to.
+ * @param {Buffer} body - raw challenge bytes.
+ * @param {Record<string, string>} headers - prebuilt forward headers (entitlement/ascendon/drm tokens etc.).
+ * @param {string} [playToken] - per-stream playToken. Inlined into the outgoing Cookie header (via
+ *   webRequest hook) so concurrent streams never race on the shared session cookie store.
+ * @param {{ quiet?: boolean }} [opts]
  */
-async function sendLicenseToF1(target, body, headers, playTokenOverride, opts = {}) {
+async function sendLicenseToF1(target, body, headers, playToken, opts = {}) {
   const quiet = !!opts.quiet;
-  const playToken = playTokenOverride ?? currentPlayToken;
   const targetUrl = new URL(target);
 
-  // Ensure playToken is set in session cookies for this origin BEFORE the request,
-  // because session.defaultSession.fetch() sends session cookies automatically.
-  if (playToken) {
-    const targetOrigin = targetUrl.origin;
-    await session.defaultSession.cookies.set({ url: targetOrigin, name: 'playToken', value: playToken, path: '/' }).catch(() => {});
-  }
+  // Build the Cookie header explicitly from a snapshot of session cookies, with our per-stream
+  // playToken substituted in. setupLicenseRequestHeaders will use this verbatim when it sees the
+  // X-F1OV-Cookie marker — Chromium's auto-cookie attachment is bypassed for this request, so
+  // simultaneous streams can't race each other through the shared cookie store.
+  let cookieOverride = '';
+  let cookieDebug = '';
+  try {
+    const existing = await session.defaultSession.cookies.get({ url: target });
+    const others = existing.filter((c) => c.name !== 'playToken').map((c) => `${c.name}=${c.value}`);
+    const parts = playToken ? [`playToken=${playToken}`, ...others] : others;
+    cookieOverride = parts.join('; ');
+    cookieDebug = playToken
+      ? `playToken=${redact(playToken)} +${others.length}other`
+      : `(no playToken) ${others.length}other`;
+  } catch (_) {}
 
-  // Build request headers without Cookie — session.defaultSession.fetch uses Chromium's
-  // network stack (same TLS fingerprint as Chrome) and sends session cookies automatically.
-  // This passes Imperva/CloudFront bot-protection (reese84) which rejects Node.js TLS.
   const reqHeaders = {};
   for (const [k, v] of Object.entries(headers)) {
     if (k.toLowerCase() !== 'cookie') reqHeaders[k] = v;
   }
   reqHeaders['Content-Type'] = reqHeaders['Content-Type'] || 'application/octet-stream';
+  // Markers so setupLicenseRequestHeaders knows this request is already fully decorated by the
+  // proxy and must not overwrite per-stream tokens with the singleton defaults.
+  reqHeaders['X-F1OV-Proxy'] = '1';
+  if (cookieOverride) reqHeaders['X-F1OV-Cookie'] = cookieOverride;
 
   const authMode = reqHeaders.drmtoken
     ? 'drmToken'
@@ -407,20 +470,15 @@ async function sendLicenseToF1(target, body, headers, playTokenOverride, opts = 
       : reqHeaders.ascendontoken
         ? 'ascendon-only'
         : 'none';
-  const sessionCookies = await session.defaultSession.cookies.get({ url: target });
-  const cookieNames = sessionCookies.map((c) => c.name).sort();
   const bodyLen = body ? (Buffer.isBuffer(body) ? body.length : (body.byteLength ?? 0)) : 0;
   if (!quiet) {
     console.log(
       '[license-proxy] sending to F1 (Chromium)',
       '| url:', `${targetUrl.origin}${targetUrl.pathname}`,
       '| host:', targetUrl.host,
-      '| headers:', Object.keys(reqHeaders).sort().join(','),
-      '| headers(summary):', JSON.stringify(summarizeHeaders(reqHeaders)),
       '| auth:', authMode,
-      '| playToken:', playToken ? redact(playToken) : '(none)',
-      '| body(bytes):', bodyLen,
-      '| session cookies:', cookieNames.length ? `${cookieNames.length} [${cookieNames.join(',')}]` : '(none)'
+      '| cookie:', cookieDebug,
+      '| body(bytes):', bodyLen
     );
   }
 
@@ -462,100 +520,96 @@ async function sendLicenseToF1(target, body, headers, playTokenOverride, opts = 
 function startLicenseProxy() {
   function createProxyServer() {
     return http.createServer(async (req, res) => {
-      if (req.method !== 'POST' || req.url !== '/la') {
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(req.url, 'http://127.0.0.1');
+      } catch (_) {
+        res.writeHead(400);
+        res.end();
+        return;
+      }
+      if (req.method !== 'POST' || parsedUrl.pathname !== '/la') {
         res.writeHead(404);
         res.end();
         return;
       }
+      const requestedStreamKey = parsedUrl.searchParams.get('stream') || '';
+      const streamKey = requestedStreamKey || LEGACY_PLAYER_STREAM_KEY;
+      const entry = licenseProxyStreams.get(streamKey)
+        || (requestedStreamKey ? null : licenseProxyStreams.get(LEGACY_PLAYER_STREAM_KEY) || null);
+
       const chunks = [];
       for await (const c of req) chunks.push(c);
       const body = Buffer.concat(chunks);
       lastCloudFront403SemanticKey = '';
-      const target = licenseProxyTarget;
-      if (!target || !target.startsWith('https://')) {
-        console.warn('[license-proxy] no LA target set');
+
+      if (!entry || !entry.target || !entry.target.startsWith('https://')) {
+        console.warn('[license-proxy] no LA target for streamKey:', streamKey);
         res.writeHead(502);
         res.end();
         return;
       }
-      try {
-        const playTokenFromRequest = req.headers['x-f1-play-token'] || req.headers['X-F1-Play-Token'];
-        const playTokenValue = Array.isArray(playTokenFromRequest) ? playTokenFromRequest[0] : playTokenFromRequest;
 
+      const target = entry.target;
+      const playTokenFromHeader = req.headers['x-f1-play-token'] || req.headers['X-F1-Play-Token'];
+      const playTokenHeaderValue = Array.isArray(playTokenFromHeader) ? playTokenFromHeader[0] : playTokenFromHeader;
+      const playToken = entry.playToken || playTokenHeaderValue || '';
+
+      try {
         console.log(
           '[license-proxy] incoming LA request',
+          '| streamKey:', streamKey,
           '| ua:', String(req.headers['user-agent'] || '').slice(0, 60),
           '| ct:', req.headers['content-type'] || '(none)',
-          '| origin:', req.headers.origin || '(none)',
-          '| referer:', req.headers.referer || '(none)',
-          '| x-f1-play-token:', playTokenValue ? redact(playTokenValue) : '(none)',
+          '| playToken:', playToken ? redact(playToken) : '(none)',
           '| body(bytes):', body.length
         );
         if (body.length) {
-          // Widevine license challenge is binary; just log a tiny signature-like prefix.
           const sig = body.slice(0, 24).toString('base64');
           console.log('[license-proxy] challenge prefix (base64, 24 bytes):', sig);
           if (body.length <= 64) logLicenseBodyHint(body);
         }
 
-        const headers = buildLicenseProxyHeaders(req);
+        const headers = buildLicenseProxyHeaders(req, entry);
         const licenseReqContentType = req.headers['content-type'] || 'application/octet-stream';
         const baseFwd = { ...headers, 'Content-Type': licenseReqContentType };
-        console.log('[license-proxy] built forward headers:', JSON.stringify(summarizeHeaders(headers)));
 
-        let r = await sendLicenseToF1(target, body, baseFwd, playTokenValue);
+        let r = await sendLicenseToF1(target, body, baseFwd, playToken);
 
-        // On 403, try once to refresh session (ascendon/entitlement) and retry
         if (r.status === 403 && memSession.accessToken) {
           try {
             await f1tv.initClient(memSession.accessToken);
-            const retryHeaders = { ...buildLicenseProxyHeaders(req), 'Content-Type': licenseReqContentType };
-            console.log('[license-proxy] retry after session refresh | headers:', JSON.stringify(summarizeHeaders(retryHeaders)));
-            const r2 = await sendLicenseToF1(target, body, retryHeaders, playTokenValue);
-            if (r2.status === 200) {
-              r = r2;
-              console.log('[license-proxy] F1 → 200 after session refresh retry');
-            } else {
-              r = r2;
-            }
+            const retryHeaders = { ...buildLicenseProxyHeaders(req, entry), 'Content-Type': licenseReqContentType };
+            const r2 = await sendLicenseToF1(target, body, retryHeaders, playToken);
+            r = r2;
+            if (r2.status === 200) console.log('[license-proxy] F1 → 200 after session refresh retry');
           } catch (_) {}
         }
 
-        // Pipeline 5+: fallback LA often hits CloudFront HTML 403; try query params + KeyOS customdata.
         if (r.status === 403 && isCloudFrontHtmlBlock(r.status, r.headers, r.data)) {
-          const ctx = licensePlaybackContext;
+          const ctx = entry.ctx;
           const targetBase = laUrlBase(target);
           if (ctx && ctx.baseLaUrl === targetBase) {
-            const attempts = buildLaDiscoveryAttempts(ctx, playTokenValue);
+            const attempts = buildLaDiscoveryAttempts(ctx, playToken);
             if (attempts.length) {
-              console.log('[license-proxy] LA discovery:', attempts.length, 'varianti (log silenziati; dettaglio solo sulla prima richiesta sopra)');
+              console.log('[license-proxy] LA discovery:', attempts.length, 'variants for streamKey:', streamKey);
             }
             let discoveryIdx = 0;
             for (const att of attempts) {
               discoveryIdx += 1;
-              const variantHeaders = { ...buildLicenseProxyHeaders(req), 'Content-Type': licenseReqContentType, ...att.extraHeaders };
-              const rTry = await sendLicenseToF1(att.url, body, variantHeaders, playTokenValue, { quiet: true });
+              const variantHeaders = { ...buildLicenseProxyHeaders(req, entry), 'Content-Type': licenseReqContentType, ...att.extraHeaders };
+              const rTry = await sendLicenseToF1(att.url, body, variantHeaders, playToken, { quiet: true });
               if (rTry.status === 200) {
                 r = rTry;
-                console.log('[license-proxy] LA discovery OK:', att.label, '| tentativo', discoveryIdx, '/', attempts.length);
+                console.log('[license-proxy] LA discovery OK:', att.label, '| streamKey:', streamKey);
                 break;
               }
               if (!isCloudFrontHtmlBlock(rTry.status, rTry.headers, rTry.data)) {
                 r = rTry;
-                console.warn('[license-proxy] LA discovery: risposta non-HTML', att.label, '| status', rTry.status);
                 const ctTry = String(rTry.headers?.['content-type'] || '').toLowerCase();
                 if (rTry.status !== 403 || ctTry.includes('json')) break;
               }
             }
-            if (discoveryIdx > 0 && r.status === 403 && isCloudFrontHtmlBlock(r.status, r.headers, r.data)) {
-              console.warn(
-                '[license-proxy] LA discovery esaurita:',
-                discoveryIdx,
-                'varianti, ancora CloudFront 403 (stesso errore della prima richiesta)'
-              );
-            }
-          } else if (ctx) {
-            console.warn('[license-proxy] LA discovery skipped (target != context):', targetBase, '!==', ctx.baseLaUrl);
           }
         }
 
@@ -566,20 +620,24 @@ function startLicenseProxy() {
         res.end(buf);
         try {
           const u = new URL(target);
-          console.log('[license-proxy] F1 → status', r.status, '| target:', `${u.origin}${u.pathname}`);
+          console.log('[license-proxy] F1 → status', r.status, '| streamKey:', streamKey, '| target:', `${u.origin}${u.pathname}`);
         } catch (_) {
-          console.log('[license-proxy] F1 → status', r.status, '| target:', target.slice(0, 120));
+          console.log('[license-proxy] F1 → status', r.status, '| streamKey:', streamKey);
         }
         if (r.status === 403) {
           const bodyStr = buf.toString('utf8');
-          console.warn('[license-proxy] 403 body (raw):', bodyStr.slice(0, 300));
           try {
             const j = JSON.parse(bodyStr);
-            lastLicenseErrorMsg = j?.resultObj?.keyos?.errormsg || j?.message || j?.resultObj?.message || '';
-            if (lastLicenseErrorMsg) console.warn('[license-proxy] 403 message:', lastLicenseErrorMsg.slice(0, 200));
-          } catch (_) {}
+            const msg = j?.resultObj?.keyos?.errormsg || j?.message || j?.resultObj?.message || '';
+            if (msg) {
+              entry.lastError = msg;
+              console.warn('[license-proxy] 403 message:', msg.slice(0, 200), '| streamKey:', streamKey);
+            }
+          } catch (_) {
+            entry.lastError = bodyStr.slice(0, 300);
+          }
         } else if (r.status === 200) {
-          lastLicenseErrorMsg = '';
+          entry.lastError = '';
         }
         if (r.status === 200 && r.headers['set-cookie']) {
           const setCookies = Array.isArray(r.headers['set-cookie']) ? r.headers['set-cookie'] : [r.headers['set-cookie']];
@@ -590,11 +648,11 @@ function startLicenseProxy() {
             if (eq <= 0) continue;
             const name = nameVal.slice(0, eq);
             const value = nameVal.slice(eq + 1);
-            let path = '/';
+            let cookiePath = '/';
             for (const part of rest) {
-              if (part.toLowerCase().startsWith('path=')) path = part.slice(5).trim();
+              if (part.toLowerCase().startsWith('path=')) cookiePath = part.slice(5).trim();
             }
-            session.defaultSession.cookies.set({ url: origin, name, value, path }).catch(() => {});
+            session.defaultSession.cookies.set({ url: origin, name, value, path: cookiePath }).catch(() => {});
           }
         }
       } catch (e) {
@@ -620,8 +678,8 @@ function startLicenseProxy() {
       }
     });
     server.listen(port, '127.0.0.1', () => {
-      licenseProxyUrl = `http://127.0.0.1:${port}/la`;
-      console.log('[license-proxy] listening on', licenseProxyUrl);
+      licenseProxyBaseUrl = `http://127.0.0.1:${port}/la`;
+      console.log('[license-proxy] listening on', licenseProxyBaseUrl);
     });
   }
   tryListen(LICENSE_PROXY_PORT_MIN);
@@ -678,6 +736,7 @@ function persistCookies(cookieList) {
 async function performFullReset() {
   memSession.accessToken = undefined;
   persistSession(null);
+  licenseProxyStreams.clear();
   try {
     const sessionPath = getSessionFilePath();
     if (fs.existsSync(sessionPath)) fs.unlinkSync(sessionPath);
@@ -1082,31 +1141,88 @@ function setupLicenseResponseLog() {
   });
 }
 
-/** Injects ascendon/entitlement and cookies on every request to the F1 license server. */
+/** Manifest/init/segments on F1 CDNs; without ascendon/entitlement headers many pipeline-3 VODs return HTTP 403. */
+function isF1OttVideoCdnUrl(urlString) {
+  try {
+    const h = new URL(urlString).hostname;
+    return h.includes('ott-video') && h.endsWith('formula1.com');
+  } catch {
+    return false;
+  }
+}
+
+/** Injects ascendon/entitlement and cookies on F1 license acquisition and ott-video CDN requests. */
 function setupLicenseRequestHeaders() {
   session.defaultSession.webRequest.onBeforeSendHeaders(async (details, callback) => {
     const url = details.url || '';
     const isF1License = url.includes('formula1.com') && (url.includes('/LA') || url.includes('/CONTENT/LA'));
+    const isF1OttCdn = isF1OttVideoCdnUrl(url);
+
+    if (isF1OttCdn) {
+      const requestHeaders = { ...details.requestHeaders };
+      const headers = f1tv.getLicenseRequestHeaders();
+      if (headers) {
+        for (const [k, v] of Object.entries(headers)) {
+          requestHeaders[k] = v;
+        }
+      }
+      try {
+        const cookies = await session.defaultSession.cookies.get({ url });
+        if (cookies.length) {
+          requestHeaders.Cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+        }
+      } catch (_) {}
+      callback({ requestHeaders });
+      return;
+    }
+
     if (!isF1License) {
       callback({ requestHeaders: details.requestHeaders });
       return;
     }
     const requestHeaders = { ...details.requestHeaders };
+
+    // Find our proxy markers case-insensitively (Chromium normalizes header casing
+    // inconsistently across releases — exact-case lookups silently miss).
+    let proxyMarkerKey = null;
+    let cookieMarkerKey = null;
+    for (const k of Object.keys(requestHeaders)) {
+      const lk = k.toLowerCase();
+      if (lk === 'x-f1ov-proxy') proxyMarkerKey = k;
+      else if (lk === 'x-f1ov-cookie') cookieMarkerKey = k;
+    }
+    const isProxyOriginated = proxyMarkerKey != null;
+
+    if (isProxyOriginated) {
+      // The license proxy has already filled in per-stream entitlement / ascendon / drm /
+      // playToken values. Do NOT touch them — overwriting with the singleton f1tv defaults
+      // (which always reflect the LATEST contentPlay) is exactly what produced the
+      // "only the main feed gets DRM 403" failure on multi-stream play.
+      if (cookieMarkerKey) {
+        requestHeaders.Cookie = requestHeaders[cookieMarkerKey];
+        delete requestHeaders[cookieMarkerKey];
+      }
+      delete requestHeaders[proxyMarkerKey];
+      callback({ requestHeaders });
+      return;
+    }
+
+    // Non-proxy path (legacy single-stream player window): fill in missing tokens from the
+    // global f1tv state and attach session cookies. This branch only runs when no streamKey
+    // was present in the proxy URL.
     const headers = f1tv.getLicenseRequestHeaders();
     if (headers) {
       for (const [k, v] of Object.entries(headers)) {
         requestHeaders[k] = v;
       }
     }
-    let cookieCount = 0;
     try {
       const cookies = await session.defaultSession.cookies.get({ url });
       if (cookies.length) {
         requestHeaders.Cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-        cookieCount = cookies.length;
       }
     } catch (_) {}
-    console.log('[license] headers injected on LA request' + (cookieCount ? ` | ${cookieCount} cookies` : ' (no cookies)'));
+    console.log('[license] headers injected on LA request (legacy/non-proxy path)');
     callback({ requestHeaders });
   });
 }
@@ -1121,6 +1237,7 @@ function setupIpc() {
   ipcMain.handle('session:clear', async () => {
     memSession.accessToken = undefined;
     persistSession(null);
+    licenseProxyStreams.clear();
     try {
       const p = getCookiesFilePath();
       if (fs.existsSync(p)) fs.unlinkSync(p);
@@ -1194,18 +1311,19 @@ function setupIpc() {
         return f1tv.contentPlay(contentId, channelId);
       })
       .then((result) => {
+        f1tv.setPlaybackEntitlementOverride(result?.licenseEntitlementToken || null);
         if (result?.playToken) {
-          currentPlayToken = result.playToken;
-          console.log('[session] playToken stored for license proxy');
+          // Cookie write is best-effort: needed by some pipelines for segment fetches.
+          // The proxy itself uses the per-stream playToken from the registry, not this cookie.
           const cdnOrigins = ['https://f1tv.formula1.com', 'https://ott-video-fer-cf.formula1.com', 'https://ott-video-cf.formula1.com'];
           for (const origin of cdnOrigins) {
-            session.defaultSession.cookies.set({ url: origin, name: 'playToken', value: currentPlayToken, path: '/' }).catch(() => {});
+            session.defaultSession.cookies.set({ url: origin, name: 'playToken', value: result.playToken, path: '/' }).catch(() => {});
           }
         }
         if (result?.licenseUrl && result.licenseUrl.startsWith('https://') && result.licenseUrl.includes('formula1.com')) {
-          captureLicensePlaybackContext(result);
-          licenseProxyTarget = result.licenseUrl;
-          result.licenseUrl = licenseProxyUrl;
+          const streamKey = buildStreamKey(result.contentId ?? contentId, result.channelId ?? channelId);
+          const proxied = registerLicenseStream(streamKey, result);
+          if (proxied) result.licenseUrl = proxied;
         }
         return result;
       })
@@ -1220,7 +1338,18 @@ function setupIpc() {
     await performFullReset();
     return { ok: true };
   });
-  ipcMain.handle('player:getLastLicenseError', () => lastLicenseErrorMsg || '');
+  ipcMain.handle('player:getLastLicenseError', (_evt, streamKey) => {
+    if (streamKey && licenseProxyStreams.has(streamKey)) {
+      return licenseProxyStreams.get(streamKey).lastError || '';
+    }
+    // Fallback for legacy callers (single-stream player window): pick the most recently failed
+    // stream so the message still surfaces.
+    let latest = '';
+    for (const entry of licenseProxyStreams.values()) {
+      if (entry.lastError) latest = entry.lastError;
+    }
+    return latest;
+  });
 
   ipcMain.on('player:resetAspect', (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
@@ -1243,7 +1372,10 @@ function setupIpc() {
     return Array.from(multiviewWindows.keys()).sort((a, b) => a - b);
   });
   ipcMain.handle('multiview:closeWindow', (evt) => {
-    const w = evt.sender.getOwnerBrowserWindow?.();
+    // BrowserWindow.fromWebContents is documented and stable across Electron versions;
+    // getOwnerBrowserWindow is undocumented and was returning undefined in some builds.
+    const w = BrowserWindow.fromWebContents(evt.sender)
+      || (typeof evt.sender.getOwnerBrowserWindow === 'function' ? evt.sender.getOwnerBrowserWindow() : null);
     if (w && !w.isDestroyed()) w.close();
   });
 

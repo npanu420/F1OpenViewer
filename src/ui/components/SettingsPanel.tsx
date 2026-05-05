@@ -7,6 +7,11 @@ import {
   setSyncOffsetThreshold,
   getSyncDoneDelayMs,
   setSyncDoneDelayMs,
+  getSyncKeepLocked,
+  setSyncKeepLocked,
+  getSyncReferenceMode,
+  setSyncReferenceMode,
+  type SyncReferenceMode,
   DEFAULT_SYNC_OFFSET_THRESHOLD,
   DEFAULT_SYNC_DONE_DELAY_MS,
   MIN_SYNC_OFFSET_THRESHOLD,
@@ -56,10 +61,14 @@ export function SettingsPanel({
   const [resetDone, setResetDone] = useState(false);
   const [syncTolerance, setSyncToleranceState] = useState(DEFAULT_SYNC_OFFSET_THRESHOLD);
   const [syncDoneDelay, setSyncDoneDelayState] = useState(DEFAULT_SYNC_DONE_DELAY_MS);
+  const [syncKeepLocked, setSyncKeepLockedState] = useState(false);
+  const [syncRefMode, setSyncRefModeState] = useState<SyncReferenceMode>('latest');
 
   useEffect(() => {
     setSyncToleranceState(getSyncOffsetThreshold());
     setSyncDoneDelayState(getSyncDoneDelayMs());
+    setSyncKeepLockedState(getSyncKeepLocked());
+    setSyncRefModeState(getSyncReferenceMode());
   }, [isOpen]);
 
   async function handleFullReset() {
@@ -219,6 +228,48 @@ export function SettingsPanel({
                   />
                   <span className="text-xs text-muted-foreground shrink-0">ms</span>
                 </div>
+                <p className="text-sm text-muted-foreground pt-2 pb-1">
+                  {t('settings.syncReferenceHint')}
+                </p>
+                <div className="flex gap-2">
+                  {([
+                    { mode: 'latest' as const, label: t('settings.syncReferenceLatest') },
+                    { mode: 'first' as const, label: t('settings.syncReferenceFirst') },
+                  ]).map(({ mode, label }) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => {
+                        setSyncRefModeState(mode);
+                        setSyncReferenceMode(mode);
+                      }}
+                      className={`flex-1 py-2 rounded-md font-heading text-xs font-bold tracking-wider transition-colors border ${
+                        syncRefMode === mode
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-accent/30 text-muted-foreground border-border hover:text-foreground'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center justify-between gap-3 pt-3 cursor-pointer select-none">
+                  <span className="text-sm">
+                    {t('settings.syncKeepLockedLabel')}
+                    <span className="block text-xs text-muted-foreground mt-0.5">
+                      {t('settings.syncKeepLockedHint')}
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={syncKeepLocked}
+                    onChange={(e) => {
+                      setSyncKeepLockedState(e.target.checked);
+                      setSyncKeepLocked(e.target.checked);
+                    }}
+                    className="w-5 h-5 accent-primary shrink-0"
+                  />
+                </label>
               </SettingGroup>
 
               <SettingGroup title={t('settings.dataAndCache')}>

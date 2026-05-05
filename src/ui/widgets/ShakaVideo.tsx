@@ -23,6 +23,14 @@ type Props = {
    * UI-only; does not affect Shaka configuration or playback.
    */
   onIntrinsicVideoSize?: (width: number, height: number) => void;
+  /**
+   * Optional initial playback position (seconds). Used when the standalone multiview window
+   * resumes a stream that was already playing in the source window — Shaka seeks here once
+   * after the first successful load so the user lands on the same frame.
+   * Re-mounting/changing manifestUrl resets the "applied" state so a new initialSeekSeconds
+   * value is honored.
+   */
+  initialSeekSeconds?: number;
 };
 
 function safeErr(e: unknown): string {
@@ -31,13 +39,52 @@ function safeErr(e: unknown): string {
   try { return JSON.stringify(e); } catch { return ''; }
 }
 
+/** Extracts the per-stream key from a license proxy URL like http://127.0.0.1:NNN/la?stream=<key>. */
+function extractStreamKey(licenseUrl: string | undefined): string | undefined {
+  if (!licenseUrl || typeof licenseUrl !== 'string') return undefined;
+  if (!licenseUrl.includes('/la?')) return undefined;
+  try {
+    const u = new URL(licenseUrl);
+    return u.searchParams.get('stream') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Stable content-based hash of header dict. Used as a useEffect dep so the player isn't
+ * re-initialized on every parent render that produces a fresh `licenseHeaders` object with
+ * the same content (parent code currently builds new objects each render).
+ */
+function hashHeaders(h: Record<string, string> | undefined): string {
+  if (!h) return '';
+  const keys = Object.keys(h).sort();
+  return keys.map((k) => `${k}=${h[k] ?? ''}`).join('|');
+}
+
 export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(props, ref) {
   const { t } = useLocale();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<shaka.Player | null>(null);
+  /** Outstanding destroy() of the previous player instance. The next init awaits this so two
+   *  Shaka instances never coexist on the same video element when props change rapidly. */
+  const destroyChainRef = useRef<Promise<void>>(Promise.resolve());
   const [ready, setReady] = useState(false);
   const intrinsicCbRef = useRef(props.onIntrinsicVideoSize);
   intrinsicCbRef.current = props.onIntrinsicVideoSize;
+  const propsRef = useRef(props);
+  propsRef.current = props;
+  // Stable hashes of header dicts so identical content doesn't churn the effect.
+  const licenseHeadersHash = hashHeaders(props.licenseHeaders);
+  const fallbackLicenseHeadersHash = hashHeaders(props.fallbackLicenseHeaders);
+  /**
+   * Last known playback position keyed by manifestUrl. On a re-init triggered by header changes
+   * (same manifest, different tokens) we resume from here rather than restarting at zero or
+   * jumping back to the parent's port-in time.
+   */
+  const lastPositionRef = useRef<{ manifestUrl: string; time: number } | null>(null);
+  /** Manifest URL for which the parent-supplied initialSeekSeconds has already been consumed. */
+  const initialSeekConsumedRef = useRef<string>('');
 
   const redact = (v: unknown) => {
     if (v == null) return '';
@@ -89,6 +136,12 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
       setReady(false);
       props.onError('');
 
+      // Wait for any in-flight destroy of a previous Shaka instance to complete before creating
+      // a new one. Prevents the "two players on the same <video>" race when manifest/headers
+      // change in rapid succession (e.g. user reassigning a slot).
+      try { await destroyChainRef.current; } catch (_) {}
+      if (destroyed) return;
+
       shaka.polyfill.installAll();
 
       if (!shaka.Player.isBrowserSupported()) {
@@ -101,6 +154,11 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
       playerRef.current = player;
 
       await player.attach(video);
+      if (destroyed) {
+        // The cleanup callback fired while we were attaching; tear down immediately and exit.
+        player.destroy().catch(() => {});
+        return;
+      }
 
       player.addEventListener('error', async (evt: any) => {
         const detail = evt?.detail;
@@ -116,7 +174,8 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
           : (detail?.message ? `Shaka: ${detail.message}` : `Shaka: ${fallback}`);
         if ((code === 1001 || code === 6001 || code === 6007) && typeof window.f1?.getLastLicenseError === 'function') {
           try {
-            const f1Msg = await window.f1.getLastLicenseError();
+            const sk = extractStreamKey(props.licenseUrl) ?? extractStreamKey(props.fallbackLicenseUrl);
+            const f1Msg = await window.f1.getLastLicenseError(sk);
             if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) msg = `F1 TV: ${f1Msg.trim()}`;
           } catch (_) {}
         }
@@ -218,20 +277,74 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
 
       setLicenseHeaders(props.licenseHeaders, !Boolean(props.licenseUrl?.trim()));
 
+      /**
+       * Compute the start time to pass to player.load:
+       *   1. Last captured position for THIS manifest (re-init from header change) — wins.
+       *   2. Parent-supplied initialSeekSeconds, but only if not already consumed for this manifest.
+       *   3. Otherwise undefined (start at default).
+       */
+      const computeStartTime = (manifestUrl: string): number | undefined => {
+        const lp = lastPositionRef.current;
+        if (lp && lp.manifestUrl === manifestUrl && Number.isFinite(lp.time) && lp.time > 0) {
+          return lp.time;
+        }
+        const seek = propsRef.current.initialSeekSeconds;
+        if (
+          initialSeekConsumedRef.current !== manifestUrl &&
+          seek != null && Number.isFinite(seek) && seek > 0
+        ) {
+          return seek;
+        }
+        return undefined;
+      };
+
       const loadWith = async (manifestUrl: string, licenseUrl: string, headers?: Record<string, string>) => {
         applyConfig(licenseUrl);
         setLicenseHeaders(headers, !Boolean(licenseUrl?.trim()));
-        const loadPromise = player.load(manifestUrl);
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error(t('ui.timeoutStream'))), 15000);
+        const startTime = computeStartTime(manifestUrl);
+        // Shaka's player.load(uri, startTime) honours startTime on the initial load — better than
+        // seeking after-the-fact because the buffer fetches around the right segment immediately.
+        const loadPromise = startTime != null ? player.load(manifestUrl, startTime) : player.load(manifestUrl);
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            // Actually abort the load so background fetches stop and the player can be re-used.
+            player.unload().catch(() => {});
+            reject(new Error(t('ui.timeoutStream')));
+          }, 15000);
         });
-        await Promise.race([loadPromise, timeoutPromise]);
+        try {
+          await Promise.race([loadPromise, timeoutPromise]);
+          if (startTime != null) initialSeekConsumedRef.current = manifestUrl;
+        } finally {
+          if (timer != null) clearTimeout(timer);
+        }
+      };
+
+      const applyInitialSeek = () => {
+        // Fallback path: if for some reason player.load didn't honour startTime (e.g. live edge
+        // override, or initial load returned at zero) and we still have a target, seek manually.
+        const target = computeStartTime(propsRef.current.manifestUrl);
+        if (target == null) return;
+        if (Math.abs(video.currentTime - target) < 0.5) return;
+        try {
+          const range = video.seekable;
+          let clamped = target;
+          if (range && range.length > 0) {
+            const start = range.start(0);
+            const end = range.end(range.length - 1);
+            if (clamped < start) clamped = start;
+            if (clamped > end) clamped = Math.max(start, end - 0.5);
+          }
+          video.currentTime = clamped;
+        } catch (_) {}
       };
 
       try {
         await loadWith(props.manifestUrl, props.licenseUrl, props.licenseHeaders);
         if (!destroyed) {
           setReady(true);
+          applyInitialSeek();
           try { await video.play(); } catch (_) {}
         }
       } catch (e) {
@@ -243,6 +356,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
             if (!destroyed) {
               setReady(true);
               props.onError('');
+              applyInitialSeek();
               try { await video.play(); } catch (_) {}
             }
             return;
@@ -251,7 +365,8 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
             let msg = fc === 1001 ? msg1001 : fc === 6001 ? msg6001 : fc === 6007 ? msg6007 : fc === 6012 ? msg6012 : `${loadFailedFallback}: ${safeErr(fallbackError) || unknownErr}`;
             if ((fc === 1001 || fc === 6001 || fc === 6007) && typeof window.f1?.getLastLicenseError === 'function') {
               try {
-                const f1Msg = await window.f1.getLastLicenseError();
+                const sk = extractStreamKey(props.fallbackLicenseUrl) ?? extractStreamKey(props.licenseUrl);
+                const f1Msg = await window.f1.getLastLicenseError(sk);
                 if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) msg = `F1 TV: ${f1Msg.trim()}`;
               } catch (_) {}
             }
@@ -262,7 +377,8 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
         let errMsg = code === 1001 ? msg1001 : code === 6001 ? msg6001 : code === 6012 ? msg6012 : code === 6007 ? msg6007 : `${loadFailed}: ${safeErr(e) || unknownErr}`;
         if ((code === 1001 || code === 6001 || code === 6007) && typeof window.f1?.getLastLicenseError === 'function') {
           try {
-            const f1Msg = await window.f1.getLastLicenseError();
+            const sk = extractStreamKey(props.licenseUrl) ?? extractStreamKey(props.fallbackLicenseUrl);
+            const f1Msg = await window.f1.getLastLicenseError(sk);
             if (f1Msg && typeof f1Msg === 'string' && f1Msg.trim()) errMsg = `F1 TV: ${f1Msg.trim()}`;
           } catch (_) {}
         }
@@ -283,19 +399,32 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
     return () => {
       video.removeEventListener('canplay', onCanPlay);
       destroyed = true;
+      // Capture the playback position so a re-init (header change, same manifest) can resume
+      // here instead of replaying from the parent-supplied initialSeekSeconds (which would
+      // throw away whatever the user has watched since the port-in).
+      try {
+        const url = propsRef.current.manifestUrl;
+        if (video && url && Number.isFinite(video.currentTime) && video.currentTime > 0) {
+          lastPositionRef.current = { manifestUrl: url, time: video.currentTime };
+        }
+      } catch (_) {}
       const p = playerRef.current;
       playerRef.current = null;
-      if (p) p.destroy().catch(() => {});
+      if (p) {
+        // Chain the destroy onto the previous one and expose it so the next init can await it.
+        destroyChainRef.current = destroyChainRef.current
+          .catch(() => {})
+          .then(() => p.destroy().catch(() => {}));
+      }
     };
   }, [
     t,
     props.manifestUrl,
     props.licenseUrl,
-    props.accessToken,
     props.fallbackManifestUrl,
     props.fallbackLicenseUrl,
-    JSON.stringify(props.licenseHeaders),
-    JSON.stringify(props.fallbackLicenseHeaders),
+    licenseHeadersHash,
+    fallbackLicenseHeadersHash,
   ]);
 
   const { compact } = props;

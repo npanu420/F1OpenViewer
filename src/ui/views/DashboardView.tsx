@@ -425,7 +425,16 @@ export function DashboardView({
                       onPlayAllEmbedded={onPlayAllEmbedded}
                       accessToken={accessToken}
                       onEmbedError={onEmbedError}
-                      onBeforeEnterFullscreen={() => setEmbeddedPlayback({})}
+                      onPortStreamsToWindow={(ids) => {
+                        // Release the transferred streams from the dashboard — they continue
+                        // playing only in the new multiview window.
+                        if (!ids.length) return;
+                        setEmbeddedPlayback((prev) => {
+                          const next = { ...prev };
+                          for (const id of ids) delete next[id];
+                          return next;
+                        });
+                      }}
                     />
                   )}
                 </>

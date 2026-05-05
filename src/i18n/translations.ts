@@ -151,7 +151,12 @@ export const translations: Record<Locale, Record<string, string>> = {
     'settings.syncToleranceLabel': 'Sync tolerance (seconds)',
     'settings.syncToleranceHint': 'Streams are considered aligned when within this offset. Lower = stricter.',
     'settings.syncDoneDelayLabel': 'Sync "done" delay (ms)',
-    'settings.syncDoneDelayHint': 'Time before showing "Done" after seeking. Lower = snappier.',
+    'settings.syncDoneDelayHint': 'Minimum time the engine waits before declaring "Done". Lower = snappier.',
+    'settings.syncReferenceHint': 'Which stream all others should follow.',
+    'settings.syncReferenceLatest': 'Most ahead',
+    'settings.syncReferenceFirst': 'Main feed',
+    'settings.syncKeepLockedLabel': 'Keep streams locked after sync',
+    'settings.syncKeepLockedHint': 'Keep correcting drift in the background until the overlay is closed.',
 
     // Catalog load error (generic)
     'error.catalogLoad': 'Catalog load error.',
@@ -172,6 +177,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     'sync.progressValue': '{done}/{total} streams synced',
     'sync.noAdjustment': 'No adjustment',
     'sync.synced': 'Synced',
+    'sync.button': 'Sync streams',
+    'sync.minimize': 'Minimize (sync keeps running)',
+    'sync.cancel': 'Cancel sync',
+    'sync.runningBadge': 'Sync running',
+    'sync.runningBadgeBuffering': 'Waiting for main feed…',
 
     // Generic UI
     'ui.archive': 'Archive',
@@ -188,6 +198,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     'ui.themeLight': 'Light',
     'ui.timeoutStream': 'Stream load timeout (15s)',
     'ui.cancel': 'Cancel',
+    'ui.close': 'Close',
   },
   it: {
     'app.brand': 'F1 OpenViewer',
@@ -329,7 +340,12 @@ export const translations: Record<Locale, Record<string, string>> = {
     'settings.syncToleranceLabel': 'Tolleranza sync (secondi)',
     'settings.syncToleranceHint': 'Gli stream sono considerati allineati se entro questo scarto. Più basso = più stretto.',
     'settings.syncDoneDelayLabel': 'Ritardo "Completato" sync (ms)',
-    'settings.syncDoneDelayHint': 'Tempo prima di mostrare "Completato" dopo il seek. Più basso = più reattivo.',
+    'settings.syncDoneDelayHint': 'Tempo minimo prima che il motore dichiari "Completato". Più basso = più reattivo.',
+    'settings.syncReferenceHint': 'Quale stream gli altri devono seguire.',
+    'settings.syncReferenceLatest': 'Più avanti',
+    'settings.syncReferenceFirst': 'Feed principale',
+    'settings.syncKeepLockedLabel': 'Mantieni gli stream agganciati dopo il sync',
+    'settings.syncKeepLockedHint': 'Continua a correggere lo sfasamento in background finché l\'overlay è aperto.',
 
     'error.catalogLoad': 'Errore caricamento catalogo.',
     'error.openPlayer': 'Impossibile aprire il player.',
@@ -349,6 +365,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     'sync.progressValue': '{done}/{total} stream sincronizzati',
     'sync.noAdjustment': 'Nessuna correzione',
     'sync.synced': 'Sincronizzato',
+    'sync.button': 'Sincronizza stream',
+    'sync.minimize': 'Minimizza (il sync continua)',
+    'sync.cancel': 'Annulla sync',
+    'sync.runningBadge': 'Sync attivo',
+    'sync.runningBadgeBuffering': 'Attesa main feed…',
 
     // Generic UI
     'ui.archive': 'Archivio',
@@ -365,6 +386,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     'ui.themeLight': 'Chiaro',
     'ui.timeoutStream': 'Stream load timeout (15s)',
     'ui.cancel': 'Annulla',
+    'ui.close': 'Chiudi',
   },
 };
 

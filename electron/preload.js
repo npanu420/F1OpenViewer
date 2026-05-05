@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('f1', {
   isF1Ready: () => ipcRenderer.invoke('f1:isReady'),
   restoreSession: () => ipcRenderer.invoke('f1:restoreSession'),
   fullReset: () => ipcRenderer.invoke('f1:fullReset'),
-  getLastLicenseError: () => ipcRenderer.invoke('player:getLastLicenseError'),
+  getLastLicenseError: (streamKey) => ipcRenderer.invoke('player:getLastLicenseError', streamKey),
   openMultiviewWindow: () => ipcRenderer.invoke('multiview:openWindow'),
   getMultiviewWindows: () => ipcRenderer.invoke('multiview:listWindows'),
   onMultiviewWindowsChanged: (callback) => {

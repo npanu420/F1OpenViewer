@@ -38,9 +38,11 @@ type StandaloneMultiviewViewProps = {
 
 export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMultiviewViewProps) {
   const { t } = useLocale();
-  const [state, setState] = useState(loadStandaloneMultiviewState());
+  const [state, setState] = useState(() => loadStandaloneMultiviewState(multiviewInstanceId));
   const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
-  const [embeddedPlayback, setEmbeddedPlayback] = useState<Record<string, PlaybackInfo>>({});
+  const [embeddedPlayback, setEmbeddedPlayback] = useState<Record<string, PlaybackInfo>>(
+    () => state?.embeddedPlayback ?? {}
+  );
   const [loadingItemIds, setLoadingItemIds] = useState<Record<string, boolean>>({});
   const [embedError, setEmbedError] = useState<string | null>(null);
   const hasResolvedPlayingRef = useRef(false);
@@ -55,26 +57,33 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
       multiviewInstanceId != null ? `${base} — Multiview #${multiviewInstanceId}` : `${base} — Multiview`;
   }, [multiviewInstanceId]);
 
-  /** Re-resolve playback for items that were playing in main window (fresh tokens for this window). */
+  /**
+   * For items that were playing in the source window but DIDN'T travel as embeddedPlayback
+   * (legacy snapshots, or items added since the snapshot), resolve playback now. When
+   * `state.embeddedPlayback` is present we skip resolution entirely so streams resume instantly.
+   */
   useEffect(() => {
-    const playingIds = state && 'playingItemIds' in state && state.playingItemIds?.length ? state.playingItemIds : [];
-    if (playingIds.length === 0 || hasResolvedPlayingRef.current) return;
+    if (!state) return;
+    if (hasResolvedPlayingRef.current) return;
+
+    const carriedPlayback = state.embeddedPlayback ?? {};
+    const playingIds = state.playingItemIds?.length ? state.playingItemIds : Object.keys(carriedPlayback);
+    if (playingIds.length === 0) return;
     hasResolvedPlayingRef.current = true;
 
-    const streamOptions: StreamOption[] = state
-      ? [
-          { item: toCatalogItem(state.session, state.seasonYear), label: state.session.title || '', type: 'main' as const },
-          ...(state.streams?.dataChannel?.map((dc) => ({ item: toCatalogItemOnboard(dc), label: dc.title, type: 'data' as const })) ?? []),
-          ...(state.streams?.onboard?.map((ob) => ({
-            item: toCatalogItemOnboard(ob),
-            label: ob.title || ob.driverName || '',
-            type: 'driver' as const,
-            driverNumber: ob.racingNumber,
-          })) ?? []),
-        ]
-      : [];
+    const streamOptions: StreamOption[] = [
+      { item: toCatalogItem(state.session, state.seasonYear), label: state.session.title || '', type: 'main' as const },
+      ...(state.streams?.dataChannel?.map((dc) => ({ item: toCatalogItemOnboard(dc), label: dc.title, type: 'data' as const })) ?? []),
+      ...(state.streams?.onboard?.map((ob) => ({
+        item: toCatalogItemOnboard(ob),
+        label: ob.title || ob.driverName || '',
+        type: 'driver' as const,
+        driverNumber: ob.racingNumber,
+      })) ?? []),
+    ];
 
     const itemsToResolve = playingIds
+      .filter((id) => !carriedPlayback[id])
       .map((id) => streamOptions.find((o) => o.item.id === id)?.item)
       .filter((item): item is CatalogItem => item != null);
 
@@ -190,6 +199,7 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
           onExitFullscreen={handleExit}
           initialLayout={layout}
           initialSlotToItemId={slotToItemId}
+          initialSeekSecondsByItemId={state.currentTimes}
           multiviewInstanceId={multiviewInstanceId}
         />
       </div>

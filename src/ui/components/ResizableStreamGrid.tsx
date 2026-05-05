@@ -152,6 +152,12 @@ interface ResizableStreamGridProps {
   onReloadStream?: (itemId: string) => void;
   /** In fullscreen: disable re-compaction so proportions stay the same when switching to fullscreen */
   disableCompact?: boolean;
+  /** Itemt id of the panel that currently owns audio focus (only it is unmuted). */
+  audioFocusedItemId?: string | null;
+  /** Called when a panel claims audio focus (user un-mutes it). */
+  onAudioFocus?: (itemId: string) => void;
+  /** Per-item initial seek position (seconds) for porting playback into the standalone window. */
+  initialSeekSecondsByItemId?: Record<string, number>;
 }
 
 const DEFAULT_ROW_HEIGHT = 80;
@@ -176,6 +182,9 @@ export function ResizableStreamGrid({
   onSetSlotSize,
   onReloadStream,
   disableCompact = false,
+  audioFocusedItemId = null,
+  onAudioFocus,
+  initialSeekSecondsByItemId,
 }: ResizableStreamGridProps) {
   const { t } = useLocale();
   const refsByItemId = useRef<Map<string, StreamPanelHandle>>(new Map());
@@ -382,6 +391,9 @@ export function ResizableStreamGrid({
                     onClick={() => onOpen?.(option.item)}
                     fillHeight
                     hideHeader={hideSlotHeadersUntilHover}
+                    audioFocusedItemId={audioFocusedItemId}
+                    onAudioFocus={onAudioFocus}
+                    initialSeekSeconds={initialSeekSecondsByItemId?.[option.item.id]}
                     onVideoIntrinsicSize={(vw, vh) => {
                       if (vw > 0 && vh > 0) {
                         setSlotStreamAspectRatio((prev) => ({ ...prev, [slotId]: vw / vh }));

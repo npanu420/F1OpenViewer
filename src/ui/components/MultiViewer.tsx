@@ -5,7 +5,15 @@ import type { Layout } from 'react-grid-layout';
 import { useLocale } from '../../i18n/LocaleContext';
 
 const SAVED_GRIDS_KEY = 'f1openviewer-saved-grids';
-const STANDALONE_MULTIVIEW_KEY = 'f1openviewer-standalone-multiview';
+const STANDALONE_MULTIVIEW_KEY_BASE = 'f1openviewer-standalone-multiview';
+
+/** Storage key for one multiview window. Per-instance (mv=N) so two windows don't collide. */
+function standaloneStateKey(multiviewInstanceId?: number): string {
+  if (multiviewInstanceId == null || !Number.isFinite(multiviewInstanceId)) {
+    return STANDALONE_MULTIVIEW_KEY_BASE;
+  }
+  return `${STANDALONE_MULTIVIEW_KEY_BASE}:${multiviewInstanceId}`;
+}
 
 export type StandaloneMultiviewState = {
   layout: Layout;
@@ -13,7 +21,16 @@ export type StandaloneMultiviewState = {
   session: import('../../domain/vod').VodSession;
   streams: import('../../services/vod').SessionStreams | null;
   seasonYear: number;
-  /** Item IDs that were playing when entering fullscreen; fullscreen window will re-resolve playback for these to get fresh tokens. */
+  /**
+   * Resolved PlaybackInfo for items that were already playing in the source window. The
+   * standalone window reuses these so streams resume instantly with the same manifest URLs and
+   * license proxy entries (no extra contentPlay round-trips, no DRM re-handshake).
+   */
+  embeddedPlayback?: Record<string, import('../../services/entitlement').PlaybackInfo>;
+  /** Per-item playback position (seconds) at the moment of porting. Standalone window seeks to
+   *  this value once Shaka finishes loading, so the user lands on the same frame they were on. */
+  currentTimes?: Record<string, number>;
+  /** Legacy: item IDs playing at the time of save (kept for backwards compat with old snapshots). */
   playingItemIds?: string[];
 };
 
@@ -115,17 +132,35 @@ function resolveSlotAssignments(
   return result;
 }
 
-export function saveStandaloneMultiviewState(state: StandaloneMultiviewState): void {
+export function saveStandaloneMultiviewState(
+  state: StandaloneMultiviewState,
+  multiviewInstanceId?: number
+): void {
   try {
-    localStorage.setItem(STANDALONE_MULTIVIEW_KEY, JSON.stringify(state));
+    const key = standaloneStateKey(multiviewInstanceId);
+    localStorage.setItem(key, JSON.stringify(state));
+    // Also write the unkeyed slot for the next opened window to pick up (it doesn't yet know its mv id).
+    if (multiviewInstanceId != null) {
+      localStorage.setItem(STANDALONE_MULTIVIEW_KEY_BASE, JSON.stringify(state));
+    }
   } catch (_) {}
 }
 
-export function loadStandaloneMultiviewState(): StandaloneMultiviewState | null {
+export function loadStandaloneMultiviewState(
+  multiviewInstanceId?: number
+): StandaloneMultiviewState | null {
   try {
-    const raw = localStorage.getItem(STANDALONE_MULTIVIEW_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as StandaloneMultiviewState;
+    const candidates = [standaloneStateKey(multiviewInstanceId), STANDALONE_MULTIVIEW_KEY_BASE];
+    for (const key of candidates) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      try {
+        return JSON.parse(raw) as StandaloneMultiviewState;
+      } catch {
+        // try next
+      }
+    }
+    return null;
   } catch {
     return null;
   }
@@ -289,12 +324,21 @@ interface MultiViewerProps {
   onEmbedError?: (msg: string) => void;
   isFullscreen?: boolean;
   onEnterFullscreen?: () => void;
-  /** Called before opening fullscreen window; parent can clear embedded playback so streams don't stay in play in main app. */
+  /**
+   * Called BEFORE opening the standalone multiview window. Receives the IDs of streams that
+   * were transferred so the parent (dashboard) can release them — they keep playing only in
+   * the new window, avoiding double bandwidth/CPU cost.
+   */
+  onPortStreamsToWindow?: (transferredItemIds: string[]) => void;
+  /** @deprecated use onPortStreamsToWindow. Kept for callsites that still need the broader hook. */
   onBeforeEnterFullscreen?: () => void;
   onExitFullscreen?: () => void;
   /** When provided (e.g. standalone window), initial state is not overwritten by the session/streams effect. */
   initialLayout?: Layout;
   initialSlotToItemId?: Record<string, string>;
+  /** Per-item initial seek position (seconds), used by the standalone window when resuming a
+   *  ported stream so playback continues at the same frame the user left it. */
+  initialSeekSecondsByItemId?: Record<string, number>;
   /** Finestra standalone Electron: numero finestra (hash ?mv=). */
   multiviewInstanceId?: number;
 }
@@ -314,10 +358,12 @@ export function MultiViewer({
   onEmbedError,
   isFullscreen = false,
   onEnterFullscreen,
+  onPortStreamsToWindow,
   onBeforeEnterFullscreen,
   onExitFullscreen,
   initialLayout,
   initialSlotToItemId,
+  initialSeekSecondsByItemId,
   multiviewInstanceId,
 }: MultiViewerProps) {
   const { t } = useLocale();
@@ -347,6 +393,7 @@ export function MultiViewer({
   const allItems: CatalogItem[] = streamOptions.map((o) => o.item);
   const hasEmbedSupport = Boolean(onPlayEmbedded && onPlayAllEmbedded);
   const playingCount = allItems.filter((it) => embeddedPlayback[it.id]).length;
+  const anyLoading = allItems.some((it) => loadingItemIds[it.id]);
   const hasMultipleStreams = allItems.length >= 2;
   const canSync = hasMultipleStreams && playingCount >= 2;
   const showSyncButton = hasMultipleStreams;
@@ -356,14 +403,22 @@ export function MultiViewer({
   const [savedGrids, setSavedGrids] = useState<SavedGrid[]>(() => loadSavedGrids());
   const [saveLayoutName, setSaveLayoutName] = useState('');
   const [showSaveInput, setShowSaveInput] = useState(false);
+  const [audioFocusedItemId, setAudioFocusedItemId] = useState<string | null>(null);
   const panelRefsByItemId = useRef<Map<string, StreamPanelHandle>>(new Map());
+
+  const handleAudioFocus = useCallback((itemId: string) => {
+    setAudioFocusedItemId(itemId);
+  }, []);
 
   const {
     startSync,
     closeOverlay,
+    minimizeOverlay,
+    restoreOverlay,
     syncStatus,
     syncStreams,
     showSyncOverlay,
+    isSyncEngineRunning,
   } = useSyncEngine();
 
   // Auto-assign streams to initial slots when session/season/streams change. Skip if layout/slots are provided externally (standalone window).
@@ -399,8 +454,13 @@ export function MultiViewer({
   }, []);
 
   function handleSync() {
-    const entries: Array<{ id: string; label: string; getVideo: () => HTMLVideoElement | null }> = [];
-    for (const [slotId, itemId] of Object.entries(slotToItemId)) {
+    const entries: Array<{
+      id: string;
+      label: string;
+      getVideo: () => HTMLVideoElement | null;
+      isMainFeed?: boolean;
+    }> = [];
+    for (const [, itemId] of Object.entries(slotToItemId)) {
       if (!itemId || !embeddedPlayback[itemId]) continue;
       const option = streamOptions.find((o) => o.item.id === itemId);
       if (!option) continue;
@@ -409,6 +469,9 @@ export function MultiViewer({
         id: itemId,
         label: option.label,
         getVideo: () => ref?.getVideoElement() ?? null,
+        // Flag the race / world feed so the sync engine always anchors to it, even when an
+        // onboard happens to be ahead. Onboards/data should follow the race, not the inverse.
+        isMainFeed: option.type === 'main',
       });
     }
     startSync(entries);
@@ -520,6 +583,22 @@ export function MultiViewer({
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [fullscreenToolbarOpen]);
 
+  // Floating "sync running" badge: shown when the engine is active but the user has minimized
+  // the overlay so they can keep watching. Click to bring the dialog back.
+  const showMinimizedSyncBadge = isSyncEngineRunning && !showSyncOverlay;
+  // "Waiting for main feed" appears when the engine has paused the others because the reference
+  // is rebuffering. We detect this off the engine's output: during a buffer-hold, every non-ref
+  // entry is reported with rate=1 and done=false (no rate-nudge / no seek happening) while the
+  // reference is the only one with done=true. This is distinct from initial convergence, where
+  // non-ref entries carry rate ≠ 1 or are seeking.
+  const refStream = syncStreams.find((s) => s.isReference);
+  const nonRefStreams = syncStreams.filter((s) => !s.isReference);
+  const isWaitingForMain =
+    syncStatus === 'done' &&
+    refStream != null &&
+    nonRefStreams.length > 0 &&
+    nonRefStreams.every((s) => !s.done && Math.abs(s.rate - 1) < 0.001);
+
   return (
     <>
       <SyncOverlay
@@ -527,7 +606,30 @@ export function MultiViewer({
         status={syncStatus}
         streams={syncStreams}
         onClose={closeOverlay}
+        onMinimize={minimizeOverlay}
       />
+
+      <AnimatePresence>
+        {showMinimizedSyncBadge && (
+          <motion.button
+            type="button"
+            onClick={restoreOverlay}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.18 }}
+            className="fixed bottom-4 right-4 z-[58] flex items-center gap-2 px-3 py-2 rounded-full border border-border/60 bg-background/90 backdrop-blur shadow-lg hover:bg-accent/40 transition-colors"
+            title={isWaitingForMain ? t('sync.runningBadgeBuffering') : t('sync.runningBadge')}
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${syncStatus === 'syncing' || isWaitingForMain ? 'animate-spin text-primary' : 'text-emerald-400'}`}
+            />
+            <span className="font-heading text-[11px] font-bold tracking-wider">
+              {isWaitingForMain ? t('sync.runningBadgeBuffering') : t('sync.runningBadge')}
+            </span>
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
         <motion.div
@@ -544,7 +646,8 @@ export function MultiViewer({
                 <button
                   type="button"
                   onClick={handlePlayAllEmbedded}
-                  className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider bg-primary text-primary-foreground border border-primary hover:opacity-90 transition-opacity"
+                  disabled={anyLoading}
+                  className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider bg-primary text-primary-foreground border border-primary hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Play className="w-4 h-4" />
                   {t('dashboard.playAllEmbedded')}
@@ -556,9 +659,10 @@ export function MultiViewer({
                   onClick={handleSync}
                   disabled={!canSync || syncStatus === 'syncing'}
                   className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title={t('sync.inProgressDescription')}
                 >
                   <RefreshCw className={`w-4 h-4 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                  {syncStatus === 'syncing' ? t('sync.inProgress') : t('sync.inProgressDescription')}
+                  {syncStatus === 'syncing' ? t('sync.inProgress') : t('sync.button')}
                 </button>
               )}
 
@@ -566,15 +670,35 @@ export function MultiViewer({
                 <button
                   type="button"
                   onClick={async () => {
+                    // Snapshot the live currentTime for every panel that's currently playing.
+                    // The standalone window will seek to these values after Shaka finishes
+                    // loading, so the user lands on the same frame and any sync state is preserved.
+                    const currentTimes: Record<string, number> = {};
+                    const transferredIds: string[] = [];
+                    for (const itemId of Object.keys(embeddedPlayback)) {
+                      const ref = panelRefsByItemId.current.get(itemId);
+                      const v = ref?.getVideoElement?.();
+                      if (v && Number.isFinite(v.currentTime)) {
+                        currentTimes[itemId] = v.currentTime;
+                      }
+                      transferredIds.push(itemId);
+                    }
+
                     saveStandaloneMultiviewState({
                       layout: layout.map((item) => ({ ...item })),
                       slotToItemId: { ...slotToItemId },
                       session,
                       streams,
                       seasonYear,
-                      playingItemIds:
-                        Object.keys(embeddedPlayback).length > 0 ? Object.keys(embeddedPlayback) : undefined,
+                      embeddedPlayback:
+                        transferredIds.length > 0 ? { ...embeddedPlayback } : undefined,
+                      currentTimes: Object.keys(currentTimes).length > 0 ? currentTimes : undefined,
+                      playingItemIds: transferredIds.length > 0 ? transferredIds : undefined,
                     });
+
+                    // Tell the parent which streams are being transferred so it can release them.
+                    // The streams will only play in the new window — no double bandwidth.
+                    onPortStreamsToWindow?.(transferredIds);
                     onBeforeEnterFullscreen?.();
                     if (onEnterFullscreen != null) {
                       await Promise.resolve(onEnterFullscreen());
@@ -680,7 +804,8 @@ export function MultiViewer({
                       <button
                         type="button"
                         onClick={handlePlayAllEmbedded}
-                        className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold bg-primary text-primary-foreground border border-primary hover:opacity-90"
+                        disabled={anyLoading}
+                        className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold bg-primary text-primary-foreground border border-primary hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Play className="w-3.5 h-3.5 shrink-0" />
                         {t('dashboard.playAllEmbedded')}
@@ -704,7 +829,7 @@ export function MultiViewer({
                         className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border border-border bg-accent/40 hover:bg-accent/60 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                        {syncStatus === 'syncing' ? t('sync.inProgress') : t('sync.inProgressDescription')}
+                        {syncStatus === 'syncing' ? t('sync.inProgress') : t('sync.button')}
                       </button>
                     )}
                     <button
@@ -780,6 +905,9 @@ export function MultiViewer({
                   : undefined
               }
               disableCompact={isFullscreen}
+              audioFocusedItemId={audioFocusedItemId}
+              onAudioFocus={handleAudioFocus}
+              initialSeekSecondsByItemId={initialSeekSecondsByItemId}
             />
             </div>
           ) : (

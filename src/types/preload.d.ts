@@ -58,8 +58,9 @@ export type PreloadApi = {
   restoreSession?(): Promise<{ accessToken: string | null; restored: boolean }>;
   /** Full reset: session, cookies, cache and all saved data. App will reload. */
   fullReset?(): Promise<{ ok: boolean }>;
-  /** Last error message from F1 license server (e.g. 403 region/subscription). */
-  getLastLicenseError?(): Promise<string>;
+  /** Last error message from F1 license server (e.g. 403 region/subscription). Pass the streamKey
+   *  embedded in the license proxy URL to get the per-stream error. */
+  getLastLicenseError?(streamKey?: string): Promise<string>;
   /** Apre una nuova finestra multiview numerata; ritorna `{ id }`. */
   openMultiviewWindow?(): Promise<{ id: number }>;
   /** Id numerici delle finestre multiview aperte (ordinati). */

@@ -13,6 +13,14 @@ const F1TV_LANG = 'ENG';
 const F1TV_ENTITLEMENT = 'F1_TV_Pro_Annual';
 const F1TV_GROUP = '2';
 
+/** Per-play entitlement JWT from last CONTENT/PLAY; CDN + LA should match this when API returns it. */
+let playbackEntitlementOverride = null;
+
+function setPlaybackEntitlementOverride(token) {
+  playbackEntitlementOverride =
+    token && typeof token === 'string' && token.trim() ? token.trim() : null;
+}
+
 /**
  * Extracts a user-facing error message from F1 API responses (axios error, response body, or Error).
  * Use this so the UI can show the actual message from F1 (e.g. "Content not available in your region").
@@ -64,6 +72,24 @@ async function buildManifestRequestCookieHeader(manifestUrl, playTokenCookie) {
 /**
  * Pull Widevine / F1 LA URL from MPD or related XML (scan a large prefix; LA is usually early).
  */
+function extractPlayTokenFromFetchHeaders(headers) {
+  if (!headers) return null;
+  try {
+    if (typeof headers.getSetCookie === 'function') {
+      for (const c of headers.getSetCookie()) {
+        const mc = String(c).match(/playToken=([^;,\s]+)/i);
+        if (mc) return mc[1];
+      }
+    }
+  } catch (_) {}
+  try {
+    const sc = headers.get('set-cookie') || '';
+    const m = sc.match(/playToken=([^;,\s]+)/i);
+    if (m) return m[1];
+  } catch (_) {}
+  return null;
+}
+
 function extractLicenseUrlFromManifestText(text) {
   if (!text || typeof text !== 'string') return '';
   const head = text.length > 400000 ? text.slice(0, 400000) : text;
@@ -97,58 +123,112 @@ function extractLicenseUrlFromManifestText(text) {
  * cookies on real content GET requests, not HEAD requests. This also replaces the previous
  * separate extractLicenseUrlFromManifest + fetchPlayToken calls (two round-trips) with one.
  */
+function logManifestLicenseDiagnostics(text, res) {
+  const ct = res.headers?.get?.('content-type') || '';
+  const prefix = text.slice(0, 200).replace(/\s+/g, ' ');
+  console.warn('[playback] no LA in manifest | content-type:', ct, '| body prefix:', prefix);
+  const cpMatches = text.match(/<ContentProtection[\s\S]*?<\/ContentProtection>/gi) || [];
+  if (cpMatches.length) {
+    console.warn('[playback] manifest ContentProtection sections:');
+    cpMatches.forEach((cp, i) => console.warn(`  [CP${i}]`, cp.slice(0, 600).replace(/\s+/g, ' ')));
+  } else {
+    console.warn('[playback] manifest has NO ContentProtection elements');
+  }
+}
+
+/**
+ * Load manifest from CDN. Prefer Chromium session.fetch (same TLS/cookie stack as license proxy);
+ * Undici: try no Cookie first (matches pre-1.1.4 behaviour), then playToken, then session merge —
+ * extra cookies on signed ott-video URLs can trigger 404.
+ */
 async function fetchManifestData(manifestUrl, client, playTokenCookie) {
-  const out = { playToken: null, licenseUrl: '' };
-  try {
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      Origin: 'https://f1tv.formula1.com',
-      Referer: 'https://f1tv.formula1.com/',
-      Accept: 'application/dash+xml, application/xml, */*',
-    };
-    if (client?.ascendon) headers.ascendontoken = client.ascendon;
-    if (client?.entitlement) headers.entitlementtoken = client.entitlement;
-    const cookieHeader = await buildManifestRequestCookieHeader(manifestUrl, playTokenCookie);
-    if (cookieHeader) headers.Cookie = cookieHeader;
+  const out = { playToken: null, licenseUrl: '', ok: false };
+  const isHls = /\.m3u8(\?|$)/i.test(String(manifestUrl || ''));
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    Origin: 'https://f1tv.formula1.com',
+    Referer: 'https://f1tv.formula1.com/',
+    Accept: isHls
+      ? 'application/vnd.apple.mpegurl, application/x-mpegURL, audio/mpegurl, */*'
+      : 'application/dash+xml, application/xml, */*',
+  };
+  if (client?.ascendon) headers.ascendontoken = client.ascendon;
+  if (client?.entitlement) headers.entitlementtoken = client.entitlement;
 
-    const res = await undiciFetch(manifestUrl, { method: 'GET', headers });
-
-    // Extract playToken from Set-Cookie header(s)
-    const sc = res.headers.get('set-cookie') || '';
-    const m = sc.match(/playToken=([^;,\s]+)/i);
-    if (m) {
-      out.playToken = m[1];
-    } else if (typeof res.headers.getSetCookie === 'function') {
-      for (const c of res.headers.getSetCookie()) {
-        const mc = c.match(/playToken=([^;,\s]+)/i);
-        if (mc) { out.playToken = mc[1]; break; }
-      }
+  const applyBody = (text, res) => {
+    out.licenseUrl = extractLicenseUrlFromManifestText(text);
+    if (out.licenseUrl) {
+      console.log('[playback] licenseUrl extracted from manifest');
+    } else if (text && !isHls) {
+      logManifestLicenseDiagnostics(text, res);
     }
+  };
 
-    if (res.ok) {
+  if (typeof process !== 'undefined' && process.versions?.electron) {
+    try {
+      const { session } = require('electron');
+      const jar = session.defaultSession;
+      if (playTokenCookie) {
+        try {
+          const u = new URL(manifestUrl);
+          await jar.cookies.set({ url: `${u.origin}/`, name: 'playToken', value: String(playTokenCookie), path: '/' });
+        } catch (_) {}
+      }
+      const res = await jar.fetch(manifestUrl, { method: 'GET', headers: { ...headers } });
+      const pt = extractPlayTokenFromFetchHeaders(res.headers);
+      if (pt) out.playToken = pt;
       const text = await res.text();
-      out.licenseUrl = extractLicenseUrlFromManifestText(text);
-      if (out.licenseUrl) {
-        console.log('[playback] licenseUrl extracted from manifest');
-      } else {
-        const ct = res.headers.get('content-type') || '';
-        const prefix = text.slice(0, 200).replace(/\s+/g, ' ');
-        console.warn('[playback] no LA in manifest | content-type:', ct, '| body prefix:', prefix);
-        // Log ContentProtection XML sections to diagnose missing license URL
-        const cpMatches = text.match(/<ContentProtection[\s\S]*?<\/ContentProtection>/gi) || [];
-        if (cpMatches.length) {
-          console.warn('[playback] manifest ContentProtection sections:');
-          cpMatches.forEach((cp, i) => console.warn(`  [CP${i}]`, cp.slice(0, 600).replace(/\s+/g, ' ')));
-        } else {
-          console.warn('[playback] manifest has NO ContentProtection elements');
-        }
+      if (res.ok) {
+        applyBody(text, res);
+        out.ok = true;
+        return out;
       }
-    } else {
-      console.warn('[playback] manifest GET failed:', res.status, res.statusText);
-      try { await res.body?.cancel(); } catch (_) {}
+      console.warn('[playback] manifest GET failed (Chromium):', res.status, res.statusText);
+    } catch (e) {
+      console.warn('[playback] fetchManifestData Chromium error:', e?.message);
     }
-  } catch (e) {
-    console.warn('[playback] fetchManifestData error:', e?.message);
+  }
+
+  const undiciAttempts = [
+    { label: 'no Cookie', cookie: null },
+    ...(playTokenCookie
+      ? [{ label: 'playToken only', cookie: `playToken=${playTokenCookie}` }]
+      : []),
+  ];
+  let fullJarCookie;
+  try {
+    fullJarCookie = await buildManifestRequestCookieHeader(manifestUrl, playTokenCookie);
+  } catch (_) {
+    fullJarCookie = undefined;
+  }
+  if (fullJarCookie && /^[\x00-\xff]*$/.test(fullJarCookie)) {
+    undiciAttempts.push({ label: 'session+playToken', cookie: fullJarCookie });
+  } else if (fullJarCookie) {
+    console.warn('[playback] manifest Cookie header has non-Latin1 bytes — skipping session merge for undici');
+  }
+
+  for (const attempt of undiciAttempts) {
+    try {
+      const h = { ...headers };
+      if (attempt.cookie) h.Cookie = attempt.cookie;
+      const res = await undiciFetch(manifestUrl, { method: 'GET', headers: h });
+      const pt = extractPlayTokenFromFetchHeaders(res.headers);
+      if (pt) out.playToken = pt;
+
+      if (res.ok) {
+        const text = await res.text();
+        applyBody(text, res);
+        out.ok = true;
+        if (attempt.label !== 'no Cookie') {
+          console.log('[playback] manifest GET ok (undici):', attempt.label);
+        }
+        break;
+      }
+      console.warn('[playback] manifest GET failed (undici):', res.status, res.statusText, '|', attempt.label);
+      try { await res.body?.cancel(); } catch (_) {}
+    } catch (e) {
+      console.warn('[playback] fetchManifestData error:', e?.message, '|', attempt.label);
+    }
   }
   return out;
 }
@@ -224,7 +304,15 @@ function pickFallbackPlaybackCandidate(candidates, primary) {
   const remaining = candidates.filter((c) => c !== primary);
   if (!remaining.length) return null;
   if (isWidevineCandidate(primary)) {
-    return remaining.find((c) => !isWidevineCandidate(c)) || remaining.find(hasLicenseMetadata) || remaining[0];
+    const otherDashWv = remaining.find(
+      (c) => isWidevineCandidate(c) && isDashPlatform(c) && c.platform !== primary.platform
+    );
+    return (
+      otherDashWv
+      || remaining.find((c) => !isWidevineCandidate(c))
+      || remaining.find(hasLicenseMetadata)
+      || remaining[0]
+    );
   }
   return remaining.find((c) => isWidevineCandidate(c) && hasLicenseMetadata(c))
     || remaining.find(isWidevineCandidate)
@@ -243,15 +331,17 @@ function scrubPlaybackObj(obj) {
 }
 
 /**
- * Fallback LA when CONTENT/PLAY and manifest omit laURL (typical for pipelineVersion 5 / 2026+ VOD).
+ * Fallback LA when CONTENT/PLAY and manifest omit laURL (pipeline 4+ / 2025–2026 VOD observed).
  * - Older API: .../CONTENT/LA/{entitlement}/{groupId} (same pattern as PAGE requests).
- * - Pipeline 5+: community clients use .../CONTENT/LA/widevine?contentId=&channelId= (e.g. race-control-tv docs).
- *   The entitlement-only path often returns CloudFront HTML 403 on POST for new pipelines.
+ * - Pipeline 3+ (2025 VOD often pv=3): .../CONTENT/LA/widevine?contentId=&channelId= when API omits laURL.
+ * - Pipeline 4+: same widevine path (entitlement-only POST often CloudFront 403 on newer assets).
  * @param {number} [pipelineVersion] - from CONTENT/PLAY resultObj
  * @param {number} [contentId] - current asset
  * @param {number} [channelId] - optional multi-feed channel
+ * @param {string} [playbackPlatform] - e.g. WEB_DASH, BIG_SCREEN_DASH (must match CONTENT/PLAY profile)
+ * @param {string} [streamType] - e.g. SDR_HD_DASHWV (used when pipelineVersion is missing)
  */
-function getFallbackLicenseUrl(client, contentId, channelId, pipelineVersion) {
+function getFallbackLicenseUrl(client, contentId, channelId, pipelineVersion, playbackPlatform, streamType) {
   if (!client) return '';
   const auth = client.ascendon ? 'R' : 'A';
   const userLoc = client.location?.userLocation?.[0];
@@ -260,12 +350,19 @@ function getFallbackLicenseUrl(client, contentId, channelId, pipelineVersion) {
     entitlement = F1TV_ENTITLEMENT;
   }
   const groupId = String(userLoc?.groupId ?? F1TV_GROUP);
+  const platformSeg = playbackPlatform && String(playbackPlatform).trim()
+    ? String(playbackPlatform).trim()
+    : F1TV_PLATFORM;
 
   const pv = typeof pipelineVersion === 'number' ? pipelineVersion : parseInt(String(pipelineVersion), 10);
-  const useWidevineLa = Number.isFinite(pv) && pv >= 5 && contentId != null && !Number.isNaN(Number(contentId));
+  const wv = String(streamType || '').toUpperCase().includes('WV');
+  const useWidevineLa =
+    contentId != null &&
+    !Number.isNaN(Number(contentId)) &&
+    ((Number.isFinite(pv) && pv >= 3) || (wv && !Number.isFinite(pv)));
 
   if (useWidevineLa) {
-    const base = `${F1TV_BASE}/2.0/${auth}/${F1TV_LANG}/${F1TV_PLATFORM}/ALL/CONTENT/LA/widevine`;
+    const base = `${F1TV_BASE}/2.0/${auth}/${F1TV_LANG}/${platformSeg}/ALL/CONTENT/LA/widevine`;
     const u = new URL(base);
     u.searchParams.set('contentId', String(contentId));
     if (channelId != null && channelId !== '' && !Number.isNaN(Number(channelId))) {
@@ -274,7 +371,7 @@ function getFallbackLicenseUrl(client, contentId, channelId, pipelineVersion) {
     return u.toString();
   }
 
-  return `${F1TV_BASE}/2.0/${auth}/${F1TV_LANG}/${F1TV_PLATFORM}/ALL/CONTENT/LA/${entitlement}/${groupId}`;
+  return `${F1TV_BASE}/2.0/${auth}/${F1TV_LANG}/${platformSeg}/ALL/CONTENT/LA/${entitlement}/${groupId}`;
 }
 
 /**
@@ -910,9 +1007,36 @@ async function contentPlay(contentId, channelId) {
     throw new Error(f1Msg ? `F1 TV: ${f1Msg}` : (firstError ? `Playback unavailable. ${detail}` : 'Playback unavailable. Sign out and sign in again with "Sign in with browser", then retry.'));
   }
   console.log('[playback] candidates:', candidates.map((c) => `${c.platform}:${c.streamType || 'UNKNOWN'}:license=${hasLicenseMetadata(c)}:drm=${!!c.drmToken}`).join(' | '));
-  const primary = pickPrimaryPlaybackCandidate(candidates);
-  const fallback = pickFallbackPlaybackCandidate(candidates, primary);
+  let primary = pickPrimaryPlaybackCandidate(candidates);
+  let fallback = pickFallbackPlaybackCandidate(candidates, primary);
   if (!primary?.url) throw new Error('F1 TV returned no valid stream URL (DASH/HLS).');
+
+  // Decode the pa_ CloudFront signed URL payload to get both the playToken and the numeric kid.
+  let paPayload = decodePaPayload(primary.url);
+  let urlPlayToken = paPayload?.token ?? null;
+
+  // Prefetch manifest for LA discovery. Some pipeline-3 (2025) WEB_DASH URLs return 404 from Node
+  // and fail in the player; the paired BIG_SCREEN_DASH URL often works — swap if so.
+  let md = await fetchManifestData(primary.url, client, urlPlayToken);
+  if (!md.ok && fallback?.url && fallback.url !== primary.url) {
+    const altTok = decodePaPayload(fallback.url)?.token ?? null;
+    const mdAlt = await fetchManifestData(fallback.url, client, altTok);
+    if (mdAlt.ok) {
+      console.warn(
+        '[playback] manifest not reachable for',
+        primary.platform,
+        '— switching playback to',
+        fallback.platform,
+        '(alternate DASH profile)'
+      );
+      const prevPrimary = primary;
+      primary = fallback;
+      fallback = prevPrimary;
+      paPayload = decodePaPayload(primary.url);
+      urlPlayToken = paPayload?.token ?? null;
+      md = mdAlt;
+    }
+  }
 
   let licenseUrl = primary.laURL || primary.laUrl || '';
   if (!licenseUrl && !primary.drmToken) {
@@ -934,23 +1058,22 @@ async function contentPlay(contentId, channelId) {
     }
   } catch (_) {}
 
-  // Decode the pa_ CloudFront signed URL payload to get both the playToken and the numeric kid.
-  // For pipelineVersion 5 (2026+), the API no longer returns laURL; the kid from the pa_
-  // payload is used to construct the license URL: CONTENT/LA/{kid}.
-  const paPayload = decodePaPayload(primary.url);
-  const urlPlayToken = paPayload?.token ?? null;
+  if (!licenseUrl && md.licenseUrl) licenseUrl = md.licenseUrl;
 
-  // Also fetch manifest to extract the license URL if not returned by the API.
-  const { playToken: manifestPlayToken, licenseUrl: manifestLicenseUrl } = await fetchManifestData(primary.url, client, urlPlayToken);
-  if (!licenseUrl && manifestLicenseUrl) licenseUrl = manifestLicenseUrl;
-
-  const playToken = urlPlayToken || manifestPlayToken || null;
+  const playToken = urlPlayToken || md.playToken || null;
 
   if (!licenseUrl) {
-    // Even when CONTENT/PLAY does not return laURL/drmToken (observed on pipelineVersion 5 / 2026+),
-    // the DASH manifests still carry Widevine PSSH and segments are CENC-encrypted.
+    // When CONTENT/PLAY does not return laURL/drmToken (pipeline 4+ on many VODs, esp. 2025–2026),
+    // DASH manifests still carry Widevine PSSH; Shaka needs an explicit LA URL.
     // Shaka requires an explicit license server URI, so we must provide a fallback LA endpoint.
-    licenseUrl = getFallbackLicenseUrl(client, contentIdNum, channelId, primary.pipelineVersion);
+    licenseUrl = getFallbackLicenseUrl(
+      client,
+      contentIdNum,
+      channelId,
+      primary.pipelineVersion,
+      primary.platform,
+      primary.streamType
+    );
     if (licenseUrl) {
       const pathPart = licenseUrl.replace(F1TV_BASE, '');
       console.log(
@@ -1023,7 +1146,8 @@ function getLicenseRequestHeaders() {
     if (client.ascendon) {
       out.ascendontoken = client.ascendon;
     }
-    if (client.entitlement) out.entitlementtoken = client.entitlement;
+    const ent = playbackEntitlementOverride || client.entitlement;
+    if (ent) out.entitlementtoken = ent;
     return (out.ascendontoken || out.entitlementtoken) ? out : null;
   } catch (_) {
     return null;
@@ -1031,6 +1155,7 @@ function getLicenseRequestHeaders() {
 }
 
 function clearSession() {
+  playbackEntitlementOverride = null;
   subscriptionToken = null;
   if (f1Client) {
     f1Client.ascendon = null;
@@ -1052,6 +1177,7 @@ module.exports = {
   contentPlay,
   getSubscriptionToken,
   getLicenseRequestHeaders,
+  setPlaybackEntitlementOverride,
   clearSession,
   get isClientReady() {
     return !!f1Client && f1Client.isReady;

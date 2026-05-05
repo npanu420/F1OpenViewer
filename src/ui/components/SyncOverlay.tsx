@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Zap, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { Zap, CheckCircle2, AlertCircle, X, Minimize2 } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleContext';
 
 export type SyncStatus = 'idle' | 'syncing' | 'done' | 'error';
@@ -21,7 +21,10 @@ interface SyncOverlayProps {
   isOpen: boolean;
   status: SyncStatus;
   streams: SyncStreamInfo[];
+  /** Cancels the sync engine and hides the overlay. */
   onClose: () => void;
+  /** Hides the overlay while keeping the engine running so the user can keep watching. */
+  onMinimize?: () => void;
 }
 
 function StreamRow({ stream }: { stream: SyncStreamInfo }) {
@@ -94,11 +97,14 @@ export function SyncOverlay({
   status,
   streams,
   onClose,
+  onMinimize,
 }: SyncOverlayProps) {
   const { t } = useLocale();
   const doneCount = streams.filter((s) => s.done).length;
   const totalCount = streams.length;
   const progress = totalCount > 0 ? doneCount / totalCount : 0;
+  // Backdrop click: minimize when possible, otherwise close (legacy behavior).
+  const onBackdropClick = onMinimize ?? onClose;
 
   return (
     <AnimatePresence>
@@ -108,8 +114,9 @@ export function SyncOverlay({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-background/70 backdrop-blur-sm z-[60]"
-            onClick={status !== 'syncing' ? onClose : undefined}
+            // Lighter backdrop so the user can still see what's playing underneath while syncing.
+            className="fixed inset-0 bg-background/40 backdrop-blur-[2px] z-[60]"
+            onClick={onBackdropClick}
           />
 
           <motion.div
@@ -149,15 +156,28 @@ export function SyncOverlay({
                       : t('sync.errorDescription')}
                   </p>
                 </div>
-                {status !== 'syncing' && (
+                <div className="flex items-center gap-1 shrink-0">
+                  {onMinimize && (
+                    <button
+                      type="button"
+                      onClick={onMinimize}
+                      title={t('sync.minimize')}
+                      aria-label={t('sync.minimize')}
+                      className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+                    >
+                      <Minimize2 className="w-4 h-4" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={onClose}
+                    title={status === 'syncing' ? t('sync.cancel') : t('ui.close')}
+                    aria-label={status === 'syncing' ? t('sync.cancel') : t('ui.close')}
                     className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
                   >
                     <X className="w-4 h-4" />
                   </button>
-                )}
+                </div>
               </div>
 
               {status === 'syncing' && streams.length > 0 && (

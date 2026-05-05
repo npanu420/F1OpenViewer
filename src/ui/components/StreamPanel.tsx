@@ -1,4 +1,4 @@
-import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Monitor, Radio, BarChart3, Volume2, VolumeX, Play } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
@@ -29,6 +29,13 @@ interface StreamPanelProps {
   hideHeader?: boolean;
   /** videoWidth/videoHeight from the element once known (layout only) */
   onVideoIntrinsicSize?: (width: number, height: number) => void;
+  /** Emitted when this panel becomes the audio-focused one (parent mutes the other panels). */
+  onAudioFocus?: (itemId: string) => void;
+  /** External signal: when itemId !== this panel's itemId, mute. Resets when null. */
+  audioFocusedItemId?: string | null;
+  /** Initial seek position (seconds) for the underlying ShakaVideo — used when porting a
+   *  playing stream into the standalone multiview window. */
+  initialSeekSeconds?: number;
 }
 
 export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
@@ -49,6 +56,9 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       fillHeight = false,
       hideHeader = false,
       onVideoIntrinsicSize,
+      onAudioFocus,
+      audioFocusedItemId,
+      initialSeekSeconds,
     },
     ref
   ) {
@@ -59,6 +69,18 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
     useImperativeHandle(ref, () => ({
       getVideoElement: () => shakaRef.current?.getVideoElement() ?? null,
     }));
+
+    // External audio focus: parent tells us "another panel has focus" → mute ourselves.
+    useEffect(() => {
+      const id = catalogItem?.id;
+      if (!id || audioFocusedItemId == null) return;
+      const video = shakaRef.current?.getVideoElement();
+      if (!video) return;
+      if (audioFocusedItemId !== id && !video.muted) {
+        video.muted = true;
+        setMuted(true);
+      }
+    }, [audioFocusedItemId, catalogItem?.id]);
 
     const borderColor = teamColor ? `hsl(${teamColor})` : undefined;
     const canEmbed = catalogItem && onPlayEmbedded;
@@ -72,6 +94,10 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       const next = !video.muted;
       video.muted = next;
       setMuted(next);
+      // When this panel is being un-muted, claim audio focus so the parent mutes the others.
+      if (!next && onAudioFocus && catalogItem?.id) {
+        onAudioFocus(catalogItem.id);
+      }
     }
 
     return (
@@ -156,6 +182,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
                 accessToken={accessToken}
                 onError={(msg) => onEmbedError?.(msg)}
                 onIntrinsicVideoSize={onVideoIntrinsicSize}
+                initialSeekSeconds={initialSeekSeconds}
                 compact
               />
             </div>
