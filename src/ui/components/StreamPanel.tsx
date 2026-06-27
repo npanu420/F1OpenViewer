@@ -82,6 +82,15 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       }
     }, [audioFocusedItemId, catalogItem?.id]);
 
+    // Keep the header mute icon in sync when the in-player control bar toggles mute/volume.
+    useEffect(() => {
+      const video = shakaRef.current?.getVideoElement();
+      if (!video) return;
+      const onVol = () => setMuted(video.muted);
+      video.addEventListener('volumechange', onVol);
+      return () => video.removeEventListener('volumechange', onVol);
+    }, [playback]);
+
     const borderColor = teamColor ? `hsl(${teamColor})` : undefined;
     const canEmbed = catalogItem && onPlayEmbedded;
     const showPlaceholder = !playback && !loading;
@@ -184,6 +193,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
                 onIntrinsicVideoSize={onVideoIntrinsicSize}
                 initialSeekSeconds={initialSeekSeconds}
                 preferLiveEdge={catalogItem?.kind === 'live'}
+                onAudioFocus={() => { if (catalogItem?.id) onAudioFocus?.(catalogItem.id); }}
                 compact
               />
             </div>

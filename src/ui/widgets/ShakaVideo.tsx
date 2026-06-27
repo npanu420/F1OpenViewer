@@ -35,6 +35,8 @@ type Props = {
   initialSeekSeconds?: number;
   /** When true, skip DVR start position and jump to the live edge after load. */
   preferLiveEdge?: boolean;
+  /** Called when the user raises volume from muted in the control bar (claims audio focus). */
+  onAudioFocus?: () => void;
 };
 
 function safeErr(e: unknown): string {
@@ -573,6 +575,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
             getPlayer={() => playerRef.current}
             getContainer={() => containerRef.current}
             compact={compact}
+            onUnmute={props.onAudioFocus}
           />
         )}
       </div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pause, Play, Volume2, VolumeX, Maximize, Minimize } from 'lucide-react';
+import { Pause, Play, Volume2, VolumeX, Maximize, Minimize, Settings } from 'lucide-react';
 import type shaka from 'shaka-player/dist/shaka-player.ui';
 
 /**
@@ -17,12 +17,18 @@ type Props = {
   getPlayer: () => shaka.Player | null;
   /** The element to toggle fullscreen on (the player container, so the bar stays visible). */
   getContainer: () => HTMLElement | null;
-  /** Embedded slots (StreamPanel/multiview) already have a header mute → hide the bar's volume. */
+  /** Embedded slots (StreamPanel/multiview) render the bar more compactly. */
   compact?: boolean;
+  /** Called when the user raises volume from muted, so the parent can claim audio focus. */
+  onUnmute?: () => void;
 };
 
 /** Seconds from the live edge within which we consider the viewer "at" live. */
 const LIVE_EDGE_THRESHOLD = 12;
+
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+type QualityTrack = { id: number; height: number; active: boolean };
 
 function fmt(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -34,7 +40,7 @@ function fmt(seconds: number): string {
   return `${m}:${ss}`;
 }
 
-export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Props) {
+export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUnmute }: Props) {
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(1);
@@ -45,7 +51,12 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
   const [liveFill, setLiveFill] = useState(1); // 0..1 position within the DVR window
   const [isFs, setIsFs] = useState(false);
   const [visible, setVisible] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [tracks, setTracks] = useState<QualityTrack[]>([]);
+  const [autoQuality, setAutoQuality] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Pull current state off the video/player. Cheap; called from events and a 1s poll.
   const sync = useCallback(() => {
@@ -54,6 +65,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
     setPlaying(!v.paused);
     setMuted(v.muted);
     setVolume(v.volume);
+    setSpeed(v.playbackRate);
 
     const p = getPlayer();
     let live = false;
@@ -83,7 +95,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
   useEffect(() => {
     const v = getVideo();
     if (!v) return;
-    const evs = ['play', 'pause', 'timeupdate', 'volumechange', 'durationchange', 'loadedmetadata', 'seeking', 'seeked'];
+    const evs = ['play', 'pause', 'timeupdate', 'volumechange', 'durationchange', 'loadedmetadata', 'seeking', 'seeked', 'ratechange'];
     evs.forEach((e) => v.addEventListener(e, sync));
     const poll = setInterval(sync, 1000); // live edge distance isn't event-driven
     sync();
@@ -99,20 +111,20 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
     return () => document.removeEventListener('fullscreenchange', onFs);
   }, [getContainer]);
 
-  // Auto-hide while playing; always visible when paused or on mouse move.
+  // Auto-hide while playing; always visible when paused, on mouse move, or with the menu open.
   const poke = useCallback(() => {
     setVisible(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     const v = getVideo();
-    if (v && !v.paused) hideTimer.current = setTimeout(() => setVisible(false), 2500);
-  }, [getVideo]);
+    if (v && !v.paused && !menuOpen) hideTimer.current = setTimeout(() => setVisible(false), 2500);
+  }, [getVideo, menuOpen]);
 
   useEffect(() => {
     const c = getContainer();
     if (!c) return;
     const onLeave = () => {
       const v = getVideo();
-      if (v && !v.paused) setVisible(false);
+      if (v && !v.paused && !menuOpen) setVisible(false);
     };
     c.addEventListener('mousemove', poke);
     c.addEventListener('mouseleave', onLeave);
@@ -121,7 +133,32 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
       c.removeEventListener('mousemove', poke);
       c.removeEventListener('mouseleave', onLeave);
     };
-  }, [getContainer, getVideo, poke]);
+  }, [getContainer, getVideo, poke, menuOpen]);
+
+  // Close the settings menu on outside click.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [menuOpen]);
+
+  const refreshTracks = () => {
+    const p = getPlayer();
+    if (!p || typeof p.getVariantTracks !== 'function') { setTracks([]); return; }
+    try {
+      const seen = new Map<number, QualityTrack>();
+      for (const t of p.getVariantTracks() as any[]) {
+        if (!t.height) continue;
+        const prev = seen.get(t.height);
+        if (!prev || t.active) seen.set(t.height, { id: t.id, height: t.height, active: !!t.active });
+      }
+      setTracks(Array.from(seen.values()).sort((a, b) => b.height - a.height));
+      try { setAutoQuality(!!(p.getConfiguration() as any)?.abr?.enabled); } catch (_) {}
+    } catch (_) { setTracks([]); }
+  };
 
   const togglePlay = () => {
     const v = getVideo();
@@ -133,12 +170,35 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
     if (!v) return;
     v.muted = !v.muted;
     setMuted(v.muted);
+    if (!v.muted) onUnmute?.();
   };
   const setVol = (val: number) => {
     const v = getVideo();
     if (!v) return;
     v.volume = val;
-    if (val > 0 && v.muted) v.muted = false;
+    if (val > 0 && v.muted) { v.muted = false; onUnmute?.(); }
+    if (val === 0) v.muted = true;
+  };
+  const setRate = (r: number) => {
+    const v = getVideo();
+    if (v) v.playbackRate = r;
+    setSpeed(r);
+  };
+  const setQuality = (track: QualityTrack | null) => {
+    const p = getPlayer();
+    if (!p) return;
+    try {
+      if (track == null) {
+        p.configure({ abr: { enabled: true } });
+        setAutoQuality(true);
+      } else {
+        p.configure({ abr: { enabled: false } });
+        const full = (p.getVariantTracks() as any[]).find((t) => t.id === track.id);
+        if (full && typeof p.selectVariantTrack === 'function') p.selectVariantTrack(full, true);
+        setAutoQuality(false);
+      }
+      refreshTracks();
+    } catch (_) {}
   };
   const goLive = () => {
     const v = getVideo();
@@ -166,8 +226,15 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
     if (document.fullscreenElement === c) document.exitFullscreen().catch(() => {});
     else c.requestFullscreen().catch(() => {});
   };
+  const toggleMenu = () => {
+    setMenuOpen((open) => {
+      if (!open) refreshTracks();
+      return !open;
+    });
+  };
 
   const vodPct = duration > 0 ? (current / duration) * 100 : 0;
+  const iconSize = compact ? 'w-4 h-4' : 'w-5 h-5';
 
   return (
     <div
@@ -182,7 +249,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
             className="shrink-0 text-white/90 hover:text-white transition-colors"
             title={playing ? 'Pause' : 'Play'}
           >
-            {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+            {playing ? <Pause className={iconSize} /> : <Play className={iconSize} />}
           </button>
 
           {isLive ? (
@@ -232,28 +299,82 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
             </>
           )}
 
-          {!compact && (
-            <div className="shrink-0 flex items-center gap-1.5 group">
-              <button
-                type="button"
-                onClick={toggleMute}
-                className="text-white/90 hover:text-white transition-colors"
-                title={muted ? 'Unmute' : 'Mute'}
-              >
-                {muted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-              </button>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={muted ? 0 : volume}
-                onChange={(e) => setVol(Number(e.target.value))}
-                className="w-0 group-hover:w-16 transition-[width] duration-200 accent-red-600 cursor-pointer"
-                title="Volume"
-              />
-            </div>
-          )}
+          <div className="shrink-0 flex items-center gap-1.5 group">
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="text-white/90 hover:text-white transition-colors"
+              title={muted ? 'Unmute' : 'Mute'}
+            >
+              {muted || volume === 0 ? <VolumeX className={iconSize} /> : <Volume2 className={iconSize} />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={muted ? 0 : volume}
+              onChange={(e) => setVol(Number(e.target.value))}
+              className={`${compact ? 'w-0 group-hover:w-14' : 'w-16'} transition-[width] duration-200 accent-red-600 cursor-pointer`}
+              title="Volume"
+            />
+          </div>
+
+          {/* Settings: playback speed + quality */}
+          <div className="shrink-0 relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={toggleMenu}
+              className={`text-white/90 hover:text-white transition-colors ${menuOpen ? 'text-white' : ''}`}
+              title="Settings"
+            >
+              <Settings className={iconSize} />
+            </button>
+            {menuOpen && (
+              <div className="absolute bottom-8 right-0 w-44 max-h-72 overflow-y-auto rounded-md bg-black/95 border border-white/10 shadow-xl p-2 text-[12px] text-white/90">
+                <div className="px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40">Speed</div>
+                <div className="grid grid-cols-3 gap-1 mb-2">
+                  {SPEEDS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setRate(s)}
+                      className={`py-1 rounded text-center transition-colors ${
+                        Math.abs(speed - s) < 0.001 ? 'bg-red-600 text-white' : 'bg-white/5 hover:bg-white/15'
+                      }`}
+                    >
+                      {s === 1 ? '1×' : `${s}×`}
+                    </button>
+                  ))}
+                </div>
+                <div className="px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40">Quality</div>
+                <button
+                  type="button"
+                  onClick={() => setQuality(null)}
+                  className={`w-full text-left px-2 py-1 rounded transition-colors ${
+                    autoQuality ? 'bg-red-600 text-white' : 'hover:bg-white/15'
+                  }`}
+                >
+                  Auto
+                </button>
+                {tracks.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setQuality(t)}
+                    className={`w-full text-left px-2 py-1 rounded transition-colors ${
+                      !autoQuality && t.active ? 'bg-red-600 text-white' : 'hover:bg-white/15'
+                    }`}
+                  >
+                    {t.height}p
+                  </button>
+                ))}
+                {tracks.length === 0 && (
+                  <div className="px-2 py-1 text-white/40">No quality options</div>
+                )}
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
@@ -261,7 +382,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact }: Pr
             className="shrink-0 text-white/90 hover:text-white transition-colors"
             title={isFs ? 'Exit fullscreen' : 'Fullscreen'}
           >
-            {isFs ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+            {isFs ? <Minimize className={iconSize} /> : <Maximize className={iconSize} />}
           </button>
         </div>
       </div>
