@@ -1,6 +1,7 @@
 import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import shaka from 'shaka-player/dist/shaka-player.ui';
 import { useLocale } from '../../i18n/LocaleContext';
+import { VideoControls } from './VideoControls';
 
 export type ShakaVideoHandle = {
   /** Returns the underlying HTMLVideoElement (or null) */
@@ -29,8 +30,11 @@ type Props = {
    * after the first successful load so the user lands on the same frame.
    * Re-mounting/changing manifestUrl resets the "applied" state so a new initialSeekSeconds
    * value is honored.
+   * Ignored for live streams (preferLiveEdge / player.isLive()).
    */
   initialSeekSeconds?: number;
+  /** When true, skip DVR start position and jump to the live edge after load. */
+  preferLiveEdge?: boolean;
 };
 
 function safeErr(e: unknown): string {
@@ -62,9 +66,107 @@ function hashHeaders(h: Record<string, string> | undefined): string {
   return keys.map((k) => `${k}=${h[k] ?? ''}`).join('|');
 }
 
+/** Live DASH manifests often report a huge or non-finite duration in the video element. */
+function isLikelyLiveVideo(video: HTMLVideoElement): boolean {
+  const d = video.duration;
+  if (!Number.isFinite(d)) return true;
+  return d > 60 * 60 * 24;
+}
+
+/** Live edge offset (seconds behind the end of the seek range). */
+const LIVE_EDGE_OFFSET = 6;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Robustly move a live stream to the live edge.
+ *
+ * The F1 world feed manifest can report a wall-clock presentation timeline (currentTime in the
+ * tens of millions of seconds). Shaka may not have a usable seek range immediately after load,
+ * so we poll for a few seconds: as soon as a finite seek range (or a populated `seekable`) is
+ * available we jump near its end. We also keep nudging until the video actually starts advancing,
+ * because a single seek to a not-yet-buffered position can leave the element paused on a black frame.
+ */
+async function seekToLiveEdge(player: shaka.Player, video: HTMLVideoElement): Promise<void> {
+  const deadline = Date.now() + 10000;
+  let lastTime = -1;
+  let stableProgressTicks = 0;
+
+  while (Date.now() < deadline) {
+    let isLive = false;
+    let range: { start: number; end: number } | null = null;
+    try {
+      isLive = typeof player.isLive === 'function' && player.isLive();
+    } catch (_) {}
+    try {
+      const r = typeof player.seekRange === 'function' ? player.seekRange() : null;
+      if (r && Number.isFinite(r.end)) range = r;
+    } catch (_) {}
+
+    let seekableEnd: number | null = null;
+    let seekableStart: number | null = null;
+    try {
+      const s = video.seekable;
+      if (s && s.length > 0) {
+        seekableStart = s.start(0);
+        seekableEnd = s.end(s.length - 1);
+      }
+    } catch (_) {}
+
+    // eslint-disable-next-line no-console
+    console.log('[shaka][live] edge attempt', {
+      isLive,
+      range,
+      seekableStart,
+      seekableEnd,
+      duration: video.duration,
+      currentTime: video.currentTime,
+      paused: video.paused,
+      readyState: video.readyState,
+    });
+
+    const edge =
+      range && range.end > range.start ? range.end
+      : seekableEnd != null ? seekableEnd
+      : null;
+    const start =
+      range ? range.start
+      : seekableStart != null ? seekableStart
+      : 0;
+
+    if (edge != null) {
+      const target = Math.max(start, edge - LIVE_EDGE_OFFSET);
+      // Only seek when we're meaningfully off the edge (avoids fighting normal playback).
+      if (!Number.isFinite(video.currentTime) || Math.abs(video.currentTime - edge) > LIVE_EDGE_OFFSET * 3) {
+        try {
+          if (typeof (player as any).goToLive === 'function' && isLive) {
+            (player as any).goToLive();
+          }
+          video.currentTime = target;
+        } catch (_) {}
+      }
+      try { if (video.paused) await video.play(); } catch (_) {}
+    }
+
+    // Consider it started once currentTime advances across a couple of ticks while not paused.
+    if (!video.paused && Number.isFinite(video.currentTime)) {
+      if (lastTime >= 0 && video.currentTime > lastTime + 0.05) {
+        stableProgressTicks += 1;
+        if (stableProgressTicks >= 2) return;
+      }
+      lastTime = video.currentTime;
+    }
+
+    await sleep(300);
+  }
+}
+
 export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(props, ref) {
   const { t } = useLocale();
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<shaka.Player | null>(null);
   /** Outstanding destroy() of the previous player instance. The next init awaits this so two
    *  Shaka instances never coexist on the same video element when props change rapidly. */
@@ -185,10 +287,12 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
       const applyConfig = (licenseUrl: string) => {
         const hasWidevineLicense = Boolean(licenseUrl && licenseUrl.trim().length > 0);
         // Lower buffer when many streams (compact/embedded) to avoid all of them buffering heavily
-        const streaming =
+        const streaming: Record<string, unknown> =
           props.compact
             ? { bufferingGoal: 10, rebufferingGoal: 3 }
             : { bufferingGoal: 20, rebufferingGoal: 6 };
+        streaming.returnToEndOfLiveWindowWhenOutside = true;
+        streaming.liveSync = { enabled: true, targetLatency: 4 };
         const config: any = { streaming };
         if (props.compact) {
           config.abr = { restrictions: { maxHeight: 720 } };
@@ -257,8 +361,8 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
                   if (lk.includes('token') || lk === 'authorization' || lk === 'cookie' || lk === 'customdata') headerSummary[k] = redact(v);
                 }
               }
-              // Electron spesso serializza gli argomenti come "[object Object]" nel main log:
-              // logghiamo JSON per vedere davvero uris/bodyBytes.
+              // Electron often serializes args as "[object Object]" in the main log,
+              // so log JSON to actually see uris/bodyBytes.
               // eslint-disable-next-line no-console
               console.log('[shaka][LICENSE][req]', JSON.stringify({
                 method,
@@ -284,6 +388,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
        *   3. Otherwise undefined (start at default).
        */
       const computeStartTime = (manifestUrl: string): number | undefined => {
+        if (propsRef.current.preferLiveEdge) return undefined;
         const lp = lastPositionRef.current;
         if (lp && lp.manifestUrl === manifestUrl && Number.isFinite(lp.time) && lp.time > 0) {
           return lp.time;
@@ -296,6 +401,27 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
           return seek;
         }
         return undefined;
+      };
+
+      const finalizePlaybackStart = async () => {
+        let playerIsLive = false;
+        try { playerIsLive = typeof player.isLive === 'function' && player.isLive(); } catch (_) {}
+        const isLive = propsRef.current.preferLiveEdge || playerIsLive || isLikelyLiveVideo(video);
+        // eslint-disable-next-line no-console
+        console.log('[shaka][load] finished', {
+          preferLiveEdge: propsRef.current.preferLiveEdge,
+          playerIsLive,
+          isLikelyLive: isLikelyLiveVideo(video),
+          duration: video.duration,
+          currentTime: video.currentTime,
+        });
+        if (isLive) {
+          await seekToLiveEdge(player, video);
+          initialSeekConsumedRef.current = propsRef.current.manifestUrl;
+        } else {
+          applyInitialSeek();
+        }
+        try { if (video.paused) await video.play(); } catch (_) {}
       };
 
       const loadWith = async (manifestUrl: string, licenseUrl: string, headers?: Record<string, string>) => {
@@ -344,8 +470,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
         await loadWith(props.manifestUrl, props.licenseUrl, props.licenseHeaders);
         if (!destroyed) {
           setReady(true);
-          applyInitialSeek();
-          try { await video.play(); } catch (_) {}
+          await finalizePlaybackStart();
         }
       } catch (e) {
         const code = (e as any)?.code;
@@ -356,8 +481,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
             if (!destroyed) {
               setReady(true);
               props.onError('');
-              applyInitialSeek();
-              try { await video.play(); } catch (_) {}
+              await finalizePlaybackStart();
             }
             return;
           } catch (fallbackError) {
@@ -425,19 +549,33 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
     props.fallbackLicenseUrl,
     licenseHeadersHash,
     fallbackLicenseHeadersHash,
+    props.preferLiveEdge,
   ]);
 
   const { compact } = props;
   return (
     <div className={compact ? 'h-full min-h-0 flex flex-col' : ''} style={compact ? {} : { display: 'grid', gap: 10 }}>
-      <video
-        ref={videoRef}
-        controls
-        autoPlay
-        muted
-        playsInline
-        className={compact ? 'w-full flex-1 min-h-0 object-contain bg-black' : ''}
-      />
+      <div
+        ref={containerRef}
+        className={`player-fs relative bg-black overflow-hidden ${compact ? 'flex-1 min-h-0 flex' : ''}`}
+      >
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          onClick={() => { const v = videoRef.current; if (v) { if (v.paused) v.play().catch(() => {}); else v.pause(); } }}
+          className={compact ? 'w-full flex-1 min-h-0 object-contain bg-black' : 'w-full bg-black'}
+        />
+        {ready && (
+          <VideoControls
+            getVideo={() => videoRef.current}
+            getPlayer={() => playerRef.current}
+            getContainer={() => containerRef.current}
+            compact={compact}
+          />
+        )}
+      </div>
       {!compact && (
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <span className="pill">

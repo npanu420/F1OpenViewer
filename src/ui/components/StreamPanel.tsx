@@ -85,7 +85,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
     const borderColor = teamColor ? `hsl(${teamColor})` : undefined;
     const canEmbed = catalogItem && onPlayEmbedded;
     const showPlaceholder = !playback && !loading;
-    /** Evita spinner + video insieme (es. "play all" con stream già attive: loading true ma playback ancora presente). */
+    /** Avoid showing the spinner and the video at once (e.g. "play all" with streams already active: loading is true while playback is still present). */
     const showLoadingOverlay = loading && !playback;
 
     function toggleMute() {
@@ -183,6 +183,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
                 onError={(msg) => onEmbedError?.(msg)}
                 onIntrinsicVideoSize={onVideoIntrinsicSize}
                 initialSeekSeconds={initialSeekSeconds}
+                preferLiveEdge={catalogItem?.kind === 'live'}
                 compact
               />
             </div>

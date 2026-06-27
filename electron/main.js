@@ -1,5 +1,8 @@
 const path = require('path');
 const fs = require('fs');
+try {
+  require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+} catch (_) {}
 const http = require('http');
 const os = require('os');
 const electron = require('electron');

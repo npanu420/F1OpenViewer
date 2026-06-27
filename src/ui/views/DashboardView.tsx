@@ -211,6 +211,14 @@ export function DashboardView({
     return currentSessions[0];
   }, [currentSessions, activeSessionId]);
 
+  const sessionForViewer = useMemo(() => {
+    if (!activeSession) return null;
+    const streams = streamsByContentId[activeSession.contentId];
+    const mainCh = streams?.mainChannel?.channelId;
+    if (mainCh) return { ...activeSession, channelId: mainCh };
+    return activeSession;
+  }, [activeSession, streamsByContentId]);
+
   useEffect(() => {
     if (!activeSession) return;
     if (streamsByContentId[activeSession.contentId] !== undefined) return;
@@ -407,13 +415,13 @@ export function DashboardView({
                     />
                   </div>
 
-                  {activeSession && (
+                  {sessionForViewer && (
                     <MultiViewer
-                      session={activeSession}
+                      session={sessionForViewer}
                       streams={
-                        loadingStreams[activeSession.contentId]
+                        loadingStreams[sessionForViewer.contentId]
                           ? null
-                          : streamsByContentId[activeSession.contentId] ?? null
+                          : streamsByContentId[sessionForViewer.contentId] ?? null
                       }
                       seasonYear={selectedYear}
                       onOpen={onOpen}

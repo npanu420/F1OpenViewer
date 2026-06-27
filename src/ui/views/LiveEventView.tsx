@@ -44,22 +44,36 @@ export function LiveEventView({
   onEmbedError,
 }: LiveEventViewProps) {
   const { t } = useLocale();
-  const session = liveItemToSession(item);
+  const [liveItem, setLiveItem] = useState(item);
+  const session = liveItemToSession(liveItem);
   const [streams, setStreams] = useState<SessionStreams | null>(null);
   const [loadingStreams, setLoadingStreams] = useState(true);
   const [embeddedPlayback, setEmbeddedPlayback] = useState<Record<string, PlaybackInfo>>({});
   const [loadingItemIds, setLoadingItemIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
+    setLiveItem(item);
+  }, [item]);
+
+  useEffect(() => {
     setLoadingStreams(true);
     getContentVideoStreams(item.contentId)
-      .then(setStreams)
+      .then((s) => {
+        setStreams(s);
+        if (s.mainChannel?.channelId) {
+          setLiveItem((prev) =>
+            prev.contentId === item.contentId
+              ? { ...prev, channelId: s.mainChannel!.channelId }
+              : prev
+          );
+        }
+      })
       .finally(() => setLoadingStreams(false));
   }, [item.contentId]);
 
   const toCatalogItem = useCallback(
-    (_s: VodSession, _year: number) => item,
-    [item]
+    (_s: VodSession, _year: number) => liveItem,
+    [liveItem]
   );
 
   const onPlayEmbedded = useCallback(async (catalogItem: CatalogItem) => {

@@ -58,6 +58,13 @@ function clampRate(r: number): number {
   return Math.max(0.5, Math.min(2, r));
 }
 
+/** Live DASH/HLS often reports a non-finite or very large duration in the video element. */
+function isLikelyLiveVideo(video: HTMLVideoElement): boolean {
+  const d = video.duration;
+  if (!Number.isFinite(d)) return true;
+  return d > 60 * 60 * 24;
+}
+
 export function useSyncEngine() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncStreams, setSyncStreams] = useState<SyncStreamInfo[]>([]);
@@ -128,6 +135,7 @@ export function useSyncEngine() {
       const refVideo = refEntry.video;
       const refTime = refVideo.currentTime;
       const threshold = thresholdRef.current;
+      const refIsLive = isLikelyLiveVideo(refVideo);
 
       // Update "ref has started" once — used to filter false buffers during initial autoplay.
       if (!refHasStartedRef.current) {
@@ -180,7 +188,7 @@ export function useSyncEngine() {
           enginePausedRef.current.delete(e.id);
         }
 
-        if (canSeek && absOffset >= COARSE_SEEK_THRESHOLD) {
+        if (canSeek && absOffset >= COARSE_SEEK_THRESHOLD && !refIsLive && !isLikelyLiveVideo(v)) {
           try { v.currentTime = Math.max(0, refTime); } catch (_) {}
           if (Math.abs(rate - 1) > 0.001) v.playbackRate = 1;
           rate = 1;
@@ -250,8 +258,10 @@ export function useSyncEngine() {
 
       // Initial pass: stagger seeks so all streams don't flush their buffer at the same instant.
       const refTime = refEntry.video.currentTime;
+      const refIsLive = isLikelyLiveVideo(refEntry.video);
       withVideos.forEach((e, i) => {
         if (e.id === refEntry.id) return;
+        if (refIsLive || isLikelyLiveVideo(e.video)) return;
         const offset = e.video.currentTime - refTime;
         if (Math.abs(offset) >= COARSE_SEEK_THRESHOLD) {
           window.setTimeout(() => {

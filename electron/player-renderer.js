@@ -128,6 +128,8 @@
         streaming: {
           bufferingGoal: 20,
           rebufferingGoal: 6,
+          returnToEndOfLiveWindowWhenOutside: true,
+          liveSync: { enabled: true, targetLatency: 4 },
         },
       };
       if (hasWidevineLicense) {
@@ -136,6 +138,79 @@
         };
       }
       player.configure(config);
+    }
+
+    function isLikelyLiveVideo() {
+      var d = video.duration;
+      if (!Number.isFinite(d)) return true;
+      return d > 60 * 60 * 24;
+    }
+
+    function sleep(ms) {
+      return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
+    var LIVE_EDGE_OFFSET = 6;
+
+    async function seekToLiveEdge() {
+      var deadline = Date.now() + 10000;
+      var lastTime = -1;
+      var stableProgressTicks = 0;
+
+      while (Date.now() < deadline) {
+        var isLive = false;
+        var range = null;
+        try { isLive = typeof player.isLive === 'function' && player.isLive(); } catch (_) {}
+        try {
+          var r = typeof player.seekRange === 'function' ? player.seekRange() : null;
+          if (r && Number.isFinite(r.end)) range = r;
+        } catch (_) {}
+
+        var seekableEnd = null;
+        var seekableStart = null;
+        try {
+          var s = video.seekable;
+          if (s && s.length > 0) {
+            seekableStart = s.start(0);
+            seekableEnd = s.end(s.length - 1);
+          }
+        } catch (_) {}
+
+        console.log('[shaka][live] edge attempt', JSON.stringify({
+          isLive: isLive,
+          range: range,
+          seekableStart: seekableStart,
+          seekableEnd: seekableEnd,
+          duration: video.duration,
+          currentTime: video.currentTime,
+          paused: video.paused,
+          readyState: video.readyState,
+        }));
+
+        var edge = range && range.end > range.start ? range.end : (seekableEnd != null ? seekableEnd : null);
+        var start = range ? range.start : (seekableStart != null ? seekableStart : 0);
+
+        if (edge != null) {
+          var target = Math.max(start, edge - LIVE_EDGE_OFFSET);
+          if (!Number.isFinite(video.currentTime) || Math.abs(video.currentTime - edge) > LIVE_EDGE_OFFSET * 3) {
+            try {
+              if (typeof player.goToLive === 'function' && isLive) player.goToLive();
+              video.currentTime = target;
+            } catch (_) {}
+          }
+          try { if (video.paused) await video.play(); } catch (_) {}
+        }
+
+        if (!video.paused && Number.isFinite(video.currentTime)) {
+          if (lastTime >= 0 && video.currentTime > lastTime + 0.05) {
+            stableProgressTicks += 1;
+            if (stableProgressTicks >= 2) return;
+          }
+          lastTime = video.currentTime;
+        }
+
+        await sleep(300);
+      }
     }
 
     var _manifestFilter = null;
@@ -232,6 +307,9 @@
 
     try {
       await loadWith(manifestUrl, licenseUrl, licenseHeaders);
+      if (payload.preferLiveEdge || (typeof player.isLive === 'function' && player.isLive()) || isLikelyLiveVideo()) {
+        await seekToLiveEdge();
+      }
       setStatus('Playing.', false);
       if (window.playerIpc && window.playerIpc.send) {
         window.playerIpc.send('player:ready');
@@ -244,6 +322,9 @@
       if (code === 6001 && fallbackManifestUrl) {
         try {
           await loadWith(fallbackManifestUrl, fallbackLicenseUrl, fallbackLicenseHeaders);
+          if (payload.preferLiveEdge || (typeof player.isLive === 'function' && player.isLive()) || isLikelyLiveVideo()) {
+            await seekToLiveEdge();
+          }
           setStatus('Playing (fallback).', false);
           if (window.playerIpc && window.playerIpc.send) {
             window.playerIpc.send('player:ready');

@@ -256,7 +256,8 @@ function decodePaPayload(manifestUrl) {
     if (!match) return null;
     let b64 = match[1].replace(/-/g, '+').replace(/_/g, '/');
     b64 += '='.repeat((4 - (b64.length % 4)) % 4);
-    const decoded = Buffer.from(b64, 'base64').toString('utf8');
+    // latin1 keeps binary playToken bytes intact (utf8 corrupts non-UTF8 token values).
+    const decoded = Buffer.from(b64, 'base64').toString('latin1');
     const result = {};
     // First field has no leading pipe: "path:VALUE"
     for (const part of decoded.split('|')) {
@@ -267,6 +268,43 @@ function decodePaPayload(manifestUrl) {
   } catch (e) {
     return null;
   }
+}
+
+/** playToken must be a printable token string — reject binary garbage from bad decodes. */
+function sanitizePlayToken(tok) {
+  if (tok == null) return null;
+  const s = String(tok);
+  if (!s || s.length < 4) return null;
+  if (/[\x00-\x08\x0e-\x1f\x7f]/.test(s)) return null;
+  return s;
+}
+
+function resolveChannelId(primary, fallback, requested) {
+  for (const c of [primary?.channelId, fallback?.channelId, requested]) {
+    if (c != null && c !== '' && !Number.isNaN(Number(c))) return Number(c);
+  }
+  return undefined;
+}
+
+function isObcStream(s) {
+  return s.type === 'obc' || s.identifier === 'OBC' || String(s.type || '').toLowerCase().includes('onboard');
+}
+
+function isDataStream(s) {
+  return s.identifier === 'DATA' || String(s.type || '').toLowerCase().includes('data');
+}
+
+/** World feed / presentation channel from additionalStreams (live multiview main). */
+function pickMainChannelStream(additional) {
+  if (!Array.isArray(additional)) return null;
+  const eligible = additional.filter((s) => s.channelId && !isObcStream(s) && !isDataStream(s));
+  if (!eligible.length) return null;
+  return (
+    eligible.find((s) => s.default === true)
+    || eligible.find((s) => String(s.identifier || '').toUpperCase() === 'PRES')
+    || eligible.find((s) => String(s.identifier || '').toUpperCase() === 'WIF')
+    || eligible[0]
+  );
 }
 
 
@@ -917,6 +955,16 @@ async function getContentVideo(contentId) {
     const additional = meta.additionalStreams || [];
     const onboard = [];
     const dataChannel = [];
+    let mainChannel = null;
+    const mainPick = pickMainChannelStream(additional);
+    if (mainPick?.channelId) {
+      mainChannel = {
+        contentId: meta.contentId || contentId,
+        channelId: mainPick.channelId,
+        title: mainPick.title || mainPick.reportingName || meta.title || 'World Feed',
+        identifier: mainPick.identifier,
+      };
+    }
     for (const s of additional) {
       if (!s.channelId) continue;
       const base = {
@@ -939,7 +987,7 @@ async function getContentVideo(contentId) {
         });
       }
     }
-    return { onboard, dataChannel, container };
+    return { onboard, dataChannel, mainChannel, container };
   } catch (e) {
     return { onboard: [], dataChannel: [], container: null };
   }
@@ -966,6 +1014,17 @@ async function contentPlay(contentId, channelId) {
     throw new Error('Session not ready: entitlement missing. Sign out and sign in again with "Sign in with browser", then retry.');
   }
   const contentIdNum = typeof contentId === 'string' ? parseInt(contentId, 10) : contentId;
+  let requestChannelId = channelId;
+  if (requestChannelId == null || requestChannelId === '' || Number.isNaN(Number(requestChannelId))) {
+    try {
+      const cv = await client.contentVideo(contentIdNum);
+      const main = pickMainChannelStream(cv?.metadata?.additionalStreams || []);
+      if (main?.channelId) {
+        requestChannelId = main.channelId;
+        console.log('[playback] main feed channelId from contentVideo:', requestChannelId);
+      }
+    } catch (_) {}
+  }
   // Try all platforms in parallel so we get one round-trip per stream instead of 6 sequential calls.
   // Prefer DASH/Widevine as primary; HLS stays as fallback for hosts without a working key system.
   const platformOrder = [
@@ -977,7 +1036,7 @@ async function contentPlay(contentId, channelId) {
     F1TV.Platform.TABLET_HLS,
   ];
   const results = await Promise.allSettled(
-    platformOrder.map((p) => client.contentPlay(contentIdNum, channelId, p))
+    platformOrder.map((p) => client.contentPlay(contentIdNum, requestChannelId, p))
   );
   const candidates = [];
   let firstError = null;
@@ -1060,7 +1119,16 @@ async function contentPlay(contentId, channelId) {
 
   if (!licenseUrl && md.licenseUrl) licenseUrl = md.licenseUrl;
 
-  const playToken = urlPlayToken || md.playToken || null;
+  // Manifest GET Set-Cookie is authoritative; pa_ URL token can contain binary bytes.
+  const playToken =
+    sanitizePlayToken(md.playToken)
+    || sanitizePlayToken(urlPlayToken)
+    || null;
+
+  const resolvedChannelId = resolveChannelId(primary, fallback, requestChannelId);
+  if (resolvedChannelId != null && resolvedChannelId !== channelId) {
+    console.log('[playback] channelId resolved:', resolvedChannelId, '(requested:', channelId ?? 'none', ')');
+  }
 
   if (!licenseUrl) {
     // When CONTENT/PLAY does not return laURL/drmToken (pipeline 4+ on many VODs, esp. 2025–2026),
@@ -1069,7 +1137,7 @@ async function contentPlay(contentId, channelId) {
     licenseUrl = getFallbackLicenseUrl(
       client,
       contentIdNum,
-      channelId,
+      resolvedChannelId,
       primary.pipelineVersion,
       primary.platform,
       primary.streamType
@@ -1121,7 +1189,7 @@ async function contentPlay(contentId, channelId) {
     pipelineVersion: primary.pipelineVersion,
     paCfKeyGroup,
     contentId: contentIdNum,
-    channelId: channelId != null && channelId !== undefined && !Number.isNaN(Number(channelId)) ? Number(channelId) : undefined,
+    channelId: resolvedChannelId,
     fallbackManifestUrl: fallback?.url || undefined,
     fallbackLicenseUrl: fallback?.laURL || fallback?.laUrl || '',
     fallbackDrmToken: fallback?.drmToken || undefined,

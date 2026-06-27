@@ -49,6 +49,8 @@ export async function getContentVideoOnboard(contentId: number): Promise<VodOnbo
 export type SessionStreams = {
   onboard: VodOnboard[];
   dataChannel: VodOnboard[];
+  /** World feed channel from additionalStreams (PRES/WIF/default) — required for live DRM. */
+  mainChannel?: VodOnboard;
 };
 
 export async function getContentVideoStreams(contentId: number): Promise<SessionStreams> {
@@ -57,5 +59,6 @@ export async function getContentVideoStreams(contentId: number): Promise<Session
   return {
     onboard: (data?.onboard || []) as VodOnboard[],
     dataChannel: (data?.dataChannel || []) as VodOnboard[],
+    mainChannel: (data?.mainChannel || undefined) as VodOnboard | undefined,
   };
 }

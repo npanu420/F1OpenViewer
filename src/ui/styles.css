@@ -326,3 +326,23 @@ video {
   flex-direction: column;
   min-height: 0;
 }
+
+/* Per-stream fullscreen: container fills the screen, video is taken out of the
+   flex flow and absolutely pinned to fill it (flex-1 sizing otherwise shrinks it). */
+.player-fs:fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: #000 !important;
+  border-radius: 0 !important;
+}
+.player-fs:fullscreen > video {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: contain !important;
+}

@@ -24,6 +24,7 @@
     "@radix-ui/react-switch": "^1.2.5",
     "axios": "^1.13.6",
     "clsx": "^2.1.1",
+    "dotenv": "^16.6.1",
     "framer-motion": "^12.35.2",
     "lucide-react": "^0.462.0",
     "react": "^19.2.4",
@@ -71,5 +72,10 @@
     },
     "afterPack": "scripts/apply-exe-icon.js",
     "afterSign": "scripts/evs-after-sign.js"
+  },
+  "allowScripts": {
+    "github:castlabs/electron-releases#3412c2dfbbaad4136f5b6767e902e3859222d1e8": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.27.3": true
   }
 }

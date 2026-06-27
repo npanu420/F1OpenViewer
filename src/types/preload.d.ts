@@ -32,7 +32,7 @@ export type PreloadApi = {
   getVodSeasons?(): Promise<Array<{ year: number; pageId: number }>>;
   getVodEvents?(seasonPageId: number): Promise<Array<{ meetingKey: string; meetingName: string; meetingNumber: number; pageId: number }>>;
   getVodSessions?(gpPageId: number): Promise<Array<{ contentId: number; title: string; type: string }>>;
-  getContentVideo?(contentId: number): Promise<{ onboard: unknown[]; dataChannel?: unknown[]; container: unknown }>;
+  getContentVideo?(contentId: number): Promise<{ onboard: unknown[]; dataChannel?: unknown[]; mainChannel?: unknown; container: unknown }>;
   contentPlay?(contentId: number, channelId?: number): Promise<{
     manifestUrl: string;
     licenseUrl?: string;

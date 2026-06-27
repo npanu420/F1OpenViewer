@@ -74,6 +74,7 @@ export function PlayerView({ item, accessToken, onBack }: Props) {
               fallbackManifestUrl={playback.fallbackManifestUrl}
               fallbackLicenseUrl={playback.fallbackLicenseUrl}
               fallbackLicenseHeaders={playback.fallbackLicenseHeaders}
+              preferLiveEdge={item.kind === 'live'}
               onError={setError}
               onIntrinsicVideoSize={(w, h) => setVideoIntrinsic({ w, h })}
             />
