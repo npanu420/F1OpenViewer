@@ -56,9 +56,8 @@ Home with Live Event:
 1. **Login / Auth** (Milestone 1) — Done: login UI, session token in memory, network layer.
 2. **Entitlement / Licenses** (Milestone 2) — Entitlement, asset/manifest selection, permissions and expiry.
 3. **DRM playback** (Milestone 3) — End-to-end playback with real licenses.
-**--WE ARE HERE--**
-4. **UI and UX improvements** — New UI and better UX
-5. **Live Timing** — Live Timing support for lives and replays
+4. **UI and UX improvements** — New UI and better UX 
+5. **Live Timing** — Live Timing support for lives and replays **--WE ARE HERE--**
 
 ---
 
