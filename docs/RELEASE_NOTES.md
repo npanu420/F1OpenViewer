@@ -63,6 +63,8 @@ This release improves **fullscreen multiview**, **live streaming**, and **user f
 
 **Note:** On Windows, unsigned or non–commercially signed builds may still trigger a **Microsoft Defender SmartScreen** warning. This is expected; you can use “More info” → “Run anyway” if you trust the source.
 
+**Note (macOS):** Builds without a paid Apple Developer ID / notarization will trigger a **Gatekeeper** “cannot be opened because it is from an unidentified developer” warning on first launch. This is expected; right‑click (or Control‑click) the app → **Open** to bypass it, or run `xattr -d com.apple.quarantine "F1 OpenViewer.app"` in Terminal.
+
 ---
 
 ## v1.1.1
