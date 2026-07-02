@@ -5,6 +5,7 @@
 Official login, entitlement, and DRM (Widevine) playback in an Electron app. Authorized access only — no piracy.
 
 📖 **Setup:** [docs/SETUP.md](docs/SETUP.md) — clone, configure `.env`, run in dev, build and sign.
+
 🔐 **Build & signing:** [docs/BUILD_SIGNING.md](docs/BUILD_SIGNING.md) — code signing, Widevine VMP, certificates.
 
 ## Contents
