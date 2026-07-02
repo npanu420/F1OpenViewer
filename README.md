@@ -30,8 +30,8 @@ Official login, entitlement, and DRM (Widevine) playback in an Electron app. Aut
 
 ### The cool part
 
-- **Everything stays in sync, automatically** — In multiview, the main feed, onboards, and data channel are continuously locked to each other: the sync engine anchors on the race/world feed and keeps correcting the rest (seek if the drift is large, subtle playback-rate nudges if it's small), so onboards never quietly drift ahead or behind the race. If the world feed rebuffers, everything else pauses and waits for it instead of running away.
-- **Live Timing synced to the video, not just running alongside it** — Standings, gaps, sector times, tyre stints, race control messages and team radio line up automatically with whatever moment you're watching in the replay, no manual alignment needed for most sessions.
+- **Everything stays in sync, automatically** — In multiview, the main feed, onboards, and data channel are continuously locked to each other: the sync engine anchors on the race/world feed and keeps correcting the rest (seek if the drift is large, subtle playback-rate nudges if it's small), so onboards never quietly drift ahead or behind the race. If the world feed rebuffers, everything else automatically syncs instead of running away.
+- **Live Timing synced to the video, not just running alongside it** — Standings, gaps, sector times, tyre stints, race control messages and team radio line up automatically with whatever moment you're watching in the replay, no manual alignment needed.
 - **Resizable, savable multiview layouts** — Drag and resize the stream grid, save layouts you like, and reuse them; pop the whole multiview out into its own fullscreen window.
 - **Live-edge playback** — Live sessions track the live edge instead of drifting behind like a plain HTML5 video.
 
