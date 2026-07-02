@@ -1,5 +1,22 @@
 # Release Notes – F1 OpenViewer
 
+## v1.2.0
+
+This release adds **Live Timing**: a synced timing screen for replays, plus a round of UI fixes and polish across the app.
+
+### Live Timing
+
+- **New feature**: a standalone Live Timing window with driver standings, gaps, sector times, tyre stints (with pit stop history on hover), race control messages and team radio, replayed alongside a session in sync with the video. Open it from the "Live Timing" button on a Grand Prix or live event page.
+- **Auto-sync**: timing lines up with the video automatically, no manual alignment needed for most sessions. A small sync menu is still available (align to the lap shown on screen, or nudge by seconds) for sessions where auto-sync isn't available.
+- **No extra login**: Live Timing reads from F1's public timing archive, separate from F1 TV, so it works without your F1 TV account. Only the video side of the app still needs one.
+- **Team radio playback**: radio clips now actually play (previously stuck at 0:00 for some setups) and use a custom slim player instead of the browser's default audio controls.
+- **Race control colors**: flag messages (blue, yellow, clear, etc.) are now color-coded instead of showing everything in the same color.
+- **Layout**: race control and team radio are now two independently scrollable panels instead of one shared list, so a long race control feed no longer pushes team radio out of view.
+- Fixed a short UI freeze when opening the Live Timing window: it now opens instantly and loads its data in the background.
+- Fixed the app icon showing as the generic Electron icon on the Multiview and Live Timing windows.
+
+---
+
 ## v1.1.4
 
 This release fixes **DRM playback for newer F1 TV pipelines** (e.g. **2026 VOD**), where the API no longer returns a license URL in `CONTENT/PLAY` and the DASH manifest does not embed an LA endpoint.

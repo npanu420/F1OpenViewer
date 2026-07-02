@@ -8,6 +8,8 @@ import { ShakaVideo, type ShakaVideoHandle } from '../widgets/ShakaVideo';
 
 export type StreamPanelHandle = {
   getVideoElement: () => HTMLVideoElement | null;
+  /** Wall-clock UTC (ms) of the current frame (DASH only), for live-timing auto-sync. */
+  getWallClockMs: () => number | null;
 };
 
 interface StreamPanelProps {
@@ -68,6 +70,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
 
     useImperativeHandle(ref, () => ({
       getVideoElement: () => shakaRef.current?.getVideoElement() ?? null,
+      getWallClockMs: () => shakaRef.current?.getWallClockMs() ?? null,
     }));
 
     // External audio focus: parent tells us "another panel has focus" → mute ourselves.

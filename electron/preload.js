@@ -33,5 +33,20 @@ contextBridge.exposeInMainWorld('f1', {
     return () => ipcRenderer.removeListener('multiview:windowsChanged', handler);
   },
   closeMultiviewWindow: () => ipcRenderer.invoke('multiview:closeWindow'),
+  liveTiming: {
+    resolveSession: (year, query) => ipcRenderer.invoke('livetiming:resolveSession', year, query),
+    loadSession: (path, feeds) => ipcRenderer.invoke('livetiming:loadSession', path, feeds),
+    getSyncData: (meetingKey, sessionKey) => ipcRenderer.invoke('livetiming:getSyncData', meetingKey, sessionKey),
+    getAudio: (sessionPath, clipPath) => ipcRenderer.invoke('livetiming:getAudio', sessionPath, clipPath),
+    openWindow: (opts) => ipcRenderer.invoke('livetiming:openWindow', opts),
+    /** Source window: publish the main-feed video clock for live-timing sync. */
+    reportClock: (payload) => ipcRenderer.send('livetiming:reportClock', payload),
+    /** Timing window: subscribe to the relayed video clock. Returns an unsubscribe fn. */
+    onClock: (callback) => {
+      const handler = (_event, payload) => { try { callback(payload); } catch (_) {} };
+      ipcRenderer.on('livetiming:clock', handler);
+      return () => ipcRenderer.removeListener('livetiming:clock', handler);
+    },
+  },
 });
 

@@ -68,6 +68,24 @@ export type PreloadApi = {
   /** Notifica quando si apre/chiude una finestra multiview. */
   onMultiviewWindowsChanged?(callback: (payload: { ids: number[]; count: number }) => void): () => void;
   closeMultiviewWindow?(): Promise<void>;
+  /** Live Timing (separate public feed; no DRM). */
+  liveTiming?: {
+    /** Resolve a season+session query to its archive path. */
+    resolveSession(year: number, query: { sessionKey?: string | number; meetingKey?: string | number; meetingNumber?: number; meetingName?: string; sessionName?: string; sessionType?: string }): Promise<{ path: string; meeting: { Key?: string | number; Name?: string } | null; session: { Key?: string | number; Name?: string } | null } | null>;
+    /** Fetch + parse all (or given) feeds for an archived session. */
+    loadSession(path: string, feeds?: string[]): Promise<Record<string, Array<{ offsetMs: number; ts: string; data: unknown }>>>;
+    /** Curated video-to-timing anchor for this session (session_start, seconds) plus per-channel camera diffs. */
+    getSyncData(meetingKey: string | number, sessionKey: string | number): Promise<{ sessionStartSec: number; channelDiffs: Record<string, { diff: number; diffV2: number }>; contentId: string | null } | null>;
+    /** Fetch a team radio clip's audio bytes (base64). The renderer's network stack can't reach the CDN directly. */
+    getAudio(sessionPath: string, clipPath: string): Promise<string>;
+    /** Open a standalone live-timing window; it resolves the path + sync itself so the click is instant. */
+    openWindow(opts: { path?: string; title?: string; year?: number; sessionKey?: string | number; meetingKey?: string | number; meetingNumber?: number; meetingName?: string; sessionName?: string; sessionType?: string }): Promise<{ ok: boolean }>;
+    /** Source window: publish the main-feed video clock for live-timing sync. wallClockMs is the
+     *  frame's real broadcast UTC (DASH only) enabling exact auto-sync; null falls back to manual. */
+    reportClock(payload: { timeSec: number; paused: boolean; wallClockMs: number | null }): void;
+    /** Timing window: subscribe to the relayed video clock. Returns an unsubscribe fn. */
+    onClock(callback: (payload: { timeSec: number; paused: boolean; wallClockMs: number | null }) => void): () => void;
+  };
 };
 
 declare global {

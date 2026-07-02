@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import { StandaloneMultiviewView } from './views/StandaloneMultiviewView';
+import { LiveTimingView } from './views/LiveTimingView';
 import { PlayerView } from './views/PlayerView';
 import { LiveEventView } from './views/LiveEventView';
 import type { CatalogItem } from '../domain/catalog';
@@ -110,6 +111,9 @@ export function App() {
         if (Number.isFinite(n) && n > 0) multiviewInstanceId = n;
       }
       return <StandaloneMultiviewView multiviewInstanceId={multiviewInstanceId} />;
+    }
+    if (raw === 'standalone-livetiming' || raw.startsWith('standalone-livetiming?')) {
+      return <LiveTimingView />;
     }
   }
 

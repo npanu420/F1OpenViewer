@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, BarChart3 } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodEvent, VodSession, VodOnboard } from '../../domain/vod';
 import {
@@ -416,6 +416,31 @@ export function DashboardView({
                   </div>
 
                   {sessionForViewer && (
+                    <>
+                    <div className="flex justify-end mb-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.f1?.liveTiming
+                            ?.openWindow({
+                              year: selectedYear,
+                              meetingName: selectedEvent.meetingName,
+                              meetingNumber: selectedEvent.meetingNumber,
+                              sessionName: sessionForViewer.title,
+                              sessionType: sessionForViewer.type,
+                              title: `${selectedEvent.meetingName} — ${sessionForViewer.title}`,
+                            })
+                            .catch((e) =>
+                              onEmbedError?.(e?.message || 'Live timing unavailable for this session.')
+                            )
+                        }
+                        className="flex items-center gap-2 text-sm font-heading tracking-wider px-3 py-1.5 rounded-md border border-border hover:bg-accent transition-colors"
+                        title="Open Live Timing window"
+                      >
+                        <BarChart3 className="w-4 h-4 text-emerald-400" />
+                        Live Timing
+                      </button>
+                    </div>
                     <MultiViewer
                       session={sessionForViewer}
                       streams={
@@ -444,6 +469,7 @@ export function DashboardView({
                         });
                       }}
                     />
+                    </>
                   )}
                 </>
               ) : (

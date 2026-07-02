@@ -6,6 +6,12 @@ import { VideoControls } from './VideoControls';
 export type ShakaVideoHandle = {
   /** Returns the underlying HTMLVideoElement (or null) */
   getVideoElement: () => HTMLVideoElement | null;
+  /**
+   * Wall-clock UTC (ms) of the current frame, from the DASH presentation timeline. F1's DASH
+   * replays are anchored to real broadcast time, so this lets live timing auto-sync. Returns null
+   * for HLS / streams without a real wall clock (those report epoch-zero garbage).
+   */
+  getWallClockMs: () => number | null;
 };
 
 type Props = {
@@ -199,6 +205,19 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
 
   useImperativeHandle(ref, () => ({
     getVideoElement: () => videoRef.current,
+    getWallClockMs: () => {
+      const p: any = playerRef.current;
+      if (!p || typeof p.getPlayheadTimeAsDate !== 'function') return null;
+      try {
+        const d = p.getPlayheadTimeAsDate();
+        // Only DASH replays carry a real wall clock; HLS reports 1970-epoch garbage.
+        if (d instanceof Date) {
+          const ms = d.getTime();
+          if (Number.isFinite(ms) && ms > 9.46e11) return ms; // after year 2000
+        }
+      } catch (_) {}
+      return null;
+    },
   }));
 
   useEffect(() => {

@@ -14,6 +14,17 @@ For **build and signing** (code signing, Widevine VMP, certificates): [docs/BUIL
 - **Authorized access** — Sign in with your F1 TV account (email/password, token, or in-app browser login).
 - **DRM playback** — Stream protected content via Widevine CDM in a compliant way.
 - **No unauthorized content** — No keys, bypasses, or stream sharing.
+- **Live Timing** — A separate timing screen (driver positions, sectors, tyres, race control, team radio) that plays back alongside a replay, synced automatically to the video.
+
+---
+
+## Live Timing
+
+Live Timing opens in its own window next to a session replay and shows the same kind of data you'd see on the official timing screen: standings, gaps, sector times, tyre stints, race control messages and team radio clips.
+
+It runs on a public F1 archive that has nothing to do with F1 TV or DRM, so it doesn't need you to be logged in at all. The only login in this app is still the one for video playback.
+
+Lining the timing feed up with the video used to be the hard part, since the archive and the video don't share a clock. The app now fetches the correct offset from a small public sync endpoint the first time you open a session, so timing and video line up automatically without any manual alignment. If that lookup ever fails or a session isn't covered, you can still align it by hand from the sync menu (pick the lap shown on screen, or nudge the offset in small steps).
 
 ---
 
@@ -56,9 +67,9 @@ Home with Live Event:
 1. **Login / Auth** (Milestone 1) — Done: login UI, session token in memory, network layer.
 2. **Entitlement / Licenses** (Milestone 2) — Entitlement, asset/manifest selection, permissions and expiry.
 3. **DRM playback** (Milestone 3) — End-to-end playback with real licenses.
-**--WE ARE HERE--**
 4. **UI and UX improvements** — New UI and better UX
-5. **Live Timing** — Live Timing support for lives and replays
+5. **Live Timing** — Live Timing support for replays, synced automatically to the video
+**--WE ARE HERE--**
 
 ---
 

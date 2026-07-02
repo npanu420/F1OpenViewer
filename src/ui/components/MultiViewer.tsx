@@ -406,6 +406,53 @@ export function MultiViewer({
   const [audioFocusedItemId, setAudioFocusedItemId] = useState<string | null>(null);
   const panelRefsByItemId = useRef<Map<string, StreamPanelHandle>>(new Map());
 
+  // Publish the main-feed video clock to any live-timing window (cross-window sync master).
+  // Read latest state via a ref mirror so the interval stays stable across renders.
+  const clockSrcRef = useRef({ mainId: '', slotToItemId: {} as Record<string, string>, embeddedPlayback, audioFocusedItemId: null as string | null });
+  clockSrcRef.current = { mainId: mainItem.id, slotToItemId, embeddedPlayback, audioFocusedItemId };
+  useEffect(() => {
+    const lt = window.f1?.liveTiming;
+    const id = window.setInterval(() => {
+      const { mainId, slotToItemId: s2i, embeddedPlayback: emb, audioFocusedItemId: audioId } = clockSrcRef.current;
+      if (!mainId || !emb[mainId]) return;                       // main feed not playing
+      if (!Object.values(s2i).includes(mainId)) return;          // not mapped to a slot
+      const panel = panelRefsByItemId.current.get(mainId);
+      const v = panel?.getVideoElement?.();
+      if (!v || !Number.isFinite(v.currentTime)) return;
+
+      // 1) Send the master clock to the live-timing window. DASH replays carry a real broadcast
+      //    wall clock (exact auto-sync); HLS sends null and the window falls back to the endpoint's
+      //    session_start instead.
+      if (lt?.reportClock) {
+        const wallClockMs = panel?.getWallClockMs?.() ?? null;
+        lt.reportClock({ timeSec: v.currentTime, paused: v.paused, wallClockMs });
+      }
+
+      // 2) Keep every other panel locked to the main feed, which keeps them transitively synced to
+      //    the timing too. Big gap (after load/seek/stall) gets a hard seek. Small steady drift eases
+      //    back via playbackRate instead so there's no visible jump, but we never rate-trim the
+      //    audio-focused panel since that causes pitch wobble.
+      for (const itemId of new Set(Object.values(s2i))) {
+        if (!itemId || itemId === mainId || !emb[itemId]) continue;
+        const v2 = panelRefsByItemId.current.get(itemId)?.getVideoElement?.();
+        if (!v2) continue;
+        if (v.paused !== v2.paused) { try { v.paused ? v2.pause() : v2.play(); } catch (_) {} }
+        if (v.paused || v2.seeking || v2.readyState < 2 || !Number.isFinite(v2.currentTime)) continue;
+        const drift = v2.currentTime - v.currentTime;
+        const ad = Math.abs(drift);
+        if (ad > 0.5) {
+          try { v2.currentTime = v.currentTime; } catch (_) {}
+          if (v2.playbackRate !== 1) v2.playbackRate = 1;
+        } else if (ad > 0.1 && itemId !== audioId) {
+          v2.playbackRate = drift > 0 ? 0.95 : 1.05; // converges in a few seconds
+        } else if (v2.playbackRate !== 1) {
+          v2.playbackRate = 1;
+        }
+      }
+    }, 250);
+    return () => window.clearInterval(id);
+  }, []);
+
   const handleAudioFocus = useCallback((itemId: string) => {
     setAudioFocusedItemId(itemId);
   }, []);

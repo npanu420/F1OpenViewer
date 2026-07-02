@@ -10,8 +10,18 @@ const { app, BrowserWindow, ipcMain, session, Menu } = electron;
 const components = electron.components;
 const axios = require('axios');
 const f1tv = require('./f1tv-bridge');
+const livetiming = require('./livetiming');
 
 const memSession = { accessToken: undefined };
+
+/** Resolve the app icon path once (icon.ico preferred on Windows, falls back to icon.png). */
+function getAppIcon() {
+  const ico = path.join(__dirname, 'icon.ico');
+  const png = path.join(__dirname, 'icon.png');
+  if (fs.existsSync(ico)) return ico;
+  if (fs.existsSync(png)) return png;
+  return undefined;
+}
 
 const LICENSE_PROXY_PORT_MIN = 18765;
 const LICENSE_PROXY_PORT_MAX = 18775;
@@ -994,13 +1004,11 @@ function openLoginWindow() {
 }
 
 function createWindow() {
-  const iconPath = path.join(__dirname, 'icon.png');
-  const iconPathIco = path.join(__dirname, 'icon.ico');
   const win = new BrowserWindow({
     width: 1200,
     height: 820,
     backgroundColor: '#0b0f14',
-    icon: fs.existsSync(iconPathIco) ? iconPathIco : (fs.existsSync(iconPath) ? iconPath : undefined),
+    icon: getAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1073,6 +1081,14 @@ function getMainAppUrl() {
 const multiviewWindows = new Map();
 let multiviewInstanceSeq = 0;
 
+/** Live-timing windows currently open, so we can relay the video master clock to all of them. */
+const liveTimingWindows = new Set();
+function broadcastLiveTimingClock(payload) {
+  for (const w of liveTimingWindows) {
+    if (!w.isDestroyed()) w.webContents.send('livetiming:clock', payload);
+  }
+}
+
 function broadcastMultiviewWindows() {
   const ids = Array.from(multiviewWindows.keys()).sort((a, b) => a - b);
   const payload = { ids, count: ids.length };
@@ -1098,6 +1114,7 @@ function createMultiviewWindow() {
     height: 900,
     backgroundColor: '#0b0f14',
     title: `F1 OpenViewer — Multiview #${id}`,
+    icon: getAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1116,6 +1133,54 @@ function createMultiviewWindow() {
   win.loadURL(multiviewUrl).catch((e) => console.warn('[multiview] load failed:', e?.message));
   broadcastMultiviewWindows();
   return { win, id };
+}
+
+/** Opens a standalone Live Timing window for an archived session Path. */
+function createLiveTimingWindow(opts = {}) {
+  const baseUrl = getMainAppUrl();
+  const title = opts.title;
+  const params = new URLSearchParams();
+  if (opts.path) {
+    params.set('path', String(opts.path));
+  } else {
+    // No resolved path yet, so just pass the raw query and let the window resolve it and fetch
+    // sync itself. That way the click stays instant, no network to await before the window shows up,
+    // and the window already has its own loading spinner to cover the wait.
+    if (opts.year != null) params.set('year', String(opts.year));
+    if (opts.meetingName) params.set('meetingName', String(opts.meetingName));
+    if (opts.meetingNumber != null) params.set('meetingNumber', String(opts.meetingNumber));
+    if (opts.sessionName) params.set('sessionName', String(opts.sessionName));
+    if (opts.sessionType) params.set('sessionType', String(opts.sessionType));
+    if (opts.sessionKey != null) params.set('sessionKey', String(opts.sessionKey));
+  }
+  if (title) params.set('title', String(title));
+  const fragment = `standalone-livetiming?${params.toString()}`;
+  const url = baseUrl.includes('#')
+    ? baseUrl.replace(/#.*$/, '') + '#' + fragment
+    : baseUrl + '#' + fragment;
+
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 860,
+    backgroundColor: '#0b0f14',
+    title: `F1 OpenViewer — Live Timing${title ? ' — ' + title : ''}`,
+    icon: getAppIcon(),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  liveTimingWindows.add(win);
+  win.on('closed', () => liveTimingWindows.delete(win));
+  win.loadURL(url).catch((e) => console.warn('[livetiming] window load failed:', e?.message));
+  win.webContents.on('before-input-event', (_evt, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') {
+      win.webContents.isDevToolsOpened() ? win.webContents.closeDevTools() : win.webContents.openDevTools({ mode: 'detach' });
+    }
+  });
+  return win;
 }
 
 function setupCorsRelaxForDev() {
@@ -1365,6 +1430,32 @@ function setupIpc() {
     const hh = Number(h);
     if (!Number.isFinite(ww) || !Number.isFinite(hh) || ww <= 0 || hh <= 0) return;
     win.setAspectRatio(ww / hh);
+  });
+
+  // ----- Live Timing (separate public feed; no DRM) -----
+  ipcMain.handle('livetiming:resolveSession', async (_evt, year, query) =>
+    livetiming.resolveSessionPath(year, query)
+  );
+  ipcMain.handle('livetiming:loadSession', async (_evt, sessionPath, feeds) =>
+    livetiming.loadSession(sessionPath, feeds)
+  );
+  // Relays the main feed's video clock to every open live-timing window so they can sync to it.
+  ipcMain.on('livetiming:reportClock', (_evt, payload) => broadcastLiveTimingClock(payload));
+  ipcMain.handle('livetiming:getSyncData', async (_evt, meetingKey, sessionKey) =>
+    livetiming.fetchSyncData(meetingKey, sessionKey)
+  );
+  // Team radio mp3s hit the same VPN split-tunnel wall as the archive feeds, so this proxies
+  // through curl too instead of letting the renderer's <audio> tag hit the CDN directly, which
+  // would just sit there unable to reach it.
+  ipcMain.handle('livetiming:getAudio', async (_evt, sessionPath, clipPath) =>
+    livetiming.fetchTeamRadioClip(sessionPath, clipPath)
+  );
+  ipcMain.handle('livetiming:openWindow', async (_evt, opts = {}) => {
+    // Opens right away and lets the window resolve the path and fetch its own sync data, so the
+    // click never waits on a network round trip and never freezes the UI. Any failure just shows
+    // up in that window's own loading state.
+    createLiveTimingWindow(opts);
+    return { ok: true };
   });
 
   ipcMain.handle('multiview:openWindow', () => {
