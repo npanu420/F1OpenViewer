@@ -47,7 +47,7 @@ It runs on a public F1 archive that has nothing to do with F1 TV or DRM, so it d
 
 **VPN note (Windows):** Live Timing isn't georestricted, but its host blocks many VPN exit IPs at the WAF level. On Windows, the app fetches the archive via the system `curl.exe` instead of in-process, specifically so that a full-tunnel VPN (e.g. NordVPN) can split-tunnel by excluding just `curl.exe` — Live Timing then leaves on your real IP while everything else stays on the VPN. If your VPN client only supports app-based split-tunneling, add an exclusion rule for `C:\Windows\System32\curl.exe`.
 
-Lining the timing feed up with the video used to be the hard part, since the archive and the video don't share a clock. The app now fetches the correct offset from a small public sync endpoint the first time you open a session, so timing and video line up automatically without any manual alignment. If that lookup ever fails or a session isn't covered, you can still align it by hand from the sync menu (pick the lap shown on screen, or nudge the offset in small steps).
+Manual alignment used to be difficult because the archive and video clocks weren't synchronized. Now, the app automatically fetches the correct offset  when you start a session. If this lookup fails or a session is unsupported, you can still align them manually via the sync menu by selecting the lap shown on screen or nudging the offset.
 
 ---
 
