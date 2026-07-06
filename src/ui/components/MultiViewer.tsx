@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, RefreshCw, Maximize2, Minimize2, Type, Save, Trash2, MoreHorizontal, X } from 'lucide-react';
+import { Play, RefreshCw, Maximize2, Minimize2, Type, Save, Trash2, MoreHorizontal, X, Plus } from 'lucide-react';
 import type { Layout } from 'react-grid-layout';
 import { useLocale } from '../../i18n/LocaleContext';
 
@@ -62,9 +62,11 @@ function loadSavedGrids(): SavedGrid[] {
 }
 
 function saveSavedGrids(grids: SavedGrid[]) {
+  const raw = JSON.stringify(grids);
   try {
-    localStorage.setItem(SAVED_GRIDS_KEY, JSON.stringify(grids));
+    localStorage.setItem(SAVED_GRIDS_KEY, raw);
   } catch (_) {}
+  window.f1?.setSetting?.(SAVED_GRIDS_KEY, raw);
 }
 
 /** Builds semantic slot assignments for the template from slotToItemId + streamOptions. */
@@ -524,6 +526,32 @@ export function MultiViewer({
     startSync(entries);
   }
 
+  // Auto-sync whenever a genuinely new stream starts playing, not on every embeddedPlayback
+  // change (reload/seek replace the same key and shouldn't retrigger this). Debounced so
+  // "Play All" (many streams starting within milliseconds of each other) collapses into a
+  // single sync pass instead of one per stream.
+  const prevPlayingIdsRef = useRef<Set<string>>(new Set());
+  const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const curIds = new Set(Object.keys(embeddedPlayback));
+    const prevIds = prevPlayingIdsRef.current;
+    let hasNewStart = false;
+    for (const id of curIds) {
+      if (!prevIds.has(id)) { hasNewStart = true; break; }
+    }
+    prevPlayingIdsRef.current = curIds;
+    if (!hasNewStart || curIds.size < 2) return;
+
+    if (autoSyncTimerRef.current != null) clearTimeout(autoSyncTimerRef.current);
+    autoSyncTimerRef.current = setTimeout(() => {
+      autoSyncTimerRef.current = null;
+      handleSync();
+    }, 500);
+  }, [embeddedPlayback]);
+  useEffect(() => () => {
+    if (autoSyncTimerRef.current != null) clearTimeout(autoSyncTimerRef.current);
+  }, []);
+
   const handleAddSlot = useCallback(() => {
     const { w, h } = getDefaultNewSlotGridSize();
     setLayout((prev) => {
@@ -582,7 +610,7 @@ export function MultiViewer({
     });
   }, []);
 
-  const [hideTitlesInFullscreen, setHideTitlesInFullscreen] = useState(false);
+  const [hideSlotTitles, setHideSlotTitles] = useState(false);
   const [showPlayAllLoadingHint, setShowPlayAllLoadingHint] = useState(false);
   const [fullscreenToolbarOpen, setFullscreenToolbarOpen] = useState(false);
   const fullscreenToolbarRef = useRef<HTMLDivElement>(null);
@@ -712,6 +740,16 @@ export function MultiViewer({
                   {syncStatus === 'syncing' ? t('sync.inProgress') : t('sync.button')}
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => setHideSlotTitles((v) => !v)}
+                title={hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
+                className={`flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border transition-colors shrink-0 ${hideSlotTitles ? 'bg-primary/20 border-primary text-primary' : 'border-border bg-accent/30 hover:bg-accent/50'}`}
+              >
+                <Type className="w-4 h-4 shrink-0" />
+                {hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
+              </button>
 
               {(canOpenMultiviewWindow || onEnterFullscreen != null) && (
                 <button
@@ -860,13 +898,24 @@ export function MultiViewer({
                     )}
                     <button
                       type="button"
-                      onClick={() => setHideTitlesInFullscreen((v) => !v)}
-                      title={hideTitlesInFullscreen ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
-                      className={`flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border transition-colors ${hideTitlesInFullscreen ? 'bg-primary/20 border-primary text-primary' : 'border-border bg-accent/40 hover:bg-accent/60'}`}
+                      onClick={() => setHideSlotTitles((v) => !v)}
+                      title={hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
+                      className={`flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border transition-colors ${hideSlotTitles ? 'bg-primary/20 border-primary text-primary' : 'border-border bg-accent/40 hover:bg-accent/60'}`}
                     >
                       <Type className="w-3.5 h-3.5 shrink-0" />
-                      {hideTitlesInFullscreen ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
+                      {hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
                     </button>
+                    {streamOptions.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleAddSlot}
+                        title={t('dashboard.gridAddSlot')}
+                        className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border border-border bg-accent/40 hover:bg-accent/60 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5 shrink-0" />
+                        {t('dashboard.gridAddSlot')}
+                      </button>
+                    )}
                     {showSyncButton && (
                       <button
                         type="button"
@@ -940,7 +989,7 @@ export function MultiViewer({
               onRegisterPanelRef={handleRegisterPanelRef}
               onAddSlot={handleAddSlot}
               canAddSlot={!isFullscreen}
-              hideSlotHeadersUntilHover={isFullscreen && hideTitlesInFullscreen}
+              hideSlotHeadersUntilHover={hideSlotTitles}
               fillHeight={isFullscreen}
               onSetSlotSize={handleSetSlotSize}
               onReloadStream={

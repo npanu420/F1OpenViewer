@@ -16,9 +16,14 @@
 
 ### Video Players
 
+- ~~No seek slider on live streams in the custom player (cannot rewind into the DVR window)~~ **Fixed**: the live progress bar in `VideoControls.tsx` is now a seekable DVR scrubber (click to seek back; clicking near the end snaps back to the live edge via `goToLive`). A "-mm:ss" behind-live indicator is shown when not at the edge.
 - When a race player is open, the stream lists could show sessions/races from other years **Working on it**: (1) LiveSection shows only catalog items for the selected year (live always; replay filtered by `season === selectedYear`). (2) Session cache is trimmed to the current event when switching race weekend, so only that weekend’s sessions are shown in the horizontal tabs. Doesn't seem to work though.
 - ~~Horizontal scroll (season/session tabs) not scrollable~~ **Fixed**: scroll containers now use `min-w-0` so flex children can shrink and overflow-x-auto works (Header, SessionTabs, DashboardView wrapper).
 - ~~CloudFront 403 "Request blocked" / "too much traffic" when opening many streams (Play all)~~ **Mitigated**: 450 ms delay between successive `contentPlay` requests to reduce rate limiting (see `electron/main.js`).
+
+### Login / Session
+
+- ~~Login session expires too soon; users forced to sign in again~~ **Fixed (silent refresh)**: the app now (1) checks the JWT `exp` of the persisted subscription token before using it, (2) when the token is expired or rejected it silently recovers a fresh token from the persisted F1 cookies, first from the `login-session` cookie, then via a hidden window on account.formula1.com that makes F1 re-issue the cookie, (3) proactively renews the token every 30 min while the app runs if it expires within 6 h, and (4) re-persists token + cookies (rolling 30-day persistence) after every successful refresh. Silent refresh is wired into startup restore, `f1:restoreSession`, `refreshSessionBeforePlayback` and the license-proxy 403 retry (see `electron/main.js`). Manual re-login is only needed when the persisted cookies themselves are gone or expired.
 
 ## **Moderate**
 

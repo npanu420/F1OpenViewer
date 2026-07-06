@@ -195,6 +195,9 @@ export function ResizableStreamGrid({
   /** slotId → videoWidth/videoHeight ratio when the slot is playing */
   const [slotStreamAspectRatio, setSlotStreamAspectRatio] = useState<Record<string, number>>({});
   const prevSlotToItemId = useRef<Record<string, string>>({});
+  /** slotIds already auto-fitted to their stream's aspect since the current stream was picked;
+   *  reset when the slot's stream changes so a newly picked stream gets its own auto-fit. */
+  const autoFittedSlots = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const el = containerRef.current;
@@ -217,6 +220,9 @@ export function ResizableStreamGrid({
     }
     prevSlotToItemId.current = { ...cur };
     if (!needsClear) return;
+    for (const sid of slotIds) {
+      if (prev[sid] !== cur[sid]) autoFittedSlots.current.delete(sid);
+    }
     setSlotStreamAspectRatio((ratios) => {
       const next = { ...ratios };
       for (const sid of slotIds) {
@@ -232,6 +238,28 @@ export function ResizableStreamGrid({
     disableCompact && containerWidth > 0
       ? Math.max(20, (containerWidth / 12) * 0.65)
       : DEFAULT_ROW_HEIGHT;
+
+  // DEFAULT_LAYOUT's h values are plain w:h ratios and don't account for the slot header's
+  // pixel height, so the pristine default is never actually 16:9 once that chrome is subtracted
+  // (hence bars on first load, before any stream reports its real aspect). Fix it once, at the
+  // real container width, the same way manual resize already snaps to a stream's aspect.
+  const defaultLayoutFixed = useRef(false);
+  useEffect(() => {
+    if (defaultLayoutFixed.current || containerWidth <= 0) return;
+    defaultLayoutFixed.current = true;
+    const isPristineDefault =
+      layout.length === DEFAULT_LAYOUT.length &&
+      layout.every((li, idx) => {
+        const d = DEFAULT_LAYOUT[idx];
+        return d && li.i === d.i && li.x === d.x && li.y === d.y && li.w === d.w && li.h === d.h;
+      });
+    if (!isPristineDefault) return;
+    const fitted = layout.map((li) =>
+      snapLayoutItemToStreamAspect(li, li, 16 / 9, containerWidth, rowHeight, chromeTopPx, COLS)
+    );
+    const changed = fitted.some((li, idx) => li.w !== layout[idx].w || li.h !== layout[idx].h);
+    if (changed) onLayoutChange(fitted);
+  }, [containerWidth, rowHeight, chromeTopPx, layout, onLayoutChange]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, slotId: string) => {
@@ -395,8 +423,20 @@ export function ResizableStreamGrid({
                     onAudioFocus={onAudioFocus}
                     initialSeekSeconds={initialSeekSecondsByItemId?.[option.item.id]}
                     onVideoIntrinsicSize={(vw, vh) => {
-                      if (vw > 0 && vh > 0) {
-                        setSlotStreamAspectRatio((prev) => ({ ...prev, [slotId]: vw / vh }));
+                      if (vw <= 0 || vh <= 0) return;
+                      const ar = vw / vh;
+                      setSlotStreamAspectRatio((prev) => ({ ...prev, [slotId]: ar }));
+                      // First real aspect for this stream: snap the slot's default/leftover size
+                      // to match (keeps width, fits height) so it doesn't start out letterboxed.
+                      if (!autoFittedSlots.current.has(slotId) && containerWidth > 0) {
+                        autoFittedSlots.current.add(slotId);
+                        const li = layout.find((l) => l.i === slotId);
+                        if (li) {
+                          const snapped = snapLayoutItemToStreamAspect(li, li, ar, containerWidth, rowHeight, chromeTopPx, COLS);
+                          if (snapped.w !== li.w || snapped.h !== li.h) {
+                            onLayoutChange(layout.map((l) => (l.i === slotId ? snapped : l)));
+                          }
+                        }
                       }
                     }}
                   />

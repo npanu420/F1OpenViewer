@@ -49,6 +49,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [liveFill, setLiveFill] = useState(1); // 0..1 position within the DVR window
+  const [behindLive, setBehindLive] = useState(0); // seconds behind the live edge
   const [isFs, setIsFs] = useState(false);
   const [visible, setVisible] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -84,6 +85,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
       const end = range ? range.end : (v.seekable.length ? v.seekable.end(v.seekable.length - 1) : v.currentTime);
       const start = range ? range.start : (v.seekable.length ? v.seekable.start(0) : 0);
       setAtEdge(end - v.currentTime <= LIVE_EDGE_THRESHOLD);
+      setBehindLive(Math.max(0, end - v.currentTime));
       const span = end - start;
       setLiveFill(span > 0 ? Math.min(1, Math.max(0, (v.currentTime - start) / span)) : 1);
     } else {
@@ -220,6 +222,36 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
     const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     v.currentTime = ratio * duration;
   };
+  /** Seek within the live DVR window (read fresh from the player, state may lag). */
+  const seekLive = (e: React.MouseEvent<HTMLDivElement>) => {
+    const v = getVideo();
+    const p = getPlayer();
+    if (!v) return;
+    let start = 0;
+    let end = 0;
+    try {
+      const r = p && typeof p.seekRange === 'function' ? p.seekRange() : null;
+      if (r && Number.isFinite(r.end) && r.end > r.start) {
+        start = r.start;
+        end = r.end;
+      } else if (v.seekable.length) {
+        start = v.seekable.start(0);
+        end = v.seekable.end(v.seekable.length - 1);
+      }
+    } catch (_) {}
+    const span = end - start;
+    if (span <= 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const target = start + ratio * span;
+    // Snap to the live edge when clicking near the end so playback re-attaches to live.
+    if (end - target <= LIVE_EDGE_THRESHOLD) {
+      goLive();
+      return;
+    }
+    v.currentTime = target;
+    sync();
+  };
   const toggleFs = () => {
     const c = getContainer();
     if (!c) return;
@@ -239,7 +271,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
   return (
     <div
       className="absolute inset-x-0 bottom-0 z-10 transition-opacity duration-200"
-      style={{ opacity: visible ? 1 : 0, pointerEvents: visible ? 'auto' : 'none' }}
+      style={{ opacity: visible ? 1 : 0, pointerEvents: visible ? 'auto' : 'none', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
       <div className="bg-gradient-to-t from-black/85 via-black/50 to-transparent px-3 pt-6 pb-2">
         <div className="flex items-center gap-3">
@@ -269,13 +301,24 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
                 />
                 Live
               </button>
-              {/* Full bar: filled red shows position within the DVR window; not seekable. */}
-              <div className="flex-1 h-1 rounded-full bg-white/20 overflow-hidden">
+              {/* DVR scrubber: click to seek back within the live window; clicking near the end snaps to live. */}
+              <div
+                className="flex-1 h-1.5 rounded-full bg-white/20 cursor-pointer group"
+                onClick={seekLive}
+                title="Seek within the live window"
+              >
                 <div
-                  className="h-full bg-red-600 rounded-full transition-[width] duration-500"
+                  className="h-full bg-red-600 rounded-full relative transition-[width] duration-500"
                   style={{ width: `${(atEdge ? 1 : liveFill) * 100}%` }}
-                />
+                >
+                  <span className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
               </div>
+              {!atEdge && (
+                <span className="shrink-0 text-[11px] tabular-nums text-white/80" title="Behind live">
+                  -{fmt(behindLive)}
+                </span>
+              )}
             </>
           ) : (
             <>

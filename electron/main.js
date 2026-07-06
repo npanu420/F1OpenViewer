@@ -6,13 +6,50 @@ try {
 const http = require('http');
 const os = require('os');
 const electron = require('electron');
-const { app, BrowserWindow, ipcMain, session, Menu } = electron;
+const { app, BrowserWindow, ipcMain, session, Menu, screen, shell } = electron;
 const components = electron.components;
 const axios = require('axios');
 const f1tv = require('./f1tv-bridge');
 const livetiming = require('./livetiming');
 
 const memSession = { accessToken: undefined };
+
+/** The single main dashboard window, not the multiview/livetiming/player popouts. Update notices target this one. */
+let mainWindow = null;
+
+const GITHUB_REPO = 'npanu420/F1OpenViewer';
+
+/** Numeric dotted-version compare, e.g. "1.2.1" > "1.2.0". Missing segments count as 0. */
+function isNewerVersion(latest, current) {
+  const a = latest.split('.').map((n) => parseInt(n, 10) || 0);
+  const b = current.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return false;
+}
+
+/** One-shot check against GitHub's public releases API. Notifies the main window only. */
+async function checkForUpdate() {
+  try {
+    const res = await axios.get(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json' },
+      timeout: 8000,
+    });
+    const tag = String(res.data?.tag_name || '').replace(/^v/i, '').trim();
+    const url = res.data?.html_url || `https://github.com/${GITHUB_REPO}/releases/latest`;
+    if (!tag || !isNewerVersion(tag, app.getVersion())) return;
+    console.log('[update] newer version available:', tag);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('app:updateAvailable', { version: tag, url });
+    }
+  } catch (e) {
+    console.warn('[update] check failed:', e?.message);
+  }
+}
 
 /** Resolve the app icon path once (icon.ico preferred on Windows, falls back to icon.png). */
 function getAppIcon() {
@@ -305,11 +342,22 @@ function slugify(title) {
 async function refreshSessionBeforePlayback() {
   const token = memSession.accessToken;
   if (!token) return;
+  // Token already expired per its JWT exp: skip the doomed init and refresh silently right away.
+  if (isTokenExpired(token)) {
+    console.warn('[session] token expired (jwt exp), attempting silent refresh…');
+    const fresh = await silentTokenRefresh();
+    if (fresh) return;
+    persistSession(null);
+    memSession.accessToken = undefined;
+    throw new Error('Session expired or invalid. Please sign in again (e.g. "Sign in with browser") and retry.');
+  }
   try {
     await f1tv.initClient(token);
     console.log('[session] refreshed before playback');
   } catch (e) {
-    console.warn('[session] refresh before playback failed:', e?.message);
+    console.warn('[session] refresh before playback failed, trying silent refresh:', e?.message);
+    const fresh = await silentTokenRefresh();
+    if (fresh) return;
     persistSession(null);
     memSession.accessToken = undefined;
     const msg = e?.message || String(e);
@@ -321,9 +369,47 @@ async function refreshSessionBeforePlayback() {
   }
 }
 
+/** Last reported intrinsic video size per standalone player window (avoid resize loops). */
+const playerWindowVideoSize = new WeakMap();
+
 /**
- * Opens a window with the custom player (local page + Shaka). Same session partition for DRM;
- * license proxy and headers are used by the player window.
+ * Resize a frameless player window so its content area exactly matches the video aspect ratio.
+ * No letterboxing: the window shape follows the stream.
+ */
+function fitStandalonePlayerWindow(win, videoW, videoH) {
+  if (!win || win.isDestroyed()) return;
+  const ww = Number(videoW);
+  const hh = Number(videoH);
+  if (!Number.isFinite(ww) || !Number.isFinite(hh) || ww <= 0 || hh <= 0) return;
+
+  const prev = playerWindowVideoSize.get(win);
+  if (prev && prev.w === ww && prev.h === hh) return;
+  playerWindowVideoSize.set(win, { w: ww, h: hh });
+
+  const aspect = ww / hh;
+  win.setAspectRatio(aspect);
+
+  const bounds = win.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const work = display?.workArea ?? { x: 0, y: 0, width: 1920, height: 1080 };
+  const maxW = Math.max(320, work.width - 24);
+  const maxH = Math.max(180, work.height - 24);
+
+  let contentW = Math.min(1280, maxW);
+  let contentH = Math.round(contentW / aspect);
+  if (contentH > maxH) {
+    contentH = maxH;
+    contentW = Math.round(contentH * aspect);
+  }
+
+  win.setContentSize(contentW, contentH);
+  try { win.center(); } catch (_) {}
+}
+
+/**
+ * Opens a frameless window with the custom React player (#standalone-player route).
+ * The window resolves playback itself via f1:contentPlay (license proxy registration included),
+ * so this only needs to build the URL, same as the multiview windows.
  */
 async function openCustomPlayerWindow(contentId, title, channelId) {
   const id = Number(contentId);
@@ -331,74 +417,49 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
     console.warn('[player] invalid contentId:', contentId);
     return;
   }
-  await refreshSessionBeforePlayback();
-  let result;
-  try {
-    result = await f1tv.contentPlay(id, channelId ?? undefined);
-  } catch (e) {
-    console.warn('[player] contentPlay failed:', e?.message);
-    throw e;
-  }
-  if (!result?.manifestUrl) {
-    console.warn('[player] no manifestUrl in response');
-    return;
-  }
-  f1tv.setPlaybackEntitlementOverride(result.licenseEntitlementToken || null);
-  if (result.playToken) {
-    console.log('[player] playToken stored for license proxy');
-    const cdnOrigins = ['https://f1tv.formula1.com', 'https://ott-video-fer-cf.formula1.com', 'https://ott-video-cf.formula1.com'];
-    for (const origin of cdnOrigins) {
-      session.defaultSession.cookies.set({ url: origin, name: 'playToken', value: result.playToken, path: '/' }).catch(() => {});
-    }
-  }
-  let licenseUrl = result.licenseUrl || '';
-  if (licenseUrl.startsWith('https://') && licenseUrl.includes('formula1.com')) {
-    const streamKey = buildStreamKey(result.contentId ?? id, result.channelId ?? channelId);
-    const proxied = registerLicenseStream(streamKey, result);
-    if (proxied) licenseUrl = proxied;
-  }
-  const licenseHeaders = {};
-  if (result.drmToken) {
-    licenseHeaders.Authorization = `Bearer ${result.drmToken}`;
-    licenseHeaders.drmtoken = result.drmToken;
-  }
-  if (result.licenseAscendonToken) licenseHeaders.ascendontoken = result.licenseAscendonToken;
-  if (result.licenseEntitlementToken) licenseHeaders.entitlementtoken = result.licenseEntitlementToken;
-  const fallbackLicenseHeaders = {};
-  if (result.fallbackDrmToken) {
-    fallbackLicenseHeaders.Authorization = `Bearer ${result.fallbackDrmToken}`;
-    fallbackLicenseHeaders.drmtoken = result.fallbackDrmToken;
-  }
-  if (result.licenseAscendonToken) fallbackLicenseHeaders.ascendontoken = result.licenseAscendonToken;
-  if (result.licenseEntitlementToken) fallbackLicenseHeaders.entitlementtoken = result.licenseEntitlementToken;
-
-  const payload = {
-    manifestUrl: result.manifestUrl,
-    licenseUrl,
-    licenseHeaders: Object.keys(licenseHeaders).length ? licenseHeaders : undefined,
-    fallbackManifestUrl: result.fallbackManifestUrl,
-    fallbackLicenseUrl: result.fallbackLicenseUrl || '',
-    fallbackLicenseHeaders: Object.keys(fallbackLicenseHeaders).length ? fallbackLicenseHeaders : undefined,
-  };
+  const params = new URLSearchParams();
+  params.set('content', String(id));
+  if (channelId != null && channelId !== '') params.set('channel', String(channelId));
+  if (title) params.set('title', String(title));
+  const baseUrl = getMainAppUrl();
+  const fragment = `standalone-player?${params.toString()}`;
+  const url = baseUrl.includes('#')
+    ? baseUrl.replace(/#.*$/, '') + '#' + fragment
+    : baseUrl + '#' + fragment;
 
   const win = new BrowserWindow({
     width: 1280,
     height: 720,
+    frame: false,
+    backgroundColor: '#000000',
     title: `F1 OpenViewer – ${title || id}`,
+    icon: getAppIcon(),
     webPreferences: {
-      preload: path.join(__dirname, 'player-preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: false,
       partition: 'default',
       plugins: true,
       webSecurity: false,
     },
   });
-  win.loadFile(path.join(__dirname, 'player.html')).catch((e) => {
-    console.warn('[player] loadFile failed:', e?.message);
+  win.loadURL(url).catch((e) => {
+    console.warn('[player] loadURL failed:', e?.message);
   });
-  win.webContents.on('did-finish-load', () => {
-    win.webContents.send('player:load', payload);
+  win.on('closed', () => {
+    playerWindowVideoSize.delete(win);
+  });
+  // Destroying the window while Shaka/EME is mid-playback (active DRM session, GPU decode
+  // in flight) can crash the whole app natively. Give the renderer a moment to tear the
+  // player down cleanly first, then actually close.
+  let teardownStarted = false;
+  win.on('close', (e) => {
+    if (teardownStarted) return;
+    teardownStarted = true;
+    e.preventDefault();
+    try { win.webContents.send('player:teardownRequest'); } catch (_) {}
+    setTimeout(() => { if (!win.isDestroyed()) win.destroy(); }, 350);
   });
   win.webContents.on('before-input-event', (_evt, input) => {
     if (input.type === 'keyDown' && input.key === 'F12') {
@@ -591,7 +652,8 @@ function startLicenseProxy() {
 
         if (r.status === 403 && memSession.accessToken) {
           try {
-            await f1tv.initClient(memSession.accessToken);
+            if (isTokenExpired(memSession.accessToken)) await silentTokenRefresh();
+            else await f1tv.initClient(memSession.accessToken);
             const retryHeaders = { ...buildLicenseProxyHeaders(req, entry), 'Content-Type': licenseReqContentType };
             const r2 = await sendLicenseToF1(target, body, retryHeaders, playToken);
             r = r2;
@@ -706,6 +768,48 @@ function getCookiesFilePath() {
   return path.join(app.getPath('userData'), 'f1openviewer-cookies.json');
 }
 
+function getSettingsFilePath() {
+  return path.join(app.getPath('userData'), 'f1openviewer-settings.json');
+}
+
+// Renderer settings worth surviving a manual reinstall to a new folder. localStorage is
+// scoped to the file:// origin, which for a packaged app is tied to its install path, so a
+// "delete old folder, unzip new one elsewhere" update would otherwise silently reset these.
+// Session/cookies already live here in userData; this just extends the same durability to
+// the renderer-side settings that matter (layouts, sync prefs, theme, locale).
+const DURABLE_SETTINGS_KEYS = new Set([
+  'f1openviewer-locale',
+  'f1-theme',
+  'f1-dismissed-update-version',
+  'f1openviewer-saved-grids',
+  'f1openviewer-sync-offset-threshold',
+  'f1openviewer-sync-done-delay-ms',
+  'f1openviewer-sync-keep-locked',
+  'f1openviewer-sync-reference-mode',
+]);
+
+function loadPersistedSettings() {
+  try {
+    const p = getSettingsFilePath();
+    if (!fs.existsSync(p)) return {};
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function persistSettingsKey(key, value) {
+  if (!DURABLE_SETTINGS_KEYS.has(key)) return;
+  try {
+    const all = loadPersistedSettings();
+    all[key] = value;
+    fs.writeFileSync(getSettingsFilePath(), JSON.stringify(all));
+  } catch (e) {
+    console.warn('[settings] persist failed:', e?.message);
+  }
+}
+
 function loadPersistedSession() {
   try {
     const p = getSessionFilePath();
@@ -801,6 +905,140 @@ async function restorePersistedCookies() {
     }
     console.log('[session] restored', list.length, 'cookies from disk');
   } catch (_) {}
+}
+
+/** Milliseconds until the JWT expires (negative if already expired), or null if unreadable. */
+function tokenTtlMs(token) {
+  const payload = parseJwtPayload(token);
+  if (!payload || !Number.isFinite(payload.exp)) return null;
+  return payload.exp * 1000 - Date.now();
+}
+
+function isTokenExpired(token, skewMs = 60 * 1000) {
+  const ttl = tokenTtlMs(token);
+  // Unreadable exp → assume valid and let the F1 client decide.
+  if (ttl == null) return false;
+  return ttl <= skewMs;
+}
+
+/**
+ * Reads the subscription token embedded in F1's `login-session` cookie
+ * (URL-encoded JSON: {"data":{"subscriptionToken":"<jwt>"}}).
+ */
+async function readLoginSessionCookieToken() {
+  try {
+    const urls = ['https://account.formula1.com', 'https://formula1.com', 'https://f1tv.formula1.com'];
+    for (const u of urls) {
+      const list = await session.defaultSession.cookies.get({ url: u, name: 'login-session' });
+      for (const c of list) {
+        try {
+          const obj = JSON.parse(decodeURIComponent(c.value));
+          const token = obj?.data?.subscriptionToken ?? obj?.subscriptionToken;
+          if (typeof token === 'string' && token.length > 50) return token;
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+/** Snapshots F1 cookies from defaultSession and saves them to disk (rolling persistence). */
+async function snapshotAndPersistCookies() {
+  try {
+    const urls = ['https://formula1.com', 'https://account.formula1.com', 'https://f1tv.formula1.com'];
+    const exp = Math.floor((Date.now() + 30 * 24 * 60 * 60 * 1000) / 1000);
+    const toPersist = [];
+    for (const baseUrl of urls) {
+      const list = await session.defaultSession.cookies.get({ url: baseUrl });
+      for (const c of list) {
+        toPersist.push({
+          url: baseUrl,
+          name: c.name,
+          value: c.value,
+          path: c.path || '/',
+          domain: c.domain || undefined,
+          secure: !!c.secure,
+          httpOnly: !!c.httpOnly,
+          expirationDate: c.session ? exp : c.expirationDate,
+        });
+      }
+    }
+    persistCookies(toPersist);
+  } catch (e) {
+    console.warn('[session] snapshot cookies:', e?.message);
+  }
+}
+
+/** Single-flight guard so concurrent callers share one silent refresh attempt. */
+let silentRefreshInFlight = null;
+
+/**
+ * Tries to obtain a fresh subscription token without user interaction:
+ * 1. reads the `login-session` cookie (may already hold a fresher token than the persisted one);
+ * 2. otherwise loads account.formula1.com in a hidden window on the default session. If the
+ *    persisted account cookies are still valid, F1 re-issues `login-session` with a fresh token.
+ * On success the F1 client is re-initialized and token + cookies are persisted.
+ * @returns {Promise<string|null>} the fresh token, or null if silent refresh is not possible.
+ */
+function silentTokenRefresh() {
+  if (silentRefreshInFlight) return silentRefreshInFlight;
+  silentRefreshInFlight = (async () => {
+    const current = memSession.accessToken;
+    // 1. Cookie may already carry a fresher token.
+    let candidate = await readLoginSessionCookieToken();
+    if (candidate && candidate !== current && !isTokenExpired(candidate)) {
+      try {
+        await f1tv.initClient(candidate);
+        memSession.accessToken = candidate;
+        persistSession(candidate);
+        await snapshotAndPersistCookies();
+        console.log('[session] silent refresh: token recovered from login-session cookie');
+        return candidate;
+      } catch (e) {
+        console.warn('[session] silent refresh: cookie token rejected:', e?.message);
+      }
+    }
+
+    // 2. Hidden window: valid account cookies make F1 re-issue login-session.
+    let hiddenWin = null;
+    try {
+      hiddenWin = new BrowserWindow({
+        show: false,
+        width: 800,
+        height: 600,
+        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+      });
+      hiddenWin.loadURL(F1_LOGIN_URL).catch(() => {});
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 700));
+        const token = await readLoginSessionCookieToken();
+        if (token && token !== candidate && token !== current && !isTokenExpired(token)) {
+          try {
+            await f1tv.initClient(token);
+            memSession.accessToken = token;
+            persistSession(token);
+            await snapshotAndPersistCookies();
+            console.log('[session] silent refresh: fresh token from hidden window');
+            return token;
+          } catch (e) {
+            console.warn('[session] silent refresh: hidden-window token rejected:', e?.message);
+            candidate = token; // don't retry the same token
+          }
+        }
+      }
+      console.warn('[session] silent refresh failed: no fresh token within timeout');
+      return null;
+    } catch (e) {
+      console.warn('[session] silent refresh error:', e?.message);
+      return null;
+    } finally {
+      try { if (hiddenWin && !hiddenWin.isDestroyed()) hiddenWin.destroy(); } catch (_) {}
+    }
+  })().finally(() => {
+    silentRefreshInFlight = null;
+  });
+  return silentRefreshInFlight;
 }
 
 /**
@@ -1065,6 +1303,11 @@ function createWindow() {
     if (input.type === 'keyDown' && input.key === 'F12') {
       win.webContents.isDevToolsOpened() ? win.webContents.closeDevTools() : win.webContents.openDevTools({ mode: 'detach' });
     }
+  });
+
+  mainWindow = win;
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
   });
 
   return win;
@@ -1345,17 +1588,25 @@ function setupIpc() {
   ipcMain.handle('f1:restoreSession', async () => {
     if (f1tv.isClientReady) return { accessToken: memSession.accessToken, restored: true };
     const token = memSession.accessToken || loadPersistedSession();
-    if (!token) return { accessToken: null, restored: false };
-    try {
-      await f1tv.initClient(token);
-      memSession.accessToken = token;
-      return { accessToken: token, restored: true };
-    } catch (e) {
-      console.warn('[session] restore failed, token expired:', e?.message);
-      persistSession(null);
-      memSession.accessToken = undefined;
-      return { accessToken: null, restored: false };
+    if (token && !isTokenExpired(token)) {
+      try {
+        await f1tv.initClient(token);
+        memSession.accessToken = token;
+        return { accessToken: token, restored: true };
+      } catch (e) {
+        console.warn('[session] restore failed, trying silent refresh:', e?.message);
+      }
+    } else if (token) {
+      console.warn('[session] persisted token expired (jwt exp), attempting silent refresh…');
     }
+    // Persisted token missing/expired/rejected: try to recover from persisted F1 cookies.
+    // Skip when there is no trace of a previous login (avoids a pointless hidden window).
+    if (!token && !fs.existsSync(getCookiesFilePath())) return { accessToken: null, restored: false };
+    const fresh = await silentTokenRefresh();
+    if (fresh) return { accessToken: fresh, restored: true };
+    persistSession(null);
+    memSession.accessToken = undefined;
+    return { accessToken: null, restored: false };
   });
   ipcMain.handle('f1:getLiveNow', async () => f1tv.getLiveNow());
   ipcMain.handle('f1:searchVod', async (_evt, params) => f1tv.searchVod(params || {}));
@@ -1406,6 +1657,13 @@ function setupIpc() {
     await performFullReset();
     return { ok: true };
   });
+  ipcMain.handle('app:openExternal', (_evt, url) => {
+    if (typeof url === 'string' && /^https:\/\/github\.com\//.test(url)) shell.openExternal(url);
+  });
+  ipcMain.handle('settings:getAll', () => loadPersistedSettings());
+  ipcMain.on('settings:set', (_evt, key, value) => {
+    if (typeof key === 'string' && typeof value === 'string') persistSettingsKey(key, value);
+  });
   ipcMain.handle('player:getLastLicenseError', (_evt, streamKey) => {
     if (streamKey && licenseProxyStreams.has(streamKey)) {
       return licenseProxyStreams.get(streamKey).lastError || '';
@@ -1426,10 +1684,7 @@ function setupIpc() {
   ipcMain.on('player:intrinsicVideoSize', (e, w, h) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win || win.isDestroyed()) return;
-    const ww = Number(w);
-    const hh = Number(h);
-    if (!Number.isFinite(ww) || !Number.isFinite(hh) || ww <= 0 || hh <= 0) return;
-    win.setAspectRatio(ww / hh);
+    fitStandalonePlayerWindow(win, w, h);
   });
 
   // ----- Live Timing (separate public feed; no DRM) -----
@@ -1554,18 +1809,39 @@ app.whenReady().then(async () => {
   if (savedToken) {
     memSession.accessToken = savedToken;
     console.log('[session] token found on disk, restoring F1 TV client…');
-    f1tv.initClient(savedToken).then(() => {
+    const restoreChain = isTokenExpired(savedToken)
+      ? Promise.reject(new Error('persisted token expired (jwt exp)'))
+      : f1tv.initClient(savedToken);
+    restoreChain.then(() => {
       console.log('[session] F1 TV client restored successfully');
-    }).catch((e) => {
-      console.warn('[session] token expired, new login required:', e?.message);
-      persistSession(null);
-      memSession.accessToken = undefined;
+    }).catch(async (e) => {
+      console.warn('[session] restore failed, trying silent refresh:', e?.message);
+      const fresh = await silentTokenRefresh();
+      if (!fresh) {
+        console.warn('[session] silent refresh failed, new login required');
+        persistSession(null);
+        memSession.accessToken = undefined;
+      }
     });
   }
+
+  // Proactive keep-alive: while the app runs, renew the token before it expires so long
+  // sessions (e.g. an all-day race weekend) never hit a dead token mid-use.
+  setInterval(() => {
+    const token = memSession.accessToken;
+    if (!token) return;
+    const ttl = tokenTtlMs(token);
+    if (ttl != null && ttl < 6 * 60 * 60 * 1000) {
+      console.log('[session] token expiring soon (ttl', Math.round(ttl / 60000), 'min), proactive silent refresh…');
+      silentTokenRefresh().catch(() => {});
+    }
+  }, 30 * 60 * 1000);
 
   Menu.setApplicationMenu(null);
 
   createWindow();
+  // Not startup-critical, so delay it past the initial load/session-restore burst.
+  setTimeout(() => { checkForUpdate().catch(() => {}); }, 5000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

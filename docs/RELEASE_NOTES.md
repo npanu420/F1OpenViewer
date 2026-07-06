@@ -1,5 +1,38 @@
 # Release Notes – F1 OpenViewer
 
+## v1.2.1 (Work in Progress)
+
+This release is a polish pass on the standalone player window and the multiview grid, plus a login session that no longer needs you to sign in again every few days, an update notifier, and settings that now survive a manual reinstall.
+
+### Standalone player window ("Open in window")
+
+- **Fixed black bars**: the popped-out window no longer letterboxes the video. The bug was a leftover global CSS rule capping any `<video>` element to 70% of viewport height with a border and rounded corners, meant for the old inline player. The new fill mode opts out of it.
+- **Fixed a crash on close**: closing the window while a DRM stream was actively playing could bring down the whole app. The window now asks the player to tear itself down cleanly before it's actually destroyed, instead of killing the page mid-playback.
+- **Reload stream**: right-click → "Reload" to recover from a stuck or errored stream without closing the window.
+- **Switch stream**: right-click → "Switch stream" to change camera angle (main feed, onboard, data channel) without closing and reopening the window.
+
+### Multiview grid
+
+- **Default layout no longer starts letterboxed**: the built-in default tile sizes now account for the slot header's height, so a fresh grid actually matches a 16:9 stream instead of showing bars until you resize.
+- **Every slot self-corrects on load**: once a slot's real stream resolution is known, it snaps to that aspect automatically, using the same logic that already runs on manual resize.
+- **"Hide titles" now works outside fullscreen too**: previously only available in the fullscreen toolbar, the toggle is now in the normal grid toolbar as well.
+- **"Add slot" is now usable in fullscreen**: it was disabled there because the button didn't fit fullscreen's layout; it's now available from the fullscreen toolbar instead.
+- **Auto-sync**: streams now sync automatically as soon as a new one starts playing, instead of requiring a manual click on "Sync". Starting several streams close together (e.g. "Play All") still only triggers one sync pass, not one per stream.
+
+### Login & sessions
+
+- **Silent session refresh**: the app no longer forces a fresh login every time the token nears expiry. It checks the token's expiry up front, and if it's expired or gets rejected, it quietly recovers a new one from the saved F1 cookies (or a hidden background window if needed) and keeps playback going. Manual login is only needed if the saved cookies themselves are gone.
+
+### Update notifier
+
+- The app checks GitHub releases once per launch and shows a small dismissible banner if a newer version is available, with a link straight to the release page. Dismissing it won't nag you again for that same version.
+
+### Settings persistence
+
+- Saved grid layouts, sync preferences, theme, and language now also live in a small settings file next to your session data, not only in the browser-style local storage tied to the app's install folder. If you update by deleting the old folder and unzipping a new one somewhere else, these settings now come with you instead of resetting.
+
+---
+
 ## v1.2.0
 
 This release adds **Live Timing**: a synced timing screen for replays, plus a round of UI fixes and polish across the app.

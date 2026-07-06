@@ -58,9 +58,22 @@ export type PreloadApi = {
   restoreSession?(): Promise<{ accessToken: string | null; restored: boolean }>;
   /** Full reset: session, cookies, cache and all saved data. App will reload. */
   fullReset?(): Promise<{ ok: boolean }>;
+  /** Opens a GitHub release URL in the OS default browser. */
+  openExternal?(url: string): Promise<void>;
+  /** Main window only: fires once at startup if a newer GitHub release exists. Returns an unsubscribe function. */
+  onUpdateAvailable?(callback: (payload: { version: string; url: string }) => void): () => void;
+  /** Durable (userData-backed) mirror of a fixed allowlist of localStorage settings keys.
+   *  Survives a manual reinstall to a different folder, unlike localStorage itself. */
+  getAllSettings?(): Promise<Record<string, string>>;
+  setSetting?(key: string, value: string): void;
   /** Last error message from F1 license server (e.g. 403 region/subscription). Pass the streamKey
    *  embedded in the license proxy URL to get the per-stream error. */
   getLastLicenseError?(streamKey?: string): Promise<string>;
+  /** Standalone player window: lock the window aspect ratio to the incoming video's. */
+  reportIntrinsicVideoSize?(w: number, h: number): void;
+  /** Standalone player window: main process is about to destroy the window, tear down
+   *  the DRM player first. Returns an unsubscribe function. */
+  onPlayerTeardownRequest?(callback: () => void): () => void;
   /** Apre una nuova finestra multiview numerata; ritorna `{ id }`. */
   openMultiviewWindow?(): Promise<{ id: number }>;
   /** Id numerici delle finestre multiview aperte (ordinati). */

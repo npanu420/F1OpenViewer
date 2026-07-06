@@ -9,6 +9,9 @@ export const translations: Record<Locale, Record<string, string>> = {
     // App / topbar
     'app.brand': 'F1 OpenViewer',
     'app.subtitle': 'for F1 TV by npanu420',
+    'app.updateAvailable': 'A new version is available (v{version}).',
+    'app.updateDownload': 'View release',
+    'app.updateDismiss': 'Dismiss',
     'app.session': 'Session',
     'app.sessionActive': 'active',
     'app.sessionInactive': '—',
@@ -72,6 +75,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.playAllLoadingHint': 'Loading all streams may take a moment — please wait. I\'m working to keep this as short as possible.',
     'dashboard.openInWindow': 'Open in window',
     'dashboard.loadingStream': 'Loading…',
+    'player.closeWindow': 'Close stream',
+    'player.switchStream': 'Switch stream',
+    'player.mainFeed': 'Main feed',
+    'player.dataChannel': 'Data channel',
     'dashboard.sectionMainStream': 'Main stream',
     'dashboard.sectionDataChannel': 'Data channel',
     'dashboard.sectionOnboard': 'Driver onboard',
@@ -203,6 +210,9 @@ export const translations: Record<Locale, Record<string, string>> = {
   it: {
     'app.brand': 'F1 OpenViewer',
     'app.subtitle': 'per F1 TV da npanu420',
+    'app.updateAvailable': 'È disponibile una nuova versione (v{version}).',
+    'app.updateDownload': 'Vedi release',
+    'app.updateDismiss': 'Ignora',
     'app.session': 'Sessione',
     'app.sessionActive': 'attiva',
     'app.sessionInactive': '—',
@@ -264,6 +274,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.playAllLoadingHint': 'Il caricamento di tutti gli stream può richiedere un attimo — attendi prego. Sto lavorando per ridurre al minimo questa attesa.',
     'dashboard.openInWindow': 'Apri in finestra',
     'dashboard.loadingStream': 'Caricamento…',
+    'player.closeWindow': 'Chiudi stream',
+    'player.switchStream': 'Cambia stream',
+    'player.mainFeed': 'Feed principale',
+    'player.dataChannel': 'Canale dati',
     'dashboard.sectionMainStream': 'Stream principale',
     'dashboard.sectionDataChannel': 'Canale dati',
     'dashboard.sectionOnboard': 'Onboard piloti',
@@ -404,4 +418,5 @@ export function setStoredLocale(locale: Locale): void {
   try {
     localStorage.setItem(STORAGE_KEY, locale);
   } catch (_) {}
+  window.f1?.setSetting?.(STORAGE_KEY, locale);
 }

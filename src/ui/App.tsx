@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import { StandaloneMultiviewView } from './views/StandaloneMultiviewView';
+import { StandalonePlayerView } from './views/StandalonePlayerView';
 import { LiveTimingView } from './views/LiveTimingView';
 import { PlayerView } from './views/PlayerView';
 import { LiveEventView } from './views/LiveEventView';
@@ -12,6 +13,9 @@ import { session } from '../services/session';
 import { useLocale } from '../i18n/LocaleContext';
 import { Header } from './components/Header';
 import { SettingsPanel, type ThemeMode } from './components/SettingsPanel';
+import { X } from 'lucide-react';
+
+const DISMISSED_UPDATE_KEY = 'f1-dismissed-update-version';
 
 type Route =
   | { name: 'login' }
@@ -33,6 +37,25 @@ export function App() {
     return (typeof localStorage !== 'undefined' && (localStorage.getItem('f1-theme') as ThemeMode)) || 'dark';
   });
   const bootOnceRef = useRef(false);
+  const [updateInfo, setUpdateInfo] = useState<{ version: string; url: string } | null>(null);
+
+  // Main process checks GitHub releases once at startup and only tells the main window.
+  useEffect(() => {
+    return window.f1?.onUpdateAvailable?.((payload) => {
+      try {
+        if (localStorage.getItem(DISMISSED_UPDATE_KEY) === payload.version) return;
+      } catch (_) {}
+      setUpdateInfo(payload);
+    });
+  }, []);
+
+  const dismissUpdate = () => {
+    if (updateInfo) {
+      try { localStorage.setItem(DISMISSED_UPDATE_KEY, updateInfo.version); } catch (_) {}
+      window.f1?.setSetting?.(DISMISSED_UPDATE_KEY, updateInfo.version);
+    }
+    setUpdateInfo(null);
+  };
 
   useEffect(() => {
     const root = document.documentElement;
@@ -43,6 +66,7 @@ export function App() {
     }
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('f1-theme', theme);
+      window.f1?.setSetting?.('f1-theme', theme);
     }
   }, [theme]);
 
@@ -115,6 +139,22 @@ export function App() {
     if (raw === 'standalone-livetiming' || raw.startsWith('standalone-livetiming?')) {
       return <LiveTimingView />;
     }
+    if (raw.startsWith('standalone-player?')) {
+      const params = new URLSearchParams(raw.split('?')[1]);
+      const contentId = parseInt(params.get('content') ?? '', 10);
+      const channelRaw = params.get('channel');
+      const channelId = channelRaw != null && channelRaw !== '' ? parseInt(channelRaw, 10) : undefined;
+      const title = params.get('title') ?? undefined;
+      if (Number.isFinite(contentId) && contentId > 0) {
+        return (
+          <StandalonePlayerView
+            contentId={contentId}
+            channelId={Number.isFinite(channelId as number) ? channelId : undefined}
+            title={title}
+          />
+        );
+      }
+    }
   }
 
   if (route.name === 'login') {
@@ -185,6 +225,26 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-background">
+      {updateInfo && (
+        <div className="flex items-center justify-center gap-3 px-4 py-2 bg-primary/15 border-b border-primary/30 text-sm font-heading text-foreground">
+          <span>{t('app.updateAvailable').replace('{version}', updateInfo.version)}</span>
+          <button
+            type="button"
+            className="underline font-bold hover:opacity-80"
+            onClick={() => window.f1?.openExternal?.(updateInfo.url)}
+          >
+            {t('app.updateDownload')}
+          </button>
+          <button
+            type="button"
+            aria-label={t('app.updateDismiss')}
+            className="ml-1 text-muted-foreground hover:text-foreground"
+            onClick={dismissUpdate}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       <Header
         selectedYear={selectedYear}
         onSelectYear={setSelectedYear}

@@ -20,7 +20,29 @@ contextBridge.exposeInMainWorld('f1', {
   isF1Ready: () => ipcRenderer.invoke('f1:isReady'),
   restoreSession: () => ipcRenderer.invoke('f1:restoreSession'),
   fullReset: () => ipcRenderer.invoke('f1:fullReset'),
+  /** Opens a GitHub release URL in the OS default browser. */
+  openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
+  /** Main window only: fires once at startup if a newer GitHub release exists. */
+  onUpdateAvailable: (callback) => {
+    const handler = (_event, payload) => { try { callback(payload); } catch (_) {} };
+    ipcRenderer.on('app:updateAvailable', handler);
+    return () => ipcRenderer.removeListener('app:updateAvailable', handler);
+  },
+  /** Durable (userData-backed) mirror of a fixed allowlist of localStorage settings keys.
+   *  Survives a manual reinstall to a different folder, unlike localStorage itself. */
+  getAllSettings: () => ipcRenderer.invoke('settings:getAll'),
+  setSetting: (key, value) => ipcRenderer.send('settings:set', key, value),
   getLastLicenseError: (streamKey) => ipcRenderer.invoke('player:getLastLicenseError', streamKey),
+  /** Standalone player window: lock the window aspect ratio to the incoming video's. */
+  reportIntrinsicVideoSize: (w, h) => ipcRenderer.send('player:intrinsicVideoSize', w, h),
+  /** Standalone player window: main process asks the renderer to tear down the DRM
+   *  player (Shaka/EME) before the window is actually destroyed, avoiding a native
+   *  crash from killing the page mid-teardown. */
+  onPlayerTeardownRequest: (callback) => {
+    const handler = () => { try { callback(); } catch (_) {} };
+    ipcRenderer.on('player:teardownRequest', handler);
+    return () => ipcRenderer.removeListener('player:teardownRequest', handler);
+  },
   openMultiviewWindow: () => ipcRenderer.invoke('multiview:openWindow'),
   getMultiviewWindows: () => ipcRenderer.invoke('multiview:listWindows'),
   onMultiviewWindowsChanged: (callback) => {

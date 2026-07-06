@@ -30,6 +30,7 @@ export function setSyncOffsetThreshold(seconds: number): void {
   try {
     localStorage.setItem(SYNC_OFFSET_THRESHOLD_KEY, String(v));
   } catch (_) {}
+  window.f1?.setSetting?.(SYNC_OFFSET_THRESHOLD_KEY, String(v));
 }
 
 export function getSyncDoneDelayMs(): number {
@@ -46,6 +47,7 @@ export function setSyncDoneDelayMs(ms: number): void {
   try {
     localStorage.setItem(SYNC_DONE_DELAY_KEY, String(v));
   } catch (_) {}
+  window.f1?.setSetting?.(SYNC_DONE_DELAY_KEY, String(v));
 }
 
 export function getSyncKeepLocked(): boolean {
@@ -58,9 +60,11 @@ export function getSyncKeepLocked(): boolean {
 }
 
 export function setSyncKeepLocked(on: boolean): void {
+  const v = on ? '1' : '0';
   try {
-    localStorage.setItem(SYNC_KEEP_LOCKED_KEY, on ? '1' : '0');
+    localStorage.setItem(SYNC_KEEP_LOCKED_KEY, v);
   } catch (_) {}
+  window.f1?.setSetting?.(SYNC_KEEP_LOCKED_KEY, v);
 }
 
 export function getSyncReferenceMode(): SyncReferenceMode {
@@ -76,4 +80,5 @@ export function setSyncReferenceMode(mode: SyncReferenceMode): void {
   try {
     localStorage.setItem(SYNC_REFERENCE_MODE_KEY, mode);
   } catch (_) {}
+  window.f1?.setSetting?.(SYNC_REFERENCE_MODE_KEY, mode);
 }

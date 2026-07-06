@@ -26,6 +26,11 @@ type Props = {
   /** Hide status pills and let video fill container (for embedded slots) */
   compact?: boolean;
   /**
+   * Fill the container like `compact` but keep full quality and buffer settings.
+   * For dedicated single-stream windows (standalone player).
+   */
+  fill?: boolean;
+  /**
    * Emits decoded frame dimensions from the video element (videoWidth / videoHeight).
    * UI-only; does not affect Shaka configuration or playback.
    */
@@ -573,12 +578,39 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
     props.preferLiveEdge,
   ]);
 
-  const { compact } = props;
+  const { compact, fill } = props;
+  const fillLayout = compact || fill;
+
+  if (fill) {
+    return (
+      <div className="absolute inset-0 bg-black">
+        <div ref={containerRef} className="player-fs absolute inset-0 overflow-hidden bg-black">
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            onClick={() => { const v = videoRef.current; if (v) { if (v.paused) v.play().catch(() => {}); else v.pause(); } }}
+            className="absolute inset-0 w-full h-full object-contain bg-black"
+          />
+          {ready && (
+            <VideoControls
+              getVideo={() => videoRef.current}
+              getPlayer={() => playerRef.current}
+              getContainer={() => containerRef.current}
+              onUnmute={props.onAudioFocus}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={compact ? 'h-full min-h-0 flex flex-col' : ''} style={compact ? {} : { display: 'grid', gap: 10 }}>
+    <div className={fillLayout ? 'h-full min-h-0 flex flex-col' : ''} style={fillLayout ? {} : { display: 'grid', gap: 10 }}>
       <div
         ref={containerRef}
-        className={`player-fs relative bg-black overflow-hidden ${compact ? 'flex-1 min-h-0 flex' : ''}`}
+        className={`player-fs relative bg-black overflow-hidden ${fillLayout ? 'flex-1 min-h-0 flex' : ''}`}
       >
         <video
           ref={videoRef}
@@ -586,7 +618,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
           muted
           playsInline
           onClick={() => { const v = videoRef.current; if (v) { if (v.paused) v.play().catch(() => {}); else v.pause(); } }}
-          className={compact ? 'w-full flex-1 min-h-0 object-contain bg-black' : 'w-full bg-black'}
+          className={fillLayout ? 'w-full flex-1 min-h-0 object-contain bg-black' : 'w-full bg-black'}
         />
         {ready && (
           <VideoControls
@@ -598,7 +630,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
           />
         )}
       </div>
-      {!compact && (
+      {!fillLayout && (
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <span className="pill">
             shaka: <strong>{ready ? t('drm.ready') : t('drm.initializing')}</strong>
