@@ -45,6 +45,9 @@ export function mergeDeep(target: Json, source: Json): Json {
   if (isPlainContainer(source)) {
     const base = isPlainContainer(target) ? target : {};
     for (const k of Object.keys(source)) {
+      // Feed data is untrusted JSON; skip keys that could reach Object.prototype instead of
+      // just this object's own properties.
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
       base[k] = mergeDeep((base as Record<string, Json>)[k], source[k]);
     }
     return base;

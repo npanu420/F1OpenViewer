@@ -261,10 +261,24 @@ function buildLaDiscoveryAttempts(ctx, playToken) {
   return attempts;
 }
 
+/** True for formula1.com itself or any of its subdomains (checks the actual hostname, not a substring match). */
+function isFormula1Hostname(hostname) {
+  return hostname === 'formula1.com' || hostname.endsWith('.formula1.com');
+}
+
+/** Same check, but takes a full URL string and parses it first. */
+function hasFormula1Host(urlString) {
+  try {
+    return isFormula1Hostname(new URL(urlString).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function buildLicensePlaybackContext(result) {
   const la = result?.licenseUrl;
   if (!la || typeof la !== 'string') return null;
-  if (!la.startsWith('https://') || !la.includes('formula1.com')) return null;
+  if (!la.startsWith('https://') || !hasFormula1Host(la)) return null;
   return {
     baseLaUrl: laUrlBase(la),
     pipelineVersion: result.pipelineVersion,
@@ -1446,7 +1460,7 @@ function setupCorsRelaxForDev() {
 function setupLicenseResponseLog() {
   session.defaultSession.webRequest.onCompleted((details) => {
     const url = details.url || '';
-    if (url.includes('formula1.com') && (url.includes('/LA') || url.includes('/CONTENT/LA'))) {
+    if (hasFormula1Host(url) && (url.includes('/LA') || url.includes('/CONTENT/LA'))) {
       console.log('[license] LA response status:', details.statusCode, details.statusCode >= 400 ? '(request rejected)' : '');
     }
   });
@@ -1456,7 +1470,7 @@ function setupLicenseResponseLog() {
 function isF1OttVideoCdnUrl(urlString) {
   try {
     const h = new URL(urlString).hostname;
-    return h.includes('ott-video') && h.endsWith('formula1.com');
+    return h.includes('ott-video') && isFormula1Hostname(h);
   } catch {
     return false;
   }
@@ -1466,7 +1480,7 @@ function isF1OttVideoCdnUrl(urlString) {
 function setupLicenseRequestHeaders() {
   session.defaultSession.webRequest.onBeforeSendHeaders(async (details, callback) => {
     const url = details.url || '';
-    const isF1License = url.includes('formula1.com') && (url.includes('/LA') || url.includes('/CONTENT/LA'));
+    const isF1License = hasFormula1Host(url) && (url.includes('/LA') || url.includes('/CONTENT/LA'));
     const isF1OttCdn = isF1OttVideoCdnUrl(url);
 
     if (isF1OttCdn) {
@@ -1639,7 +1653,7 @@ function setupIpc() {
             session.defaultSession.cookies.set({ url: origin, name: 'playToken', value: result.playToken, path: '/' }).catch(() => {});
           }
         }
-        if (result?.licenseUrl && result.licenseUrl.startsWith('https://') && result.licenseUrl.includes('formula1.com')) {
+        if (result?.licenseUrl && result.licenseUrl.startsWith('https://') && hasFormula1Host(result.licenseUrl)) {
           const streamKey = buildStreamKey(result.contentId ?? contentId, result.channelId ?? channelId);
           const proxied = registerLicenseStream(streamKey, result);
           if (proxied) result.licenseUrl = proxied;
