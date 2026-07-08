@@ -143,6 +143,7 @@ export function LiveEventView({
               onClick={() =>
                 window.f1?.liveTiming
                   ?.openWindow({
+                    live: true,
                     year: new Date().getFullYear(),
                     sessionKey: item.sessionKey,
                     sessionName: item.title,

@@ -13,6 +13,7 @@
 const zlib = require('zlib');
 const { execFile } = require('child_process');
 const { fetch: undiciFetch } = require('undici');
+const WebSocket = require('ws');
 
 const LIVETIMING_BASE = 'https://livetiming.formula1.com';
 const STATIC_BASE = `${LIVETIMING_BASE}/static`;
@@ -38,8 +39,6 @@ const DEFAULT_FEEDS = [
   'TeamRadio',
   'SessionData',
   'TopThree',
-  'CarData.z',
-  'Position.z',
 ];
 
 /** Strip a leading UTF-8 BOM (static files start with one). */
@@ -103,6 +102,17 @@ function decodePayload(feed, payloadStr) {
 }
 
 /**
+ * CarData.z/Position.z arrive roughly every ~250ms and each already bundles a few timestamped
+ * snapshots, so a full session is ~30-35k snapshots per feed. Sent whole, that's an ~80MB IPC
+ * payload the renderer has to deserialize into millions of JS objects synchronously on its one
+ * thread, which is slow enough to look like a frozen window (confirmed: only that window froze,
+ * not the video window, since each Electron window is its own process). Keeping 1 line in
+ * SAMPLE_STRIDE cuts the payload proportionally. Skipped lines aren't even decoded, so this
+ * also cuts the main-process decode cost, not just the transfer size.
+ */
+const SAMPLE_STRIDE = 5;
+
+/**
  * Parse a `.jsonStream` body into ordered records.
  * Format: newline-delimited; each line = `HH:MM:SS.mmm` (12 chars) + payload.
  * @returns {{offsetMs:number, ts:string, data:any}[]}
@@ -111,12 +121,16 @@ function parseJsonStream(text, feed) {
   const out = [];
   const body = stripBom(text);
   if (!body) return out;
+  const stride = isCompressedFeed(feed) ? SAMPLE_STRIDE : 1;
+  let i = 0;
   for (const rawLine of body.split(/\r?\n/)) {
     const line = rawLine.replace(/^﻿/, '');
     if (line.length < 12) continue;
     const ts = line.slice(0, 12);
     const offsetMs = parseOffset(ts);
     if (offsetMs == null) continue;
+    const keep = i++ % stride === 0;
+    if (!keep) continue;
     const data = decodePayload(feed, line.slice(12));
     if (data == null) continue;
     out.push({ offsetMs, ts, data });
@@ -234,7 +248,10 @@ function curlFetchText(url) {
     const args = ['-s', '-S', '--compressed', '--max-time', '30', '-w', '\\n%{http_code}'];
     for (const [k, v] of Object.entries(STATIC_HEADERS)) args.push('-H', `${k}: ${v}`);
     args.push(url);
-    execFile(WIN_CURL, args, { maxBuffer: 256 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+    // Node-level backstop on top of curl's own --max-time: if curl itself gets stuck (seen on
+    // some Windows/VPN combos where --max-time doesn't fire reliably), this still kills it
+    // instead of the caller hanging forever.
+    execFile(WIN_CURL, args, { maxBuffer: 256 * 1024 * 1024, windowsHide: true, timeout: 35000 }, (err, stdout) => {
       if (err) return reject(new Error(`curl ${url} failed: ${err.message}`));
       const nl = stdout.lastIndexOf('\n');
       const code = Number(stdout.slice(nl + 1).trim());
@@ -258,7 +275,7 @@ function curlFetchBinary(url) {
     const args = ['-s', '-S', '--max-time', '30'];
     for (const [k, v] of Object.entries(STATIC_HEADERS)) args.push('-H', `${k}: ${v}`);
     args.push(url);
-    execFile(WIN_CURL, args, { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+    execFile(WIN_CURL, args, { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, windowsHide: true, timeout: 35000 }, (err, stdout) => {
       if (err) return reject(new Error(`curl ${url} failed: ${err.message}`));
       if (!stdout || !stdout.length) return reject(new Error(`GET ${url} → empty response`));
       resolve(stdout);
@@ -326,11 +343,13 @@ async function loadSession(sessionPath, feeds) {
 // app uses for "perfect" auto-sync; we just read it instead of making the user hand-align.
 const MV_SYNC_BASE = 'https://api.multiviewer.app/api/v1';
 
-function curlGetText(url) {
+function curlGetText(url, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const args = ['-s', '-S', '--compressed', '--max-time', '20', '-w', '\\n%{http_code}',
-      '-H', 'User-Agent: F1OpenViewer', '-H', 'Accept: application/json', url];
-    execFile(WIN_CURL, args, { maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+      '-H', 'User-Agent: F1OpenViewer', '-H', 'Accept: application/json'];
+    for (const [k, v] of Object.entries(extraHeaders)) args.push('-H', `${k}: ${v}`);
+    args.push(url);
+    execFile(WIN_CURL, args, { maxBuffer: 32 * 1024 * 1024, windowsHide: true, timeout: 25000 }, (err, stdout) => {
       if (err) return reject(new Error(`curl ${url} failed: ${err.message}`));
       const nl = stdout.lastIndexOf('\n');
       const code = Number(stdout.slice(nl + 1).trim());
@@ -340,9 +359,9 @@ function curlGetText(url) {
   });
 }
 
-async function httpGetText(url) {
-  if (USE_CURL) return curlGetText(url); // curl.exe is VPN-split-tunnelled; reaches it directly
-  const res = await undiciFetch(url, { headers: { 'User-Agent': 'F1OpenViewer', Accept: 'application/json' } });
+async function httpGetText(url, extraHeaders = {}) {
+  if (USE_CURL) return curlGetText(url, extraHeaders); // curl.exe is VPN-split-tunnelled; reaches it directly
+  const res = await undiciFetch(url, { headers: { 'User-Agent': 'F1OpenViewer', Accept: 'application/json', ...extraHeaders } });
   if (!res.ok) throw new Error(`GET ${url} → HTTP ${res.status}`);
   return res.text();
 }
@@ -371,6 +390,130 @@ async function fetchSyncData(meetingKey, sessionKey) {
   }
 }
 
+// ----- live transport (SignalR, old ASP.NET protocol, not SignalR Core) -----
+//
+// GET /signalr/negotiate (authed, curl-routed like the static fetches above) → ConnectionToken,
+// then a WebSocket to /signalr/connect, Subscribe to the feed list, and the server replies with
+// an `R` snapshot (one entry per subscribed feed, same order) followed by `M` delta frames.
+// Same (feed,data) shape the static archive replay already feeds into the reducer.
+//
+// KNOWN LIMITATION: unlike the curl-proxied static/audio fetches, this WebSocket runs in-process
+// (electron.exe), so a full-tunnel VPN that can only split-tunnel by app will route it over the
+// VPN and may hit the same WAF block the curl trick exists to dodge. Not solved here. Old
+// SignalR also supports a long-polling transport (plain HTTP, curl-friendly) as a fallback if
+// this actually blocks someone in practice.
+//
+// Can only be verified end-to-end during a real live session (negotiate 401s otherwise).
+
+const SIGNALR_HUB = 'Streaming';
+const LIVE_RECONNECT_MS = 2000;
+
+let liveSocket = null;
+let liveReconnectTimer = null;
+
+/** GET /signalr/negotiate with the F1TV account token → { ConnectionToken, ... }. */
+async function negotiateSignalR(token) {
+  const connectionData = encodeURIComponent(JSON.stringify([{ name: SIGNALR_HUB }]));
+  const url = `${LIVETIMING_BASE}/signalr/negotiate?clientProtocol=1.5&connectionData=${connectionData}`;
+  const txt = await httpGetText(url, { Authorization: `Bearer ${token}` });
+  const j = JSON.parse(stripBom(txt));
+  if (!j || !j.ConnectionToken) throw new Error('SignalR negotiate: no ConnectionToken in response');
+  return j;
+}
+
+function buildLiveSocketUrl(connectionToken) {
+  const connectionData = encodeURIComponent(JSON.stringify([{ name: SIGNALR_HUB }]));
+  return `wss://livetiming.formula1.com/signalr/connect?transport=webSockets&clientProtocol=1.5`
+    + `&connectionToken=${encodeURIComponent(connectionToken)}&connectionData=${connectionData}`;
+}
+
+/**
+ * `.z` feeds (CarData.z/Position.z) arrive over SignalR the same way they do in the static
+ * archive: a base64 raw-deflate string, just already JSON-parsed into a JS string (not a
+ * JSON-quoted text line like jsonStream), so this inflates without decodePayload's unquoting
+ * step. Returns null on a bad blob so the caller can drop the record instead of applying garbage.
+ */
+function decodeLiveValue(feed, value) {
+  if (!isCompressedFeed(feed)) return value;
+  if (typeof value !== 'string') return null;
+  try { return inflateZ(value); } catch (_) { return null; }
+}
+
+/**
+ * Parse one SignalR text frame into `{feed,data}` records. `R` (initial reply to Subscribe) is
+ * a snapshot array in the same order as the requested feeds; `M` entries are deltas shaped
+ * `{H,M:feedName,A:[feedName,data,timestamp]}`. Keep-alive frames (`{}`) yield no records.
+ */
+function parseSignalRFrame(raw, feeds) {
+  let msg;
+  try { msg = JSON.parse(raw); } catch (_) { return []; }
+  const out = [];
+  const push = (feed, rawData) => {
+    const data = decodeLiveValue(feed, rawData);
+    if (data != null) out.push({ feed, data });
+  };
+  if (Array.isArray(msg.R)) {
+    msg.R.forEach((data, i) => {
+      if (data != null && feeds[i]) push(feeds[i], data);
+    });
+  } else if (msg.R && typeof msg.R === 'object') {
+    for (const feed of feeds) {
+      if (msg.R[feed] !== undefined) push(feed, msg.R[feed]);
+    }
+  }
+  if (Array.isArray(msg.M)) {
+    for (const m of msg.M) {
+      const a = m && m.A;
+      if (Array.isArray(a) && a.length >= 2) push(String(a[0]), a[1]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Open (or reuse) the single shared live connection. `onRecord(feed, data)` fires per record,
+ * `onStatus(status, detail?)` fires on connect/disconnect/error. Auto-reconnects with a fixed
+ * delay until `disconnectLiveSocket()` is called.
+ */
+async function connectLiveSocket(token, feeds, onRecord, onStatus) {
+  if (liveSocket) return; // already connected; caller just wants to (re)attach a listener via main.js
+  const negotiated = await negotiateSignalR(token);
+  const ws = new WebSocket(buildLiveSocketUrl(negotiated.ConnectionToken), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  liveSocket = ws;
+
+  ws.on('open', () => {
+    ws.send(JSON.stringify({ H: SIGNALR_HUB, M: 'Subscribe', A: [feeds], I: 0 }));
+    if (onStatus) onStatus('connected');
+  });
+  ws.on('message', (raw) => {
+    for (const rec of parseSignalRFrame(raw.toString(), feeds)) onRecord(rec.feed, rec.data);
+  });
+  ws.on('close', () => {
+    if (liveSocket !== ws) return; // superseded by a newer socket already
+    liveSocket = null;
+    if (onStatus) onStatus('disconnected');
+    liveReconnectTimer = setTimeout(() => {
+      connectLiveSocket(token, feeds, onRecord, onStatus).catch((e) => onStatus && onStatus('error', e?.message));
+    }, LIVE_RECONNECT_MS);
+  });
+  ws.on('error', (err) => {
+    if (onStatus) onStatus('error', err && err.message);
+  });
+}
+
+function disconnectLiveSocket() {
+  if (liveReconnectTimer) {
+    clearTimeout(liveReconnectTimer);
+    liveReconnectTimer = null;
+  }
+  if (liveSocket) {
+    try { liveSocket.close(); } catch (_) {}
+    liveSocket = null;
+  }
+}
+
 module.exports = {
   LIVETIMING_BASE,
   fetchSyncData,
@@ -393,4 +536,8 @@ module.exports = {
   REPLAY_FEEDS,
   resolveSessionPath,
   loadSession,
+  negotiateSignalR,
+  parseSignalRFrame,
+  connectLiveSocket,
+  disconnectLiveSocket,
 };

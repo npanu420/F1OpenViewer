@@ -189,6 +189,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     'sync.cancel': 'Cancel sync',
     'sync.runningBadge': 'Sync running',
     'sync.runningBadgeBuffering': 'Waiting for main feed…',
+    'sync.reference': 'reference',
+    'sync.ahead': 'ahead',
+    'sync.behind': 'behind',
+    'sync.speedUp': 'speed up',
+    'sync.slowDown': 'slow down',
 
     // Generic UI
     'ui.archive': 'Archive',
@@ -384,6 +389,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     'sync.cancel': 'Annulla sync',
     'sync.runningBadge': 'Sync attivo',
     'sync.runningBadgeBuffering': 'Attesa main feed…',
+    'sync.reference': 'riferimento',
+    'sync.ahead': 'avanti',
+    'sync.behind': 'indietro',
+    'sync.speedUp': 'velocizza',
+    'sync.slowDown': 'rallenta',
 
     // Generic UI
     'ui.archive': 'Archivio',

@@ -91,13 +91,21 @@ export type PreloadApi = {
     getSyncData(meetingKey: string | number, sessionKey: string | number): Promise<{ sessionStartSec: number; channelDiffs: Record<string, { diff: number; diffV2: number }>; contentId: string | null } | null>;
     /** Fetch a team radio clip's audio bytes (base64). The renderer's network stack can't reach the CDN directly. */
     getAudio(sessionPath: string, clipPath: string): Promise<string>;
-    /** Open a standalone live-timing window; it resolves the path + sync itself so the click is instant. */
-    openWindow(opts: { path?: string; title?: string; year?: number; sessionKey?: string | number; meetingKey?: string | number; meetingNumber?: number; meetingName?: string; sessionName?: string; sessionType?: string }): Promise<{ ok: boolean }>;
+    /** Open a standalone live-timing window; it resolves the path + sync itself so the click is instant.
+     *  `live: true` opens it in live (SignalR) mode instead of replay for a session still in progress. */
+    openWindow(opts: { path?: string; title?: string; year?: number; sessionKey?: string | number; meetingKey?: string | number; meetingNumber?: number; meetingName?: string; sessionName?: string; sessionType?: string; live?: boolean }): Promise<{ ok: boolean }>;
     /** Source window: publish the main-feed video clock for live-timing sync. wallClockMs is the
      *  frame's real broadcast UTC (DASH only) enabling exact auto-sync; null falls back to manual. */
     reportClock(payload: { timeSec: number; paused: boolean; wallClockMs: number | null }): void;
     /** Timing window: subscribe to the relayed video clock. Returns an unsubscribe fn. */
     onClock(callback: (payload: { timeSec: number; paused: boolean; wallClockMs: number | null }) => void): () => void;
+    /** Starts (or attaches to) the shared live SignalR connection. Returns the archive path once
+     *  resolvable (for team-radio audio URLs) and whether an account token was available. */
+    liveStart(opts: { year?: number; sessionKey?: string | number; meetingName?: string; sessionName?: string }): Promise<{ path: string | null; hasToken: boolean }>;
+    liveStop(): Promise<{ ok: boolean }>;
+    /** Live feed records: same (feed,data) shape replay records feed into the reducer. */
+    onLiveUpdate(callback: (payload: { feed: string; data: unknown }) => void): () => void;
+    onLiveStatus(callback: (payload: { status: string; detail?: string }) => void): () => void;
   };
 };
 

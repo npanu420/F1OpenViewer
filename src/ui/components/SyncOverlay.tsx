@@ -30,14 +30,14 @@ interface SyncOverlayProps {
 function StreamRow({ stream }: { stream: SyncStreamInfo }) {
   const { t } = useLocale();
   const offsetAbs = Math.abs(stream.offset);
-  const direction = stream.offset > 0 ? 'avanti' : stream.offset < 0 ? 'indietro' : '';
+  const direction = stream.offset > 0 ? t('sync.ahead') : stream.offset < 0 ? t('sync.behind') : '';
   const rateLabel =
     stream.isReference
-      ? '1.00×  (riferimento)'
+      ? `1.00×  (${t('sync.reference')})`
       : stream.rate > 1
-      ? `${stream.rate.toFixed(2)}×  ↑ velocizza`
+      ? `${stream.rate.toFixed(2)}×  ↑ ${t('sync.speedUp')}`
       : stream.rate < 1
-      ? `${stream.rate.toFixed(2)}×  ↓ rallenta`
+      ? `${stream.rate.toFixed(2)}×  ↓ ${t('sync.slowDown')}`
       : '1.00×';
 
   return (
@@ -213,7 +213,7 @@ export function SyncOverlay({
                     onClick={onClose}
                     className="w-full py-2.5 rounded-lg font-heading text-sm font-bold tracking-wider bg-primary text-primary-foreground border border-primary hover:opacity-90 transition-opacity"
                   >
-                    Chiudi
+                    {t('ui.close')}
                   </button>
                 </div>
               )}

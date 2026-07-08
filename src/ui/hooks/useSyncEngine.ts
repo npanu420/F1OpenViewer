@@ -221,7 +221,7 @@ export function useSyncEngine() {
   );
 
   const startSync = useCallback(
-    (entries: SyncEntry[]) => {
+    (entries: SyncEntry[], opts?: { silent?: boolean }) => {
       stopTimers();
       resetRates();
       enginePausedRef.current.clear();
@@ -273,7 +273,10 @@ export function useSyncEngine() {
       const initial = computeAndCorrect(false);
       setSyncStreams(initial.infos);
       setSyncStatus('syncing');
-      setShowSyncOverlay(true);
+      // Auto-triggered syncs (a new stream starting) run in the background. The minimized
+      // floating badge (isSyncEngineRunning && !showSyncOverlay) still shows it's working.
+      // Only a user-clicked Sync shows the full popup.
+      setShowSyncOverlay(!opts?.silent);
       setIsEngineActive(true);
 
       const minDoneDelay = getSyncDoneDelayMs();

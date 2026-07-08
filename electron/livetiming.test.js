@@ -99,6 +99,23 @@ test('parseJsonStream: plain feed, multi-record with BOM and CRLF', () => {
   assert.equal(recs[1].offsetMs, 65070);
 });
 
+test('parseJsonStream: samples compressed feeds 1-in-SAMPLE_STRIDE, plain feeds untouched', () => {
+  const mk = (offsetSec, n) => {
+    const ts = `00:00:${String(offsetSec).padStart(2, '0')}.000`;
+    const b64 = zlib.deflateRawSync(Buffer.from(JSON.stringify({ n }), 'utf8')).toString('base64');
+    return `${ts}${JSON.stringify(b64)}`;
+  };
+  const lines = Array.from({ length: 20 }, (_, i) => mk(i, i));
+  const body = lines.join('\r\n');
+  const recs = lt.parseJsonStream(body, 'CarData.z');
+  // 20 lines, keep 1 in 5 → indices 0,5,10,15.
+  assert.deepEqual(recs.map((r) => r.data.n), [0, 5, 10, 15]);
+
+  const plainLines = Array.from({ length: 20 }, (_, i) => `00:00:${String(i).padStart(2, '0')}.000{"n":${i}}`);
+  const plainRecs = lt.parseJsonStream(plainLines.join('\r\n'), 'TimingData');
+  assert.equal(plainRecs.length, 20); // not sampled
+});
+
 test('parseJsonStream: skips malformed lines, keeps good ones', () => {
   const body =
     '00:00:01.000{"a":1}\n' +
@@ -199,6 +216,49 @@ test('findSession: meetingName scopes the session-name match (replay resolution)
   assert.equal(lt.findSession(index, { meetingName: 'austrian', sessionName: 'Sprint Qualifying' }).path, 'aut/sq/');
   // wrong meeting → no match even though the session name exists elsewhere
   assert.equal(lt.findSession(index, { meetingName: 'Monaco', sessionName: 'Race' }), null);
+});
+
+test('parseSignalRFrame: initial R snapshot (positional array), same order as requested feeds', () => {
+  const feeds = ['DriverList', 'TimingData'];
+  const frame = JSON.stringify({ R: [{ '1': { Tla: 'VER' } }, { Lines: {} }], I: '0' });
+  const recs = lt.parseSignalRFrame(frame, feeds);
+  assert.deepEqual(recs, [
+    { feed: 'DriverList', data: { '1': { Tla: 'VER' } } },
+    { feed: 'TimingData', data: { Lines: {} } },
+  ]);
+});
+
+test('parseSignalRFrame: R as a keyed object', () => {
+  const feeds = ['DriverList', 'TimingData'];
+  const frame = JSON.stringify({ R: { TimingData: { Lines: {} } } });
+  assert.deepEqual(lt.parseSignalRFrame(frame, feeds), [{ feed: 'TimingData', data: { Lines: {} } }]);
+});
+
+test('parseSignalRFrame: M delta frames', () => {
+  const frame = JSON.stringify({
+    C: 'd-1,0|A,0',
+    M: [{ H: 'Streaming', M: 'feed', A: ['TimingData', { Lines: { '1': { Position: '1' } } }, '2026-01-01T00:00:00Z'] }],
+  });
+  assert.deepEqual(lt.parseSignalRFrame(frame, []), [
+    { feed: 'TimingData', data: { Lines: { '1': { Position: '1' } } } },
+  ]);
+});
+
+test('parseSignalRFrame: keep-alive / malformed frames → []', () => {
+  assert.deepEqual(lt.parseSignalRFrame('{}', ['DriverList']), []);
+  assert.deepEqual(lt.parseSignalRFrame('not json', ['DriverList']), []);
+});
+
+test('parseSignalRFrame: inflates .z feeds (base64 string, not a JSON-quoted text line like jsonStream)', () => {
+  const obj = { Entries: [{ Cars: { '1': { Channels: { '2': 140 } } } }] };
+  const b64 = zlib.deflateRawSync(Buffer.from(JSON.stringify(obj), 'utf8')).toString('base64');
+  const frame = JSON.stringify({ M: [{ H: 'Streaming', M: 'feed', A: ['CarData.z', b64, 't'] }] });
+  assert.deepEqual(lt.parseSignalRFrame(frame, []), [{ feed: 'CarData.z', data: obj }]);
+});
+
+test('parseSignalRFrame: drops a .z record with a garbage blob instead of applying it', () => {
+  const frame = JSON.stringify({ M: [{ H: 'Streaming', M: 'feed', A: ['CarData.z', 'not-base64-deflate', 't'] }] });
+  assert.deepEqual(lt.parseSignalRFrame(frame, []), []);
 });
 
 test('findSession: no match / bad input → null', () => {

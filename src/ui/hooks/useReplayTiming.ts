@@ -183,9 +183,10 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
         clock = { remaining: fmtHMS(b.remainingMs), extrapolating: false };
       }
     }
+    const drivers = selectDrivers(store);
     setState((prev) => ({
       ...prev,
-      drivers: selectDrivers(store),
+      drivers,
       weather: selectWeather(store),
       trackStatus: selectTrackStatus(store),
       raceControl: selectRaceControl(store),

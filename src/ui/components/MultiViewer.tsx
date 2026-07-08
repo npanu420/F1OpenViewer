@@ -502,7 +502,7 @@ export function MultiViewer({
     setSlotToItemId((prev) => ({ ...prev, [slotId]: itemId }));
   }, []);
 
-  function handleSync() {
+  function handleSync(silent?: boolean) {
     const entries: Array<{
       id: string;
       label: string;
@@ -523,7 +523,7 @@ export function MultiViewer({
         isMainFeed: option.type === 'main',
       });
     }
-    startSync(entries);
+    startSync(entries, { silent });
   }
 
   // Auto-sync whenever a genuinely new stream starts playing, not on every embeddedPlayback
@@ -545,7 +545,7 @@ export function MultiViewer({
     if (autoSyncTimerRef.current != null) clearTimeout(autoSyncTimerRef.current);
     autoSyncTimerRef.current = setTimeout(() => {
       autoSyncTimerRef.current = null;
-      handleSync();
+      handleSync(true); // auto-triggered: run in the background, no popup to dismiss
     }, 500);
   }, [embeddedPlayback]);
   useEffect(() => () => {
@@ -658,9 +658,6 @@ export function MultiViewer({
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [fullscreenToolbarOpen]);
 
-  // Floating "sync running" badge: shown when the engine is active but the user has minimized
-  // the overlay so they can keep watching. Click to bring the dialog back.
-  const showMinimizedSyncBadge = isSyncEngineRunning && !showSyncOverlay;
   // "Waiting for main feed" appears when the engine has paused the others because the reference
   // is rebuffering. We detect this off the engine's output: during a buffer-hold, every non-ref
   // entry is reported with rate=1 and done=false (no rate-nudge / no seek happening) while the
@@ -673,6 +670,25 @@ export function MultiViewer({
     refStream != null &&
     nonRefStreams.length > 0 &&
     nonRefStreams.every((s) => !s.done && Math.abs(s.rate - 1) < 0.001);
+
+  // The engine stays "active" indefinitely after done when keepLocked watches for future drift,
+  // so it never naturally goes idle. Without this, the floating badge would sit there forever
+  // saying "Sync running" even though nothing is actively happening. Auto-dismiss it a few
+  // seconds after reaching done; a fresh sync (syncStatus back to 'syncing') brings it back.
+  const [badgeDismissed, setBadgeDismissed] = useState(false);
+  useEffect(() => {
+    if (syncStatus === 'syncing' || isWaitingForMain) {
+      setBadgeDismissed(false);
+      return;
+    }
+    if (syncStatus === 'done') {
+      const id = setTimeout(() => setBadgeDismissed(true), 3000);
+      return () => clearTimeout(id);
+    }
+  }, [syncStatus, isWaitingForMain]);
+  // Floating "sync running" badge: shown when the engine is active but the user has minimized
+  // the overlay so they can keep watching. Click to bring the dialog back.
+  const showMinimizedSyncBadge = isSyncEngineRunning && !showSyncOverlay && !badgeDismissed;
 
   return (
     <>
@@ -694,13 +710,13 @@ export function MultiViewer({
             exit={{ opacity: 0, y: 12 }}
             transition={{ duration: 0.18 }}
             className="fixed bottom-4 right-4 z-[58] flex items-center gap-2 px-3 py-2 rounded-full border border-border/60 bg-background/90 backdrop-blur shadow-lg hover:bg-accent/40 transition-colors"
-            title={isWaitingForMain ? t('sync.runningBadgeBuffering') : t('sync.runningBadge')}
+            title={isWaitingForMain ? t('sync.runningBadgeBuffering') : syncStatus === 'done' ? t('sync.synced') : t('sync.runningBadge')}
           >
             <RefreshCw
               className={`w-3.5 h-3.5 ${syncStatus === 'syncing' || isWaitingForMain ? 'animate-spin text-primary' : 'text-emerald-400'}`}
             />
             <span className="font-heading text-[11px] font-bold tracking-wider">
-              {isWaitingForMain ? t('sync.runningBadgeBuffering') : t('sync.runningBadge')}
+              {isWaitingForMain ? t('sync.runningBadgeBuffering') : syncStatus === 'done' ? t('sync.synced') : t('sync.runningBadge')}
             </span>
           </motion.button>
         )}
@@ -731,7 +747,7 @@ export function MultiViewer({
               {showSyncButton && (
                 <button
                   type="button"
-                  onClick={handleSync}
+                  onClick={() => handleSync()}
                   disabled={!canSync || syncStatus === 'syncing'}
                   className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   title={t('sync.inProgressDescription')}
@@ -919,7 +935,7 @@ export function MultiViewer({
                     {showSyncButton && (
                       <button
                         type="button"
-                        onClick={handleSync}
+                        onClick={() => handleSync()}
                         disabled={!canSync || syncStatus === 'syncing'}
                         title={t('sync.inProgressDescription')}
                         className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border border-border bg-accent/40 hover:bg-accent/60 disabled:opacity-50 disabled:cursor-not-allowed"

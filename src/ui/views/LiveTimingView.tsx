@@ -1,7 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Pause, Wind, Thermometer, Droplets, Gauge, CloudRain, Radio, Link2, Unlink } from 'lucide-react';
 import { useReplayTiming } from '../hooks/useReplayTiming';
-import type { DriverRow, SectorView, TeamRadioClip } from '../../domain/timing';
+import { useLiveTiming, type LiveTimingQuery } from '../hooks/useLiveTiming';
+import type {
+  DriverRow,
+  SectorView,
+  TeamRadioClip,
+  WeatherView,
+  RaceControlMessage,
+} from '../../domain/timing';
 
 interface ResolveQuery {
   year: number | null;
@@ -12,7 +19,13 @@ interface ResolveQuery {
   sessionKey?: string;
 }
 
-function hashParams(): { path: string; title: string; syncStart: number | null; query: ResolveQuery | null } {
+function hashParams(): {
+  path: string;
+  title: string;
+  syncStart: number | null;
+  live: boolean;
+  query: ResolveQuery | null;
+} {
   const raw = window.location.hash.replace(/^#/, '');
   const q = raw.includes('?') ? raw.split('?')[1] : '';
   const p = new URLSearchParams(q);
@@ -31,7 +44,13 @@ function hashParams(): { path: string; title: string; syncStart: number | null; 
         sessionType: p.get('sessionType') || undefined,
         sessionKey: p.get('sessionKey') || undefined,
       };
-  return { path, title: p.get('title') || '', syncStart: num(p.get('syncStart')), query };
+  return {
+    path,
+    title: p.get('title') || '',
+    syncStart: num(p.get('syncStart')),
+    live: p.get('live') === '1',
+    query,
+  };
 }
 
 function fmtOffsetSigned(ms: number): string {
@@ -360,82 +379,62 @@ function WeatherStat({ icon, label, value }: { icon: React.ReactNode; label: str
   );
 }
 
-export function LiveTimingView() {
-  const initial = useMemo(hashParams, []);
-  const [resolved, setResolved] = useState<{ path: string; title: string; syncStart: number | null } | null>(
-    initial.path ? { path: initial.path, title: initial.title, syncStart: initial.syncStart } : null,
-  );
-  const [resolveErr, setResolveErr] = useState<string | null>(null);
+interface TimingBodyProps {
+  title: string;
+  drivers: DriverRow[];
+  weather: WeatherView | null;
+  trackStatus: { status: string; label: string } | null;
+  raceControl: RaceControlMessage[];
+  clock: { remaining: string; extrapolating: boolean } | null;
+  lapCount: { current: number; total: number } | null;
+  teamRadio: TeamRadioClip[];
+  sessionPath: string;
+  headerBadge?: React.ReactNode;
+  footer: React.ReactNode;
+}
 
-  // No direct path means we resolve the archive path and sync anchor here in this window, so the
-  // click that opened it could return instantly. Runs once on mount.
-  useEffect(() => {
-    if (resolved || !initial.query) return;
-    let cancel = false;
-    (async () => {
-      try {
-        const lt = window.f1?.liveTiming;
-        if (!lt?.resolveSession) throw new Error('Live timing unavailable.');
-        const found = await lt.resolveSession(initial.query!.year as number, initial.query!);
-        if (!found) throw new Error('Live timing session not found in archive.');
-        const sd = lt.getSyncData ? await lt.getSyncData(found.meeting?.Key as any, found.session?.Key as any).catch(() => null) : null;
-        if (cancel) return;
-        setResolved({
-          path: found.path,
-          title: initial.title || found.session?.Name || '',
-          syncStart: sd?.sessionStartSec ?? null,
-        });
-      } catch (e: any) {
-        if (!cancel) setResolveErr(e?.message || 'Live timing unavailable.');
-      }
-    })();
-    return () => { cancel = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const t = useReplayTiming(resolved?.path || null, resolved?.syncStart ?? null);
-  const path = resolved?.path || '';
-  const title = resolved?.title || initial.title;
-
-  if (resolveErr) {
-    return <div className="min-h-screen bg-background flex items-center justify-center text-destructive">{resolveErr}</div>;
-  }
-  if (!resolved || t.loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto mb-2" />
-          <p className="text-muted-foreground font-heading tracking-wider">Loading live timing…</p>
-        </div>
-      </div>
-    );
-  }
-  if (t.error) {
-    return <div className="min-h-screen bg-background flex items-center justify-center text-destructive">{t.error}</div>;
-  }
-
-  const w = t.weather;
+/**
+ * Everything shared between replay and live modes: header (title/clock/status/weather) and the
+ * timing table + race control/radio panel. The transport bar (replay: scrub+sync, live: a LIVE
+ * pill) is mode-specific, passed in as `footer`.
+ */
+function TimingBody({
+  title,
+  drivers,
+  weather: w,
+  trackStatus,
+  raceControl,
+  clock,
+  lapCount,
+  teamRadio,
+  sessionPath,
+  headerBadge,
+  footer,
+}: TimingBodyProps) {
   const tlaByNum: Record<string, string> = {};
-  for (const d of t.drivers) tlaByNum[d.number] = d.tla;
+  for (const d of drivers) tlaByNum[d.number] = d.tla;
+
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground flex flex-col">
       {/* Header: title, status, weather */}
       <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-card/60 flex-wrap">
         <div className="flex items-center gap-2">
+          {headerBadge}
           <span className="font-heading font-bold tracking-wider">{title || 'Live Timing'}</span>
-          {t.lapCount && (
+          {lapCount && (
             <span className="tabular-nums text-xs font-bold px-2 py-0.5 rounded bg-secondary">
-              LAP {t.lapCount.current}/{t.lapCount.total}
+              LAP {lapCount.current}/{lapCount.total}
             </span>
           )}
-          {t.clock && <span className="tabular-nums text-primary font-bold">{t.clock.remaining}</span>}
+          {clock && <span className="tabular-nums text-primary font-bold">{clock.remaining}</span>}
         </div>
-        {t.trackStatus && (
+        {trackStatus && (
           <span
             className={`text-xs font-bold px-2 py-0.5 rounded ${
-              t.trackStatus.status === '1' ? 'bg-emerald-600/80 text-white' : 'bg-amber-500/80 text-black'
+              trackStatus.status === '1' ? 'bg-emerald-600/80 text-white' : 'bg-amber-500/80 text-black'
             }`}
           >
-            {t.trackStatus.label}
+            {trackStatus.label}
           </span>
         )}
         {w && (
@@ -465,8 +464,8 @@ export function LiveTimingView() {
             <div className="flex-1">Sectors</div>
             <div className="w-16 text-right pr-3">Spd</div>
           </div>
-          {t.drivers.map((row, i) => <DriverRowItem key={row.number} row={row} index={i} />)}
-          {!t.drivers.length && (
+          {drivers.map((row, i) => <DriverRowItem key={row.number} row={row} index={i} />)}
+          {!drivers.length && (
             <div className="p-8 text-center text-muted-foreground">No driver data at this point.</div>
           )}
         </div>
@@ -478,14 +477,14 @@ export function LiveTimingView() {
               Race Control
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
-              {t.raceControl.map((m, i) => (
+              {raceControl.map((m, i) => (
                 <div key={i} className="px-3 py-2 border-b border-border/40 text-xs">
                   {m.flag && <span className="font-bold mr-1" style={{ color: flagColor(m.flag) }}>{m.flag}</span>}
                   <span className="text-foreground">{m.message}</span>
                   {m.lap != null && <span className="text-muted-foreground ml-1">(L{m.lap})</span>}
                 </div>
               ))}
-              {!t.raceControl.length && <div className="p-3 text-xs text-muted-foreground">No messages yet.</div>}
+              {!raceControl.length && <div className="p-3 text-xs text-muted-foreground">No messages yet.</div>}
             </div>
           </div>
 
@@ -494,56 +493,206 @@ export function LiveTimingView() {
               Team Radio
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
-              {t.teamRadio.map((clip, i) => (
-                <RadioClip key={i} clip={clip} tla={tlaByNum[clip.number] || ''} sessionPath={path} />
+              {teamRadio.map((clip, i) => (
+                <RadioClip key={i} clip={clip} tla={tlaByNum[clip.number] || ''} sessionPath={sessionPath} />
               ))}
-              {!t.teamRadio.length && <div className="p-3 text-xs text-muted-foreground">No clips yet.</div>}
+              {!teamRadio.length && <div className="p-3 text-xs text-muted-foreground">No clips yet.</div>}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Transport bar, always visible. Either self-driven or synced to the video master clock. */}
-      <div className="flex items-center gap-3 px-4 py-2 border-t border-border bg-card/60">
-        <button
-          type="button"
-          onClick={t.playing ? t.pause : t.play}
-          className="w-8 h-8 flex items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 shrink-0"
-          title={t.synced ? 'Detach from video and play manually' : t.playing ? 'Pause' : 'Play'}
-        >
-          {t.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-        </button>
-        <span className="text-xs tabular-nums text-muted-foreground w-16 shrink-0">{fmtClock(t.offsetMs)}</span>
-        <input
-          type="range"
-          min={0}
-          max={t.durationMs || 1}
-          value={t.offsetMs}
-          onChange={(e) => t.seek(Number(e.target.value))}
-          className="flex-1 accent-primary"
-        />
-        <span className="text-xs tabular-nums text-muted-foreground w-16 shrink-0">{fmtClock(t.durationMs)}</span>
+      {footer}
+    </div>
+  );
+}
 
-        {t.synced ? (
-          <SyncControls
-            auto={t.autoSynced}
-            lap={t.lapCount}
-            syncOffsetMs={t.syncOffsetMs}
-            onNudge={t.nudgeSync}
-            onUnsync={t.unsync}
-            onCalibrate={t.calibrateToLap}
-          />
-        ) : (
-          <select
-            value={t.speed}
-            onChange={(e) => t.setSpeed(Number(e.target.value))}
-            className="bg-secondary text-foreground text-xs rounded px-2 py-1 border border-border shrink-0"
-            title="Playback speed (manual mode). Sync starts automatically when a video stream plays."
-          >
-            {[1, 2, 5, 10, 30, 60].map((s) => <option key={s} value={s}>{s}×</option>)}
-          </select>
-        )}
+function LoadingScreen({ label }: { label: string }) {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto mb-2" />
+        <p className="text-muted-foreground font-heading tracking-wider">{label}</p>
       </div>
     </div>
   );
+}
+
+function ErrorScreen({ message }: { message: string }) {
+  return <div className="min-h-screen bg-background flex items-center justify-center text-destructive">{message}</div>;
+}
+
+/** Replay mode: archive-driven, self-advancing/video-synced clock, scrub transport bar. */
+function ReplayTimingPanel({
+  path,
+  title,
+  syncStart,
+}: {
+  path: string;
+  title: string;
+  syncStart: number | null;
+}) {
+  const t = useReplayTiming(path, syncStart);
+  if (t.loading) return <LoadingScreen label="Loading live timing…" />;
+  if (t.error) return <ErrorScreen message={t.error} />;
+
+  const footer = (
+    <div className="flex items-center gap-3 px-4 py-2 border-t border-border bg-card/60">
+      <button
+        type="button"
+        onClick={t.playing ? t.pause : t.play}
+        className="w-8 h-8 flex items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 shrink-0"
+        title={t.synced ? 'Detach from video and play manually' : t.playing ? 'Pause' : 'Play'}
+      >
+        {t.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+      </button>
+      <span className="text-xs tabular-nums text-muted-foreground w-16 shrink-0">{fmtClock(t.offsetMs)}</span>
+      <input
+        type="range"
+        min={0}
+        max={t.durationMs || 1}
+        value={t.offsetMs}
+        onChange={(e) => t.seek(Number(e.target.value))}
+        className="flex-1 accent-primary"
+      />
+      <span className="text-xs tabular-nums text-muted-foreground w-16 shrink-0">{fmtClock(t.durationMs)}</span>
+      {t.synced ? (
+        <SyncControls
+          auto={t.autoSynced}
+          lap={t.lapCount}
+          syncOffsetMs={t.syncOffsetMs}
+          onNudge={t.nudgeSync}
+          onUnsync={t.unsync}
+          onCalibrate={t.calibrateToLap}
+        />
+      ) : (
+        <select
+          value={t.speed}
+          onChange={(e) => t.setSpeed(Number(e.target.value))}
+          className="bg-secondary text-foreground text-xs rounded px-2 py-1 border border-border shrink-0"
+          title="Playback speed (manual mode). Sync starts automatically when a video stream plays."
+        >
+          {[1, 2, 5, 10, 30, 60].map((s) => <option key={s} value={s}>{s}×</option>)}
+        </select>
+      )}
+    </div>
+  );
+
+  return (
+    <TimingBody
+      title={title}
+      drivers={t.drivers}
+      weather={t.weather}
+      trackStatus={t.trackStatus}
+      raceControl={t.raceControl}
+      clock={t.clock}
+      lapCount={t.lapCount}
+      teamRadio={t.teamRadio}
+      sessionPath={path}
+      footer={footer}
+    />
+  );
+}
+
+/** Resolves the archive path + MultiViewer sync anchor for a replay session before rendering it. */
+function ReplayResolvingPanel({ initial }: { initial: ReturnType<typeof hashParams> }) {
+  const [resolved, setResolved] = useState<{
+    path: string;
+    title: string;
+    syncStart: number | null;
+  } | null>(
+    initial.path
+      ? { path: initial.path, title: initial.title, syncStart: initial.syncStart }
+      : null,
+  );
+  const [resolveErr, setResolveErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (resolved || !initial.query) return;
+    let cancel = false;
+    (async () => {
+      try {
+        const lt = window.f1?.liveTiming;
+        if (!lt?.resolveSession) throw new Error('Live timing unavailable.');
+        const found = await lt.resolveSession(initial.query!.year as number, initial.query!);
+        if (!found) throw new Error('Live timing session not found in archive.');
+        const sd = lt.getSyncData ? await lt.getSyncData(found.meeting?.Key as any, found.session?.Key as any).catch(() => null) : null;
+        if (cancel) return;
+        setResolved({
+          path: found.path,
+          title: initial.title || found.session?.Name || '',
+          syncStart: sd?.sessionStartSec ?? null,
+        });
+      } catch (e: any) {
+        if (!cancel) setResolveErr(e?.message || 'Live timing unavailable.');
+      }
+    })();
+    return () => { cancel = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (resolveErr) return <ErrorScreen message={resolveErr} />;
+  if (!resolved) return <LoadingScreen label="Loading live timing…" />;
+  return <ReplayTimingPanel path={resolved.path} title={resolved.title} syncStart={resolved.syncStart} />;
+}
+
+function LivePill({ connected }: { connected: boolean }) {
+  return (
+    <span className={`flex items-center gap-1.5 text-xs font-heading font-bold tracking-widest ${connected ? 'text-red-500' : 'text-muted-foreground'}`}>
+      <span className="relative flex h-2.5 w-2.5">
+        {connected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />}
+        <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${connected ? 'bg-red-500' : 'bg-muted-foreground'}`} />
+      </span>
+      {connected ? 'LIVE' : 'CONNECTING…'}
+    </span>
+  );
+}
+
+/** Live mode: SignalR-driven, no transport bar. The timing store just is whatever "now" is. */
+function LiveTimingPanel({
+  query,
+  title,
+}: {
+  query: LiveTimingQuery;
+  title: string;
+}) {
+  const t = useLiveTiming(query);
+  if (t.loading) return <LoadingScreen label="Connecting to live timing…" />;
+  if (t.error) return <ErrorScreen message={t.error} />;
+
+  const footer = (
+    <div className="flex items-center gap-3 px-4 py-2 border-t border-border bg-card/60">
+      <LivePill connected={t.connected} />
+    </div>
+  );
+
+  return (
+    <TimingBody
+      title={title}
+      drivers={t.drivers}
+      weather={t.weather}
+      trackStatus={t.trackStatus}
+      raceControl={t.raceControl}
+      clock={t.clock}
+      lapCount={t.lapCount}
+      teamRadio={t.teamRadio}
+      sessionPath={t.sessionPath || ''}
+      headerBadge={<LivePill connected={t.connected} />}
+      footer={footer}
+    />
+  );
+}
+
+export function LiveTimingView() {
+  const initial = useMemo(hashParams, []);
+  if (initial.live) {
+    const query: LiveTimingQuery = {
+      year: initial.query?.year ?? undefined,
+      sessionKey: initial.query?.sessionKey,
+      meetingName: initial.query?.meetingName,
+      sessionName: initial.query?.sessionName,
+    };
+    return <LiveTimingPanel query={query} title={initial.title} />;
+  }
+  return <ReplayResolvingPanel initial={initial} />;
 }

@@ -1250,4 +1250,7 @@ module.exports = {
   get isClientReady() {
     return !!f1Client && f1Client.isReady;
   },
+  get ascendonToken() {
+    return f1Client?.ascendon || null;
+  },
 };

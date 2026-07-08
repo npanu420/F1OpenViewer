@@ -358,7 +358,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
               step={0.05}
               value={muted ? 0 : volume}
               onChange={(e) => setVol(Number(e.target.value))}
-              className={`${compact ? 'w-0 group-hover:w-14' : 'w-16'} transition-[width] duration-200 accent-red-600 cursor-pointer`}
+              className={`${compact ? 'w-0 opacity-0 group-hover:w-14 group-hover:opacity-100' : 'w-16'} transition-[width,opacity] duration-200 accent-red-600 cursor-pointer`}
               title="Volume"
             />
           </div>

@@ -61,6 +61,20 @@ contextBridge.exposeInMainWorld('f1', {
     getSyncData: (meetingKey, sessionKey) => ipcRenderer.invoke('livetiming:getSyncData', meetingKey, sessionKey),
     getAudio: (sessionPath, clipPath) => ipcRenderer.invoke('livetiming:getAudio', sessionPath, clipPath),
     openWindow: (opts) => ipcRenderer.invoke('livetiming:openWindow', opts),
+    /** Starts (or attaches to) the shared live SignalR connection for this window. */
+    liveStart: (opts) => ipcRenderer.invoke('livetiming:liveStart', opts),
+    liveStop: () => ipcRenderer.invoke('livetiming:liveStop'),
+    /** Live feed records: {feed, data}, same shape replay records feed into the reducer. */
+    onLiveUpdate: (callback) => {
+      const handler = (_event, payload) => { try { callback(payload); } catch (_) {} };
+      ipcRenderer.on('livetiming:liveUpdate', handler);
+      return () => ipcRenderer.removeListener('livetiming:liveUpdate', handler);
+    },
+    onLiveStatus: (callback) => {
+      const handler = (_event, payload) => { try { callback(payload); } catch (_) {} };
+      ipcRenderer.on('livetiming:liveStatus', handler);
+      return () => ipcRenderer.removeListener('livetiming:liveStatus', handler);
+    },
     /** Source window: publish the main-feed video clock for live-timing sync. */
     reportClock: (payload) => ipcRenderer.send('livetiming:reportClock', payload),
     /** Timing window: subscribe to the relayed video clock. Returns an unsubscribe fn. */
