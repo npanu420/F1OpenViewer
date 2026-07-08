@@ -428,7 +428,9 @@ export function ResizableStreamGrid({
                       setSlotStreamAspectRatio((prev) => ({ ...prev, [slotId]: ar }));
                       // First real aspect for this stream: snap the slot's default/leftover size
                       // to match (keeps width, fits height) so it doesn't start out letterboxed.
-                      if (!autoFittedSlots.current.has(slotId) && containerWidth > 0) {
+                      // Skipped when compaction is disabled (fullscreen/standalone window): there's
+                      // no reflow to absorb a resize there, so it would just overlap neighbors.
+                      if (!disableCompact && !autoFittedSlots.current.has(slotId) && containerWidth > 0) {
                         autoFittedSlots.current.add(slotId);
                         const li = layout.find((l) => l.i === slotId);
                         if (li) {

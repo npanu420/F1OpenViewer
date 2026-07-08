@@ -140,6 +140,7 @@ function createMultiviewWindow() {
       nodeIntegration: false,
       sandbox: false,
       plugins: true,
+      webSecurity: false, // avoid CORS blocks on manifest/segment/license F1 TV CDN
     },
   });
 
