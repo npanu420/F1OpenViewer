@@ -85,6 +85,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.mainFeedOnlySession': 'Only main feed available for this session.',
     'dashboard.gridEmptySlot': '— No stream —',
     'dashboard.gridSelectStream': 'Select a stream',
+    'dashboard.gridClearSlot': 'Clear slot',
+    'dashboard.shelfPickingHint': 'Click a slot to assign, or click the card again to cancel.',
     'dashboard.gridAddSlot': 'Add slot',
     'dashboard.sizeRatio': 'Set size',
     'dashboard.sizesSubmenu': 'Sizes',
@@ -109,6 +111,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.applyLayout': 'Apply',
     'dashboard.deleteLayout': 'Delete',
     'dashboard.savedLayoutsEmpty': 'No saved layouts. Save the current grid to create one.',
+    'dashboard.heroLatestLabel': 'Latest',
+    'dashboard.heroWatchCta': 'Watch',
 
     // Player
     'player.title': 'Player',
@@ -210,6 +214,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     'ui.themeLight': 'Light',
     'ui.timeoutStream': 'Stream load timeout (15s)',
     'ui.cancel': 'Cancel',
+    'ui.yes': 'Yes',
+    'ui.no': 'No',
     'ui.close': 'Close',
   },
   it: {
@@ -289,6 +295,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.mainFeedOnlySession': 'Solo ripresa principale disponibile per questa sessione.',
     'dashboard.gridEmptySlot': '— Nessuno stream —',
     'dashboard.gridSelectStream': 'Seleziona uno stream',
+    'dashboard.gridClearSlot': 'Svuota slot',
+    'dashboard.shelfPickingHint': 'Clicca uno slot per assegnare, o clicca di nuovo la card per annullare.',
     'dashboard.gridAddSlot': 'Aggiungi slot',
     'dashboard.sizeRatio': 'Imposta dimensione',
     'dashboard.sizesSubmenu': 'Dimensioni',
@@ -313,6 +321,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     'dashboard.applyLayout': 'Applica',
     'dashboard.deleteLayout': 'Elimina',
     'dashboard.savedLayoutsEmpty': 'Nessun layout salvato. Salva la griglia corrente per crearne uno.',
+    'dashboard.heroLatestLabel': 'Ultimo',
+    'dashboard.heroWatchCta': 'Guarda',
 
     'player.title': 'Player',
     'player.content': 'Contenuto',
@@ -410,6 +420,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     'ui.themeLight': 'Chiaro',
     'ui.timeoutStream': 'Stream load timeout (15s)',
     'ui.cancel': 'Annulla',
+    'ui.yes': 'Sì',
+    'ui.no': 'No',
     'ui.close': 'Chiudi',
   },
 };

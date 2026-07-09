@@ -167,7 +167,7 @@ function extractSessionsFromGPPage(containers) {
       // Skip F2/F3 content
       if (/\bF[23]\b/.test(title)) continue;
       const type = mapSubtypeToSessionType(subtype, videoType);
-      // Sessioni principali: solo REPLAY di meetingSession (FP, Q, Race, Sprint)
+      // Main sessions only: meetingSession REPLAY (FP, Q, race, sprint).
       if (videoType === 'meetingSession' && subtype === 'REPLAY') {
         sessions.push({ contentId, title: String(title).trim(), type });
       }
@@ -181,7 +181,7 @@ function extractSessionsFromGPPage(containers) {
  * Each season has: { year, pageId }
  */
 async function getVodSeasons() {
-  console.log('[VOD] getVodSeasons: caricamento archivio pagina', ARCHIVE_PAGE_ID);
+  console.log('[VOD] getVodSeasons: loading archive page', ARCHIVE_PAGE_ID);
   const archiveContainers = await client.fetchPage(ARCHIVE_PAGE_ID);
   const seasonItems = archiveContainers.flatMap((c) => c.retrieveItems?.resultObj?.containers || []);
   if (!seasonItems.length) throw new Error('No season items found on archive page.');
@@ -210,7 +210,7 @@ async function getVodSeasons() {
     if (inferredYear < 2018 || inferredYear > new Date().getFullYear()) continue;
     if (!seasonsMap.has(inferredYear)) {
       seasonsMap.set(inferredYear, { year: inferredYear, pageId });
-      console.log(`[VOD] anno dedotto dinamicamente: ${inferredYear} (page:${pageId})`);
+      console.log(`[VOD] inferred year ${inferredYear} from page ${pageId}`);
     }
   }
   // Explicit fallback: some recent seasons do not always appear in PAGE/493.
@@ -221,7 +221,7 @@ async function getVodSeasons() {
     }
   }
   const seasons = Array.from(seasonsMap.values()).sort((a, b) => b.year - a.year);
-  console.log('[VOD] Stagioni disponibili:', seasons.map(s => `${s.year}(page:${s.pageId})`).join(', '));
+  console.log('[VOD] seasons:', seasons.map(s => `${s.year}(page:${s.pageId})`).join(', '));
   return seasons;
 }
 
@@ -230,10 +230,10 @@ async function getVodSeasons() {
  * Each GP has: { pageId, meetingName, meetingNumber }
  */
 async function getVodEvents(seasonPageId) {
-  console.log('[VOD] getVodEvents: caricamento stagione pagina', seasonPageId);
+  console.log('[VOD] getVodEvents: loading season page', seasonPageId);
   const containers = await client.fetchPage(seasonPageId);
   const gpItems = extractEventsFromSeasonPage(containers);
-  console.log('[VOD] GP trovati (solo disputati):', gpItems.length);
+  console.log('[VOD] events found (held only):', gpItems.length);
   return gpItems.map((gp, i) => ({
     meetingKey: String(gp.pageId),
     meetingName: gp.meetingName,
@@ -246,10 +246,10 @@ async function getVodEvents(seasonPageId) {
  * Returns the sessions (FP, Q, Race, Sprint) of a GP given the GP pageId.
  */
 async function getVodSessions(gpPageId) {
-  console.log('[VOD] getVodSessions: caricamento GP pagina', gpPageId);
+  console.log('[VOD] getVodSessions: loading event page', gpPageId);
   const containers = await client.fetchPage(gpPageId);
   const { sessions } = extractSessionsFromGPPage(containers);
-  console.log('[VOD] Sessioni trovate:', sessions.length);
+  console.log('[VOD] sessions found:', sessions.length);
   return sessions;
 }
 
@@ -263,15 +263,15 @@ async function getVodCatalog() {
     const seasons = await getVodSeasons();
     for (const { year, pageId } of seasons) {
       const events = await getVodEvents(pageId).catch(e => {
-        console.warn(`[VOD] Stagione ${year} errore:`, e.message);
+        console.warn(`[VOD] season ${year} failed:`, e.message);
         return [];
       });
       if (!events.length) continue;
       result.seasons.push({ year, events: events.map(ev => ({ ...ev, sessions: [], onboard: [] })) });
     }
-    console.log('[VOD] Catalogo (solo stagioni+GP):', result.seasons.map(s => `${s.year}(${s.events.length}GP)`).join(', '));
+    console.log('[VOD] catalog (seasons+events only):', result.seasons.map(s => `${s.year}(${s.events.length} events)`).join(', '));
   } catch (e) {
-    console.error('[VOD] Errore fatale getVodCatalog:', e?.message, e?.stack);
+    console.error('[VOD] getVodCatalog failed:', e?.message, e?.stack);
   }
   return result;
 }

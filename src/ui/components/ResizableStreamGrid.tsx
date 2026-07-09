@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
-import { Plus, GripVertical, ChevronRight } from 'lucide-react';
+import { Plus, GripVertical, ChevronRight, X } from 'lucide-react';
 import type { EventCallback, Layout, LayoutItem } from 'react-grid-layout';
 import { calcGridColWidth, calcGridItemWHPx } from 'react-grid-layout/core';
 import { ReactGridLayout, WidthProvider } from 'react-grid-layout/legacy';
@@ -8,23 +8,47 @@ import type { CatalogItem } from '../../domain/catalog';
 import type { PlaybackInfo } from '../../services/entitlement';
 import { StreamPanel, type StreamPanelHandle } from './StreamPanel';
 
+/** MIME type for DriverShelf drag onto a grid slot. */
+export const DRIVER_SHELF_DRAG_TYPE = 'application/x-f1ov-stream-id';
+
 import 'react-grid-layout/css/styles.css';
 
-const GridLayoutWithWidth = WidthProvider(ReactGridLayout);
+// react-grid-layout 2.2.2 /legacy types disagree on ref callback (null vs undefined).
+// Bug is in their .d.ts, not our usage. Hand-declare the props we pass to GridLayoutWithWidth.
+interface GridLayoutWithWidthProps {
+  className?: string;
+  layout: Layout;
+  onLayoutChange: (layout: Layout) => void;
+  onResizeStop?: EventCallback;
+  cols: number;
+  rowHeight: number;
+  margin: [number, number];
+  containerPadding: [number, number];
+  isDraggable?: boolean;
+  isResizable?: boolean;
+  draggableHandle?: string;
+  resizeHandles?: string[];
+  compactType?: 'vertical' | 'horizontal' | null;
+  preventCollision?: boolean;
+  useCSSTransforms?: boolean;
+  autoSize?: boolean;
+  children?: React.ReactNode;
+}
+
+const GridLayoutWithWidth = WidthProvider(ReactGridLayout) as unknown as React.ComponentType<GridLayoutWithWidthProps>;
 
 export type StreamOption = {
   item: CatalogItem;
   label: string;
   type: 'main' | 'driver' | 'data';
   driverNumber?: number;
+  driverName?: string;
+  teamName?: string;
 };
 
-/**
- * Initial multiview grid: main feed large (4/6), two onboard-sized columns (2/6), four half-width rows (1/2).
- * Every w×h matches ratioToGridSize for an entry in SIZE_RATIOS.
- */
+/** Default grid: big main (4/6), two 2/6 columns, four 1/2 rows. */
 const DEFAULT_LAYOUT: Layout = [
-  { i: 'slot-0', x: 0, y: 0, w: 8, h: 7, minW: 2, minH: 2 }, // 4/6 — main
+  { i: 'slot-0', x: 0, y: 0, w: 8, h: 7, minW: 2, minH: 2 }, // 4/6 main
   { i: 'slot-1', x: 8, y: 0, w: 4, h: 3, minW: 2, minH: 2 }, // 2/6
   { i: 'slot-2', x: 8, y: 3, w: 4, h: 3, minW: 2, minH: 2 }, // 2/6
   { i: 'slot-3', x: 0, y: 7, w: 6, h: 5, minW: 2, minH: 2 }, // 1/2
@@ -37,14 +61,11 @@ export function getDefaultGridLayout(): Layout {
   return DEFAULT_LAYOUT.map((item) => ({ ...item }));
 }
 
-/** (num, den) → grid w (12 cols), h (rows); ROWS_BASE scales vertical units. */
+/** Fraction -> grid w/h (12 cols, ROWS_BASE rows). */
 const COLS = 12;
 const ROWS_BASE = 10;
 
-/**
- * Preset size fractions for context menu, ordered by grid area (w×h) largest → smallest
- * (same formula as ratioToGridSize).
- */
+/** Context-menu size presets, largest area first. */
 export const SIZE_RATIOS: { num: number; den: number }[] = [
   { num: 3, den: 4 },
   { num: 4, den: 6 },
@@ -158,6 +179,10 @@ interface ResizableStreamGridProps {
   onAudioFocus?: (itemId: string) => void;
   /** Per-item initial seek position (seconds) for porting playback into the standalone window. */
   initialSeekSecondsByItemId?: Record<string, number>;
+  /** DriverShelf pick waiting for a slot click (fallback if drag-drop fails). */
+  pickingItemId?: string | null;
+  /** Slot consumed the pick (assigned or cancelled). */
+  onPickingConsumed?: () => void;
 }
 
 const DEFAULT_ROW_HEIGHT = 80;
@@ -185,11 +210,14 @@ export function ResizableStreamGrid({
   audioFocusedItemId = null,
   onAudioFocus,
   initialSeekSecondsByItemId,
+  pickingItemId = null,
+  onPickingConsumed,
 }: ResizableStreamGridProps) {
   const { t } = useLocale();
   const refsByItemId = useRef<Map<string, StreamPanelHandle>>(new Map());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; slotId: string } | null>(null);
   const [sizesSubmenuVisible, setSizesSubmenuVisible] = useState(false);
+  const [dragOverSlotId, setDragOverSlotId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   /** slotId → videoWidth/videoHeight ratio when the slot is playing */
@@ -239,10 +267,7 @@ export function ResizableStreamGrid({
       ? Math.max(20, (containerWidth / 12) * 0.65)
       : DEFAULT_ROW_HEIGHT;
 
-  // DEFAULT_LAYOUT's h values are plain w:h ratios and don't account for the slot header's
-  // pixel height, so the pristine default is never actually 16:9 once that chrome is subtracted
-  // (hence bars on first load, before any stream reports its real aspect). Fix it once, at the
-  // real container width, the same way manual resize already snaps to a stream's aspect.
+  // Default layout h ignores slot header height, so first paint isn't true 16:9. Fix once we know width.
   const defaultLayoutFixed = useRef(false);
   useEffect(() => {
     if (defaultLayoutFixed.current || containerWidth <= 0) return;
@@ -372,33 +397,65 @@ export function ResizableStreamGrid({
           const itemId = slotToItemId[slotId] || '';
           const option = streamOptions.find((o) => o.item.id === itemId);
 
+          const isDropTarget = dragOverSlotId === slotId;
+          const isPickTarget = pickingItemId != null;
+
           return (
             <div
               key={slotId}
-              className={`grid-slot group relative rounded-lg border border-border/50 bg-card overflow-hidden flex flex-col min-h-0 w-full h-full ${hideSlotHeadersUntilHover ? 'grid-slot-hide-header-until-hover' : ''}`}
+              className={`grid-slot group relative rounded-lg border overflow-hidden flex flex-col min-h-0 w-full h-full transition-colors ${
+                isDropTarget || (isPickTarget && itemId !== pickingItemId)
+                  ? 'border-primary ring-2 ring-primary/50'
+                  : 'border-border/50'
+              } bg-card ${hideSlotHeadersUntilHover ? 'grid-slot-hide-header-until-hover' : ''} ${isPickTarget ? 'cursor-pointer' : ''}`}
               style={{ minHeight: 0 }}
               onContextMenu={(e) => handleContextMenu(e, slotId)}
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes(DRIVER_SHELF_DRAG_TYPE)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                setDragOverSlotId(slotId);
+              }}
+              onDragLeave={() => setDragOverSlotId((cur) => (cur === slotId ? null : cur))}
+              onDrop={(e) => {
+                const droppedId = e.dataTransfer.getData(DRIVER_SHELF_DRAG_TYPE);
+                if (!droppedId) return;
+                e.preventDefault();
+                setDragOverSlotId(null);
+                onSlotToItemIdChange(slotId, droppedId);
+              }}
+              onClick={() => {
+                if (!pickingItemId) return;
+                onSlotToItemIdChange(slotId, pickingItemId);
+                onPickingConsumed?.();
+              }}
             >
-              {/* Header: drag handle + stream selector — when hideSlotHeadersUntilHover it's absolute so content fills full height */}
+              {/* Slot header: drag, label, clear. Absolute when hideSlotHeadersUntilHover. */}
               <div
                 className={`grid-slot-header flex items-center gap-2 px-2 py-1.5 border-b border-border/50 shrink-0 bg-card transition-opacity duration-200 ${hideSlotHeadersUntilHover ? 'absolute top-0 left-0 right-0 z-10 opacity-0 group-hover:opacity-100 border-border/50' : ''}`}
               >
-                <div className="grid-drag-handle cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5 touch-none">
-                  <GripVertical className="w-4 h-4" />
-                </div>
-                <select
-                  className="flex-1 min-w-0 text-xs font-heading bg-accent/50 border border-border/50 rounded px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  value={itemId}
-                  onChange={(e) => onSlotToItemIdChange(slotId, e.target.value)}
+                <div
+                  className="grid-drag-handle cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5 touch-none"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <option value="">{t('dashboard.gridEmptySlot')}</option>
-                  {streamOptions.map((opt) => (
-                    <option key={opt.item.id} value={opt.item.id}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  <GripVertical className="w-4 h-4" />
+                </div>
+                <span className="flex-1 min-w-0 text-xs font-heading truncate text-foreground">
+                  {option ? option.label : t('dashboard.gridEmptySlot')}
+                </span>
+                {option && (
+                  <button
+                    type="button"
+                    title={t('dashboard.gridClearSlot')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSlotToItemIdChange(slotId, '');
+                    }}
+                    className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
               {/* Content: fills remaining height (or full height when header is absolute) */}
@@ -426,10 +483,7 @@ export function ResizableStreamGrid({
                       if (vw <= 0 || vh <= 0) return;
                       const ar = vw / vh;
                       setSlotStreamAspectRatio((prev) => ({ ...prev, [slotId]: ar }));
-                      // First real aspect for this stream: snap the slot's default/leftover size
-                      // to match (keeps width, fits height) so it doesn't start out letterboxed.
-                      // Skipped when compaction is disabled (fullscreen/standalone window): there's
-                      // no reflow to absorb a resize there, so it would just overlap neighbors.
+                      // First aspect report: fit slot to stream. Skip in fullscreen (no compaction/reflow).
                       if (!disableCompact && !autoFittedSlots.current.has(slotId) && containerWidth > 0) {
                         autoFittedSlots.current.add(slotId);
                         const li = layout.find((l) => l.i === slotId);

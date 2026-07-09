@@ -61,6 +61,9 @@ contextBridge.exposeInMainWorld('f1', {
     getSyncData: (meetingKey, sessionKey) => ipcRenderer.invoke('livetiming:getSyncData', meetingKey, sessionKey),
     getAudio: (sessionPath, clipPath) => ipcRenderer.invoke('livetiming:getAudio', sessionPath, clipPath),
     openWindow: (opts) => ipcRenderer.invoke('livetiming:openWindow', opts),
+    /** In-window dock: subscribe to live-timing IPC without opening a popout. */
+    dockRegister: () => ipcRenderer.invoke('livetiming:dockRegister'),
+    dockUnregister: () => ipcRenderer.invoke('livetiming:dockUnregister'),
     /** Starts (or attaches to) the shared live SignalR connection for this window. */
     liveStart: (opts) => ipcRenderer.invoke('livetiming:liveStart', opts),
     liveStop: () => ipcRenderer.invoke('livetiming:liveStop'),

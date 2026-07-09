@@ -1,8 +1,11 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, RefreshCw, Maximize2, Minimize2, Type, Save, Trash2, MoreHorizontal, X, Plus } from 'lucide-react';
+import { MoreHorizontal, RefreshCw, X } from 'lucide-react';
 import type { Layout } from 'react-grid-layout';
 import { useLocale } from '../../i18n/LocaleContext';
+import { MultiViewerCommandBar } from './MultiViewerCommandBar';
+import { DriverShelf } from './DriverShelf';
+import { LiveTimingDock, type DockSessionQuery } from './LiveTimingDock';
 
 const SAVED_GRIDS_KEY = 'f1openviewer-saved-grids';
 const STANDALONE_MULTIVIEW_KEY_BASE = 'f1openviewer-standalone-multiview';
@@ -21,20 +24,15 @@ export type StandaloneMultiviewState = {
   session: import('../../domain/vod').VodSession;
   streams: import('../../services/vod').SessionStreams | null;
   seasonYear: number;
-  /**
-   * Resolved PlaybackInfo for items that were already playing in the source window. The
-   * standalone window reuses these so streams resume instantly with the same manifest URLs and
-   * license proxy entries (no extra contentPlay round-trips, no DRM re-handshake).
-   */
+  /** PlaybackInfo for streams already playing when the popout opens (skip contentPlay). */
   embeddedPlayback?: Record<string, import('../../services/entitlement').PlaybackInfo>;
-  /** Per-item playback position (seconds) at the moment of porting. Standalone window seeks to
-   *  this value once Shaka finishes loading, so the user lands on the same frame they were on. */
+  /** Seek target (seconds) when porting a stream into the popout. */
   currentTimes?: Record<string, number>;
-  /** Legacy: item IDs playing at the time of save (kept for backwards compat with old snapshots). */
+  /** Old snapshots only: which items were playing at save time. */
   playingItemIds?: string[];
 };
 
-/** Semantic slot assignment: resolved against the current session when applying the template. */
+/** Saved layout slot: main, data index, or onboard by car number. Resolved at apply time. */
 export type SlotAssignment =
   | { type: 'main' }
   | { type: 'data'; index: number }
@@ -44,9 +42,9 @@ export type SavedGrid = {
   id: string;
   name: string;
   layout: Layout;
-  /** Legacy: used when slotAssignments is not present. */
+  /** Old format: raw slot -> itemId map. */
   slotToItemId: Record<string, string>;
-  /** Assignments by type/driver: main, data (index), onboard (racing number). */
+  /** New format: slot -> main/data/onboard assignment. */
   slotAssignments?: Record<string, SlotAssignment>;
 };
 
@@ -69,7 +67,7 @@ function saveSavedGrids(grids: SavedGrid[]) {
   window.f1?.setSetting?.(SAVED_GRIDS_KEY, raw);
 }
 
-/** Builds semantic slot assignments for the template from slotToItemId + streamOptions. */
+/** Build slotAssignments from a saved slotToItemId + current stream list. */
 function buildSlotAssignments(
   slotToItemId: Record<string, string>,
   streamOptions: StreamOption[]
@@ -97,7 +95,7 @@ function buildSlotAssignments(
   return out;
 }
 
-/** Resolves slotAssignments against current streamOptions; missing slots (e.g. driver not in session) stay empty. */
+/** Apply saved slotAssignments to current streams. Missing drivers stay empty. */
 function resolveSlotAssignments(
   layout: Layout,
   slotAssignments: Record<string, SlotAssignment> | undefined,
@@ -183,134 +181,6 @@ import { SyncOverlay } from './SyncOverlay';
 import { useSyncEngine } from '../hooks/useSyncEngine';
 import { useMultiviewWindows } from '../hooks/useMultiviewWindows';
 
-function SavedLayoutsSection({
-  t,
-  savedGrids,
-  showSaveInput,
-  setShowSaveInput,
-  saveLayoutName,
-  setSaveLayoutName,
-  onSave,
-  onApply,
-  onDelete,
-  compact,
-}: {
-  t: (key: string) => string;
-  savedGrids: SavedGrid[];
-  showSaveInput: boolean;
-  setShowSaveInput: (v: boolean) => void;
-  saveLayoutName: string;
-  setSaveLayoutName: (v: string) => void;
-  onSave: () => void;
-  onApply: (preset: SavedGrid) => void;
-  onDelete: (id: string) => void;
-  compact?: boolean;
-}) {
-  const box = compact
-    ? 'rounded-lg border border-border/60 bg-card/80 p-2'
-    : 'rounded-lg border border-border/60 bg-card/40 p-4';
-  const titleClass = compact
-    ? 'text-[10px] font-heading font-bold tracking-widest text-muted-foreground mb-2'
-    : 'text-xs font-heading font-bold tracking-widest text-muted-foreground mb-3';
-  const listClass = compact ? 'max-h-40 overflow-y-auto space-y-1 pr-0.5' : 'space-y-1.5';
-
-  return (
-    <div className={box}>
-      <h4 className={titleClass}>{t('dashboard.savedLayouts')}</h4>
-      <div className={`flex flex-wrap items-center gap-2 ${compact ? 'mb-2' : 'mb-3'}`}>
-        {showSaveInput ? (
-          <>
-            <input
-              type="text"
-              value={saveLayoutName}
-              onChange={(e) => setSaveLayoutName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && onSave()}
-              placeholder={t('dashboard.savedLayoutNamePlaceholder')}
-              className={`rounded-lg border border-border bg-background font-heading ${
-                compact ? 'px-2 py-1 text-xs w-32' : 'px-3 py-1.5 text-sm w-40'
-              }`}
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={onSave}
-              className={`flex items-center gap-1 rounded-lg font-heading font-bold bg-primary text-primary-foreground hover:opacity-90 ${
-                compact ? 'py-1 px-2 text-[10px]' : 'gap-1.5 py-1.5 px-3 text-xs'
-              }`}
-            >
-              <Save className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
-              {t('dashboard.saveLayout')}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowSaveInput(false);
-                setSaveLayoutName('');
-              }}
-              className={`rounded-lg font-heading border border-border hover:bg-accent/50 ${
-                compact ? 'py-1 px-2 text-[10px]' : 'py-1.5 px-3 text-xs'
-              }`}
-            >
-              {t('ui.cancel')}
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setShowSaveInput(true)}
-            className={`flex items-center gap-1 rounded-lg font-heading font-bold border border-border bg-accent/20 hover:bg-accent/40 ${
-              compact ? 'py-1 px-2 text-[10px]' : 'gap-1.5 py-1.5 px-3 text-xs'
-            }`}
-          >
-            <Save className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
-            {t('dashboard.saveCurrentLayout')}
-          </button>
-        )}
-      </div>
-      {savedGrids.length > 0 && (
-        <ul className={listClass}>
-          {savedGrids.map((preset) => (
-            <li
-              key={preset.id}
-              className={`flex items-center justify-between gap-2 rounded bg-background/50 ${
-                compact ? 'py-1 px-1.5' : 'py-1.5 px-2'
-              }`}
-            >
-              <span className={`font-heading truncate min-w-0 ${compact ? 'text-[10px]' : 'text-sm'}`}>
-                {preset.name}
-              </span>
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => onApply(preset)}
-                  className={`rounded font-heading border border-border hover:bg-accent/50 ${
-                    compact ? 'py-0.5 px-1.5 text-[10px]' : 'py-1 px-2 text-xs'
-                  }`}
-                >
-                  {t('dashboard.applyLayout')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(preset.id)}
-                  title={t('dashboard.deleteLayout')}
-                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                >
-                  <Trash2 className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      {savedGrids.length === 0 && !showSaveInput && (
-        <p className={`text-muted-foreground font-heading ${compact ? 'text-[10px]' : 'text-xs'}`}>
-          {t('dashboard.savedLayoutsEmpty')}
-        </p>
-      )}
-    </div>
-  );
-}
-
 interface MultiViewerProps {
   session: VodSession;
   streams: SessionStreams | null;
@@ -327,22 +197,22 @@ interface MultiViewerProps {
   isFullscreen?: boolean;
   onEnterFullscreen?: () => void;
   /**
-   * Called BEFORE opening the standalone multiview window. Receives the IDs of streams that
-   * were transferred so the parent (dashboard) can release them — they keep playing only in
-   * the new window, avoiding double bandwidth/CPU cost.
+   * Parent gets stream IDs before the popout opens so it can stop playing them here.
+   * Streams keep running only in the new window (no double decode/bandwidth).
    */
   onPortStreamsToWindow?: (transferredItemIds: string[]) => void;
   /** @deprecated use onPortStreamsToWindow. Kept for callsites that still need the broader hook. */
   onBeforeEnterFullscreen?: () => void;
   onExitFullscreen?: () => void;
-  /** When provided (e.g. standalone window), initial state is not overwritten by the session/streams effect. */
+  /** Standalone window: don't overwrite layout/slots from session effect. */
   initialLayout?: Layout;
   initialSlotToItemId?: Record<string, string>;
-  /** Per-item initial seek position (seconds), used by the standalone window when resuming a
-   *  ported stream so playback continues at the same frame the user left it. */
+  /** Initial seek (seconds) when resuming a ported stream in the popout. */
   initialSeekSecondsByItemId?: Record<string, number>;
-  /** Finestra standalone Electron: numero finestra (hash ?mv=). */
+  /** Electron multiview window instance id (hash ?mv=). */
   multiviewInstanceId?: number;
+  /** Live timing session info for popout + in-window dock. */
+  liveTimingQuery?: DockSessionQuery;
 }
 
 export function MultiViewer({
@@ -367,17 +237,26 @@ export function MultiViewer({
   initialSlotToItemId,
   initialSeekSecondsByItemId,
   multiviewInstanceId,
+  liveTimingQuery,
 }: MultiViewerProps) {
   const { t } = useLocale();
   const multiviewOpenIds = useMultiviewWindows();
   const [canOpenMultiviewWindow, setCanOpenMultiviewWindow] = useState(false);
+  const [liveTimingDockOpen, setLiveTimingDockOpen] = useState(false);
+  const openLiveTimingPopout = useCallback(() => {
+    if (!liveTimingQuery) return;
+    window.f1?.liveTiming
+      ?.openWindow(liveTimingQuery)
+      .catch((e) => onEmbedError?.(e?.message || 'Live timing unavailable.'));
+  }, [liveTimingQuery, onEmbedError]);
 
   useEffect(() => {
     setCanOpenMultiviewWindow(typeof window.f1?.openMultiviewWindow === 'function');
   }, []);
 
   const mainItem = toCatalogItem(session, seasonYear);
-  const streamOptions: StreamOption[] = [
+  // Memoize streamOptions or DriverShelf's per-card effects loop forever.
+  const streamOptions: StreamOption[] = useMemo(() => [
     { item: mainItem, label: session.title || t('ui.worldFeed'), type: 'main' },
     ...(streams?.dataChannel?.map((dc) => ({
       item: toCatalogItemOnboard(dc),
@@ -389,8 +268,11 @@ export function MultiViewer({
       label: ob.title || ob.driverName || `Onboard ${ob.racingNumber ?? ''}`,
       type: 'driver' as const,
       driverNumber: ob.racingNumber,
+      driverName: ob.driverName,
+      teamName: ob.teamName,
     })) ?? []),
-  ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [session.contentId, session.channelId, session.title, seasonYear, streams]);
 
   const allItems: CatalogItem[] = streamOptions.map((o) => o.item);
   const hasEmbedSupport = Boolean(onPlayEmbedded && onPlayAllEmbedded);
@@ -403,13 +285,10 @@ export function MultiViewer({
   const [layout, setLayout] = useState<Layout>(() => initialLayout ?? getDefaultGridLayout());
   const [slotToItemId, setSlotToItemId] = useState<Record<string, string>>(() => initialSlotToItemId ?? {});
   const [savedGrids, setSavedGrids] = useState<SavedGrid[]>(() => loadSavedGrids());
-  const [saveLayoutName, setSaveLayoutName] = useState('');
-  const [showSaveInput, setShowSaveInput] = useState(false);
   const [audioFocusedItemId, setAudioFocusedItemId] = useState<string | null>(null);
   const panelRefsByItemId = useRef<Map<string, StreamPanelHandle>>(new Map());
 
-  // Publish the main-feed video clock to any live-timing window (cross-window sync master).
-  // Read latest state via a ref mirror so the interval stays stable across renders.
+  // Relay main-feed clock to live timing windows. Ref mirror keeps the interval stable.
   const clockSrcRef = useRef({ mainId: '', slotToItemId: {} as Record<string, string>, embeddedPlayback, audioFocusedItemId: null as string | null });
   clockSrcRef.current = { mainId: mainItem.id, slotToItemId, embeddedPlayback, audioFocusedItemId };
   useEffect(() => {
@@ -422,18 +301,13 @@ export function MultiViewer({
       const v = panel?.getVideoElement?.();
       if (!v || !Number.isFinite(v.currentTime)) return;
 
-      // 1) Send the master clock to the live-timing window. DASH replays carry a real broadcast
-      //    wall clock (exact auto-sync); HLS sends null and the window falls back to the endpoint's
-      //    session_start instead.
+      // Live timing: DASH has wall clock for auto-sync; HLS falls back to session_start.
       if (lt?.reportClock) {
         const wallClockMs = panel?.getWallClockMs?.() ?? null;
         lt.reportClock({ timeSec: v.currentTime, paused: v.paused, wallClockMs });
       }
 
-      // 2) Keep every other panel locked to the main feed, which keeps them transitively synced to
-      //    the timing too. Big gap (after load/seek/stall) gets a hard seek. Small steady drift eases
-      //    back via playbackRate instead so there's no visible jump, but we never rate-trim the
-      //    audio-focused panel since that causes pitch wobble.
+      // Lock other panels to main feed. Big drift -> seek; small drift -> playbackRate (not on audio panel).
       for (const itemId of new Set(Object.values(s2i))) {
         if (!itemId || itemId === mainId || !emb[itemId]) continue;
         const v2 = panelRefsByItemId.current.get(itemId)?.getVideoElement?.();
@@ -470,7 +344,7 @@ export function MultiViewer({
     isSyncEngineRunning,
   } = useSyncEngine();
 
-  // Auto-assign streams to initial slots when session/season/streams change. Skip if layout/slots are provided externally (standalone window).
+  // Fill default slots when session/streams change. Skip if standalone passed its own layout.
   useEffect(() => {
     if (initialLayout != null && initialSlotToItemId != null) return;
 
@@ -518,18 +392,14 @@ export function MultiViewer({
         id: itemId,
         label: option.label,
         getVideo: () => ref?.getVideoElement() ?? null,
-        // Flag the race / world feed so the sync engine always anchors to it, even when an
-        // onboard happens to be ahead. Onboards/data should follow the race, not the inverse.
+  // Main feed is always sync reference, even if an onboard is ahead.
         isMainFeed: option.type === 'main',
       });
     }
     startSync(entries, { silent });
   }
 
-  // Auto-sync whenever a genuinely new stream starts playing, not on every embeddedPlayback
-  // change (reload/seek replace the same key and shouldn't retrigger this). Debounced so
-  // "Play All" (many streams starting within milliseconds of each other) collapses into a
-  // single sync pass instead of one per stream.
+  // Auto-sync on new streams only (not reload/seek). Debounced for Play All.
   const prevPlayingIdsRef = useRef<Set<string>>(new Set());
   const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -569,8 +439,8 @@ export function MultiViewer({
     );
   }, []);
 
-  const handleSaveCurrentLayout = useCallback(() => {
-    const name = saveLayoutName.trim() || t('dashboard.savedLayoutDefaultName');
+  const handleSaveCurrentLayout = useCallback((rawName: string) => {
+    const name = rawName.trim() || t('dashboard.savedLayoutDefaultName');
     const slotAssignments = buildSlotAssignments(slotToItemId, streamOptions);
     const next: SavedGrid = {
       id: crypto.randomUUID?.() ?? `grid-${Date.now()}`,
@@ -584,9 +454,7 @@ export function MultiViewer({
       saveSavedGrids(list);
       return list;
     });
-    setSaveLayoutName('');
-    setShowSaveInput(false);
-  }, [layout, slotToItemId, streamOptions, saveLayoutName, t]);
+  }, [layout, slotToItemId, streamOptions, t]);
 
   const handleApplySavedGrid = useCallback(
     (preset: SavedGrid) => {
@@ -611,6 +479,12 @@ export function MultiViewer({
   }, []);
 
   const [hideSlotTitles, setHideSlotTitles] = useState(false);
+  const [pickingItemId, setPickingItemId] = useState<string | null>(null);
+  const assignedItemIds = useMemo(
+    () => new Set(Object.values(slotToItemId).filter(Boolean)),
+    [slotToItemId]
+  );
+  const playingItemIds = useMemo(() => new Set(Object.keys(embeddedPlayback)), [embeddedPlayback]);
   const [showPlayAllLoadingHint, setShowPlayAllLoadingHint] = useState(false);
   const [fullscreenToolbarOpen, setFullscreenToolbarOpen] = useState(false);
   const fullscreenToolbarRef = useRef<HTMLDivElement>(null);
@@ -658,11 +532,8 @@ export function MultiViewer({
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [fullscreenToolbarOpen]);
 
-  // "Waiting for main feed" appears when the engine has paused the others because the reference
-  // is rebuffering. We detect this off the engine's output: during a buffer-hold, every non-ref
-  // entry is reported with rate=1 and done=false (no rate-nudge / no seek happening) while the
-  // reference is the only one with done=true. This is distinct from initial convergence, where
-  // non-ref entries carry rate ≠ 1 or are seeking.
+  // "Waiting for main feed": ref is buffering, engine paused everyone else. Detect via sync output
+  // (non-ref streams idle at rate 1, ref marked done).
   const refStream = syncStreams.find((s) => s.isReference);
   const nonRefStreams = syncStreams.filter((s) => !s.isReference);
   const isWaitingForMain =
@@ -671,10 +542,7 @@ export function MultiViewer({
     nonRefStreams.length > 0 &&
     nonRefStreams.every((s) => !s.done && Math.abs(s.rate - 1) < 0.001);
 
-  // The engine stays "active" indefinitely after done when keepLocked watches for future drift,
-  // so it never naturally goes idle. Without this, the floating badge would sit there forever
-  // saying "Sync running" even though nothing is actively happening. Auto-dismiss it a few
-  // seconds after reaching done; a fresh sync (syncStatus back to 'syncing') brings it back.
+  // keepLocked leaves the engine "running" after done; hide the badge after a few seconds anyway.
   const [badgeDismissed, setBadgeDismissed] = useState(false);
   useEffect(() => {
     if (syncStatus === 'syncing' || isWaitingForMain) {
@@ -686,8 +554,7 @@ export function MultiViewer({
       return () => clearTimeout(id);
     }
   }, [syncStatus, isWaitingForMain]);
-  // Floating "sync running" badge: shown when the engine is active but the user has minimized
-  // the overlay so they can keep watching. Click to bring the dialog back.
+  // Minimized sync badge while engine runs and overlay is hidden.
   const showMinimizedSyncBadge = isSyncEngineRunning && !showSyncOverlay && !badgeDismissed;
 
   return (
@@ -722,6 +589,8 @@ export function MultiViewer({
         )}
       </AnimatePresence>
 
+      <div className={isFullscreen ? 'flex-1 min-h-0 flex items-stretch gap-3' : 'flex items-start gap-3'}>
+      <div className={isFullscreen ? 'flex-1 min-w-0 flex flex-col min-h-0' : 'flex-1 min-w-0'}>
       <AnimatePresence mode="wait">
         <motion.div
           key={session.contentId}
@@ -732,132 +601,81 @@ export function MultiViewer({
           className={isFullscreen ? 'flex-1 flex flex-col min-h-0' : 'space-y-6'}
         >
           {hasEmbedSupport && allItems.length > 0 && !isFullscreen && (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-3 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handlePlayAllEmbedded}
-                  disabled={anyLoading}
-                  className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider bg-primary text-primary-foreground border border-primary hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Play className="w-4 h-4" />
-                  {t('dashboard.playAllEmbedded')}
-                </button>
-
-              {showSyncButton && (
-                <button
-                  type="button"
-                  onClick={() => handleSync()}
-                  disabled={!canSync || syncStatus === 'syncing'}
-                  className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  title={t('sync.inProgressDescription')}
-                >
-                  <RefreshCw className={`w-4 h-4 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                  {syncStatus === 'syncing' ? t('sync.inProgress') : t('sync.button')}
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setHideSlotTitles((v) => !v)}
-                title={hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
-                className={`flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border transition-colors shrink-0 ${hideSlotTitles ? 'bg-primary/20 border-primary text-primary' : 'border-border bg-accent/30 hover:bg-accent/50'}`}
-              >
-                <Type className="w-4 h-4 shrink-0" />
-                {hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
-              </button>
-
-              {(canOpenMultiviewWindow || onEnterFullscreen != null) && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    // Snapshot the live currentTime for every panel that's currently playing.
-                    // The standalone window will seek to these values after Shaka finishes
-                    // loading, so the user lands on the same frame and any sync state is preserved.
-                    const currentTimes: Record<string, number> = {};
-                    const transferredIds: string[] = [];
-                    for (const itemId of Object.keys(embeddedPlayback)) {
-                      const ref = panelRefsByItemId.current.get(itemId);
-                      const v = ref?.getVideoElement?.();
-                      if (v && Number.isFinite(v.currentTime)) {
-                        currentTimes[itemId] = v.currentTime;
-                      }
-                      transferredIds.push(itemId);
-                    }
-
-                    saveStandaloneMultiviewState({
-                      layout: layout.map((item) => ({ ...item })),
-                      slotToItemId: { ...slotToItemId },
-                      session,
-                      streams,
-                      seasonYear,
-                      embeddedPlayback:
-                        transferredIds.length > 0 ? { ...embeddedPlayback } : undefined,
-                      currentTimes: Object.keys(currentTimes).length > 0 ? currentTimes : undefined,
-                      playingItemIds: transferredIds.length > 0 ? transferredIds : undefined,
-                    });
-
-                    // Tell the parent which streams are being transferred so it can release them.
-                    // The streams will only play in the new window — no double bandwidth.
-                    onPortStreamsToWindow?.(transferredIds);
-                    onBeforeEnterFullscreen?.();
-                    if (onEnterFullscreen != null) {
-                      await Promise.resolve(onEnterFullscreen());
-                    } else if (window.f1?.openMultiviewWindow) {
-                      await window.f1.openMultiviewWindow();
-                    }
-                  }}
-                  title={t('dashboard.multiviewFullscreen')}
-                  className="flex items-center gap-2 py-2.5 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 transition-colors shrink-0"
-                >
-                  <Maximize2 className="w-4 h-4 shrink-0" />
-                  {multiviewOpenIds.length > 0
-                    ? t('dashboard.multiviewFullscreenExtra')
-                    : t('dashboard.multiviewFullscreen')}
-                </button>
-              )}
-              </div>
-              {(canOpenMultiviewWindow || onEnterFullscreen != null) && (
-                <p className="text-xs text-muted-foreground font-heading max-w-2xl leading-snug pl-0.5">
-                  <span className="font-bold text-foreground/90">{t('dashboard.multiviewWindowsLabel')}:</span>{' '}
-                  {multiviewOpenIds.length === 0
-                    ? t('dashboard.multiviewWindowsNone')
-                    : `${multiviewOpenIds.length} (${t('dashboard.multiviewWindowsList')}: ${multiviewOpenIds
-                        .map((id) => `#${id}`)
-                        .join(', ')})`}
-                </p>
-              )}
-              <AnimatePresence>
-                {showPlayAllLoadingHint && (
-                  <motion.p
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="text-xs text-muted-foreground font-heading max-w-md"
-                  >
-                    {t('dashboard.playAllLoadingHint')}
-                  </motion.p>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-
-          {!isFullscreen && streamOptions.length > 0 && (
-            <SavedLayoutsSection
-              t={t}
+            <MultiViewerCommandBar
+              variant="bar"
+              hasEmbedSupport={hasEmbedSupport}
+              hasStreams={streamOptions.length > 0}
+              anyLoading={anyLoading}
+              onPlayAll={handlePlayAllEmbedded}
+              showSyncButton={showSyncButton}
+              canSync={canSync}
+              syncStatus={syncStatus}
+              onSync={() => handleSync()}
+              hideSlotTitles={hideSlotTitles}
+              onToggleHideTitles={() => setHideSlotTitles((v) => !v)}
               savedGrids={savedGrids}
-              showSaveInput={showSaveInput}
-              setShowSaveInput={setShowSaveInput}
-              saveLayoutName={saveLayoutName}
-              setSaveLayoutName={setSaveLayoutName}
-              onSave={handleSaveCurrentLayout}
-              onApply={handleApplySavedGrid}
-              onDelete={handleDeleteSavedGrid}
+              onSaveLayout={handleSaveCurrentLayout}
+              onApplyLayout={handleApplySavedGrid}
+              onDeleteLayout={handleDeleteSavedGrid}
+              showPlayAllLoadingHint={showPlayAllLoadingHint}
+              multiviewControl={
+                canOpenMultiviewWindow || onEnterFullscreen != null
+                  ? {
+                      onOpen: async () => {
+                        // Save currentTime per playing panel; popout seeks here after Shaka loads.
+                        const currentTimes: Record<string, number> = {};
+                        const transferredIds: string[] = [];
+                        for (const itemId of Object.keys(embeddedPlayback)) {
+                          const ref = panelRefsByItemId.current.get(itemId);
+                          const v = ref?.getVideoElement?.();
+                          if (v && Number.isFinite(v.currentTime)) {
+                            currentTimes[itemId] = v.currentTime;
+                          }
+                          transferredIds.push(itemId);
+                        }
+
+                        saveStandaloneMultiviewState({
+                          layout: layout.map((item) => ({ ...item })),
+                          slotToItemId: { ...slotToItemId },
+                          session,
+                          streams,
+                          seasonYear,
+                          embeddedPlayback:
+                            transferredIds.length > 0 ? { ...embeddedPlayback } : undefined,
+                          currentTimes: Object.keys(currentTimes).length > 0 ? currentTimes : undefined,
+                          playingItemIds: transferredIds.length > 0 ? transferredIds : undefined,
+                        });
+
+                        // Parent drops these streams; they only play in the new window now.
+                        onPortStreamsToWindow?.(transferredIds);
+                        onBeforeEnterFullscreen?.();
+                        if (onEnterFullscreen != null) {
+                          await Promise.resolve(onEnterFullscreen());
+                        } else if (window.f1?.openMultiviewWindow) {
+                          await window.f1.openMultiviewWindow();
+                        }
+                      },
+                      openWindowCount: multiviewOpenIds.length,
+                      label:
+                        multiviewOpenIds.length > 0
+                          ? t('dashboard.multiviewFullscreenExtra')
+                          : t('dashboard.multiviewFullscreen'),
+                    }
+                  : undefined
+              }
+              liveTiming={
+                liveTimingQuery
+                  ? {
+                      onOpenPopout: openLiveTimingPopout,
+                      dockOpen: liveTimingDockOpen,
+                      onToggleDock: () => setLiveTimingDockOpen((v) => !v),
+                    }
+                  : undefined
+              }
             />
           )}
 
-          {/* Fullscreen: floating toggle (no hover strip — avoids blocking drag toward top) */}
+          {/* Fullscreen toolbar toggle; no hover strip (blocks drag to top edge). */}
           {isFullscreen && onExitFullscreen && (
             <>
               <button
@@ -878,7 +696,7 @@ export function MultiViewer({
               {fullscreenToolbarOpen && (
                 <div
                   ref={fullscreenToolbarRef}
-                  className="fixed top-14 right-2 z-[59] flex max-w-[min(100vw-1rem,26rem)] max-h-[min(100vh-4rem,32rem)] flex-col gap-2 overflow-y-auto rounded-xl border border-border/80 bg-background/95 p-3 shadow-xl backdrop-blur-md"
+                  className="fixed top-14 right-2 z-[59] flex max-w-[min(100vw-1rem,26rem)] max-h-[min(100vh-4rem,32rem)] flex-col gap-2 overflow-y-auto overflow-x-hidden rounded-xl border border-border/80 bg-background/95 p-3 shadow-xl backdrop-blur-md"
                 >
                   <div className="shrink-0 border-b border-border/60 pb-2 mb-1">
                     {multiviewInstanceId != null ? (
@@ -900,92 +718,59 @@ export function MultiViewer({
                             .join(', ')})`}
                     </p>
                   </div>
-                  <div className="flex flex-col gap-2 shrink-0">
-                    {hasEmbedSupport && allItems.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={handlePlayAllEmbedded}
-                        disabled={anyLoading}
-                        className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold bg-primary text-primary-foreground border border-primary hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Play className="w-3.5 h-3.5 shrink-0" />
-                        {t('dashboard.playAllEmbedded')}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setHideSlotTitles((v) => !v)}
-                      title={hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
-                      className={`flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border transition-colors ${hideSlotTitles ? 'bg-primary/20 border-primary text-primary' : 'border-border bg-accent/40 hover:bg-accent/60'}`}
-                    >
-                      <Type className="w-3.5 h-3.5 shrink-0" />
-                      {hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
-                    </button>
-                    {streamOptions.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={handleAddSlot}
-                        title={t('dashboard.gridAddSlot')}
-                        className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border border-border bg-accent/40 hover:bg-accent/60 transition-colors"
-                      >
-                        <Plus className="w-3.5 h-3.5 shrink-0" />
-                        {t('dashboard.gridAddSlot')}
-                      </button>
-                    )}
-                    {showSyncButton && (
-                      <button
-                        type="button"
-                        onClick={() => handleSync()}
-                        disabled={!canSync || syncStatus === 'syncing'}
-                        title={t('sync.inProgressDescription')}
-                        className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border border-border bg-accent/40 hover:bg-accent/60 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                        {syncStatus === 'syncing' ? t('sync.inProgress') : t('sync.button')}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={onExitFullscreen}
-                      title={t('dashboard.exitFullscreen')}
-                      className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-sm font-bold border border-border bg-card hover:bg-accent/50 transition-colors"
-                    >
-                      <Minimize2 className="w-4 h-4 shrink-0" />
-                      {t('dashboard.exitFullscreen')}
-                    </button>
-                  </div>
-
                   {streamOptions.length > 0 && (
-                    <SavedLayoutsSection
-                      t={t}
-                      savedGrids={savedGrids}
-                      showSaveInput={showSaveInput}
-                      setShowSaveInput={setShowSaveInput}
-                      saveLayoutName={saveLayoutName}
-                      setSaveLayoutName={setSaveLayoutName}
-                      onSave={handleSaveCurrentLayout}
-                      onApply={handleApplySavedGrid}
-                      onDelete={handleDeleteSavedGrid}
-                      compact
+                    <DriverShelf
+                      streamOptions={streamOptions}
+                      assignedItemIds={assignedItemIds}
+                      playingItemIds={playingItemIds}
+                      pickingItemId={pickingItemId}
+                      onPickCard={setPickingItemId}
                     />
                   )}
-
-                  <AnimatePresence>
-                    {showPlayAllLoadingHint && (
-                      <motion.p
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="text-[10px] text-muted-foreground font-heading"
-                      >
-                        {t('dashboard.playAllLoadingHint')}
-                      </motion.p>
-                    )}
-                  </AnimatePresence>
+                  <MultiViewerCommandBar
+                    variant="compact"
+                    hasEmbedSupport={hasEmbedSupport}
+                    hasStreams={streamOptions.length > 0}
+                    anyLoading={anyLoading}
+                    onPlayAll={handlePlayAllEmbedded}
+                    showSyncButton={showSyncButton}
+                    canSync={canSync}
+                    syncStatus={syncStatus}
+                    onSync={() => handleSync()}
+                    hideSlotTitles={hideSlotTitles}
+                    onToggleHideTitles={() => setHideSlotTitles((v) => !v)}
+                    savedGrids={savedGrids}
+                    onSaveLayout={handleSaveCurrentLayout}
+                    onApplyLayout={handleApplySavedGrid}
+                    onDeleteLayout={handleDeleteSavedGrid}
+                    showPlayAllLoadingHint={showPlayAllLoadingHint}
+                    liveTiming={
+                      liveTimingQuery
+                        ? {
+                            onOpenPopout: openLiveTimingPopout,
+                            dockOpen: liveTimingDockOpen,
+                            onToggleDock: () => setLiveTimingDockOpen((v) => !v),
+                          }
+                        : undefined
+                    }
+                    compactExtra={{
+                      onAddSlot: streamOptions.length > 0 ? handleAddSlot : undefined,
+                      onExitFullscreen,
+                    }}
+                  />
                 </div>
               )}
             </>
+          )}
+
+          {!isFullscreen && streamOptions.length > 0 && (
+            <DriverShelf
+              streamOptions={streamOptions}
+              assignedItemIds={assignedItemIds}
+              playingItemIds={playingItemIds}
+              pickingItemId={pickingItemId}
+              onPickCard={setPickingItemId}
+            />
           )}
 
           {streamOptions.length > 0 ? (
@@ -1020,6 +805,8 @@ export function MultiViewer({
               audioFocusedItemId={audioFocusedItemId}
               onAudioFocus={handleAudioFocus}
               initialSeekSecondsByItemId={initialSeekSecondsByItemId}
+              pickingItemId={pickingItemId}
+              onPickingConsumed={() => setPickingItemId(null)}
             />
             </div>
           ) : (
@@ -1029,6 +816,12 @@ export function MultiViewer({
           )}
         </motion.div>
       </AnimatePresence>
+      </div>
+
+      {liveTimingDockOpen && liveTimingQuery && (
+        <LiveTimingDock query={liveTimingQuery} onClose={() => setLiveTimingDockOpen(false)} fullscreen={isFullscreen} />
+      )}
+      </div>
     </>
   );
 }

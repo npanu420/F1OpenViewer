@@ -47,13 +47,7 @@ function createWindow() {
   });
 
   const startUrl = process.env.ELECTRON_START_URL;
-  // Diagnostics for "black screen" / renderer crash: pipe renderer events to main logs.
-  win.webContents.on('did-start-loading', () => {
-    console.log('[window] did-start-loading');
-  });
-  win.webContents.on('did-finish-load', () => {
-    console.log('[window] did-finish-load | url:', win.webContents.getURL());
-  });
+  // Pipe renderer errors/warnings to main logs (black-screen diagnostics).
   win.webContents.on('did-fail-load', (_evt, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame) return;
     console.warn('[window] did-fail-load:', errorCode, errorDescription, '| url:', validatedURL);
@@ -64,11 +58,9 @@ function createWindow() {
   win.webContents.on('unresponsive', () => {
     console.warn('[window] renderer unresponsive');
   });
-  win.webContents.on('responsive', () => {
-    console.log('[window] renderer responsive');
-  });
   win.webContents.on('console-message', (evt, level, message, line, sourceId) => {
     const lvl = evt.level ?? level ?? 0;
+    if (lvl < 1) return;
     const msg = evt.message ?? message ?? '';
     const tag = lvl === 2 ? 'error' : lvl === 1 ? 'warn' : 'log';
     if (process.env.ELECTRON_START_URL && typeof msg === 'string' && msg.includes('Electron Security Warning')) return;
@@ -104,7 +96,7 @@ function createWindow() {
 
 // ----- multiview popouts -----
 
-/** Istanze multiview aperte: id → finestra (più monitor / più layout). */
+/** Open multiview windows: id -> BrowserWindow (multiple monitors / layouts). */
 const multiviewWindows = new Map();
 let multiviewInstanceSeq = 0;
 
@@ -119,7 +111,7 @@ function broadcastMultiviewWindows() {
   }
 }
 
-/** Apre una nuova finestra multiview numerata (#standalone-multiview?mv=n). */
+/** Open a new numbered multiview window (#standalone-multiview?mv=n). */
 function createMultiviewWindow() {
   const id = ++multiviewInstanceSeq;
   const baseUrl = getMainAppUrl();
@@ -185,6 +177,20 @@ function broadcastLiveTimingClock(payload) {
   for (const w of liveTimingWindows) {
     if (!w.isDestroyed()) w.webContents.send('livetiming:clock', payload);
   }
+}
+
+/**
+ * Put an existing window on the live-timing broadcast list (no new BrowserWindow).
+ * The in-window dock uses this to get the same livetiming:liveUpdate/liveStatus/clock
+ * events as a popout.
+ */
+function registerLiveTimingBroadcastTarget(win) {
+  if (!win || win.isDestroyed() || liveTimingWindows.has(win)) return;
+  liveTimingWindows.add(win);
+  win.once('closed', () => liveTimingWindows.delete(win));
+}
+function unregisterLiveTimingBroadcastTarget(win) {
+  if (win) liveTimingWindows.delete(win);
 }
 
 /** Opens a standalone Live Timing window for an archived session Path (or `live: true` for a running one). */
@@ -357,6 +363,8 @@ module.exports = {
   broadcastLiveTimingUpdate,
   broadcastLiveTimingStatus,
   broadcastLiveTimingClock,
+  registerLiveTimingBroadcastTarget,
+  unregisterLiveTimingBroadcastTarget,
   openCustomPlayerWindow,
   fitStandalonePlayerWindow,
 };

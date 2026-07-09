@@ -94,7 +94,7 @@ function setupIpc() {
       .then((result) => {
         f1tv.setPlaybackEntitlementOverride(result?.licenseEntitlementToken || null);
         if (result?.playToken) {
-          // Cookie write is best-effort: needed by some pipelines for segment fetches.
+          // Cookie write is optional; some pipelines need it for segment fetches.
           // The proxy itself uses the per-stream playToken from the registry, not this cookie.
           const cdnOrigins = ['https://f1tv.formula1.com', 'https://ott-video-fer-cf.formula1.com', 'https://ott-video-cf.formula1.com'];
           for (const origin of cdnOrigins) {
@@ -204,6 +204,15 @@ function setupIpc() {
     // click never waits on a network round trip and never freezes the UI. Any failure just shows
     // up in that window's own loading state.
     windows.createLiveTimingWindow(opts);
+    return { ok: true };
+  });
+  // In-window dock: same broadcast list as a popout, no extra window.
+  ipcMain.handle('livetiming:dockRegister', (evt) => {
+    windows.registerLiveTimingBroadcastTarget(BrowserWindow.fromWebContents(evt.sender));
+    return { ok: true };
+  });
+  ipcMain.handle('livetiming:dockUnregister', (evt) => {
+    windows.unregisterLiveTimingBroadcastTarget(BrowserWindow.fromWebContents(evt.sender));
     return { ok: true };
   });
 

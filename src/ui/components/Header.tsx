@@ -26,7 +26,7 @@ export function Header({
 
   return (
     <header className="border-b border-border/50 glass-panel sticky top-0 z-50">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-14 flex items-center gap-4">
+      <div className="max-w-[1600px] 2xl:max-w-[94vw] mx-auto px-4 sm:px-6 h-14 flex items-center gap-4">
         <motion.div
           className="flex items-center gap-2.5"
           initial={{ opacity: 0, x: -20 }}

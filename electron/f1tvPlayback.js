@@ -5,7 +5,7 @@
  * manifest body, or F1's fallback LA endpoint) since pipeline 4+ VODs often omit it from all but one.
  */
 
-const { F1TV } = require('@exhumer/f1tv-api');
+const { F1TV } = require('./f1tvapi');
 const { fetch: undiciFetch } = require('undici');
 const client = require('./f1tvClient');
 const { pickMainChannelStream } = require('./f1tvCatalog');
@@ -489,8 +489,7 @@ async function contentPlay(contentId, channelId) {
     } catch (_) {}
   }
 
-  // Decode the per-play entitlementToken JWT, the payload may contain a laURL or kid
-  // that reveals where the 2026 license server is.
+  // Decode the per-play entitlementToken JWT; payload may contain laURL or kid hints.
   try {
     const jwt = primary.entitlementToken;
     if (jwt && jwt.includes('.')) {

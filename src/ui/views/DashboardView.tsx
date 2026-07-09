@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, BarChart3 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodEvent, VodSession, VodOnboard } from '../../domain/vod';
 import {
@@ -13,6 +13,7 @@ import { resolvePlayback, type PlaybackInfo } from '../../services/entitlement';
 import { useLocale } from '../../i18n/LocaleContext';
 import { getFlag, getCountryCodeFromMeetingKey } from '../../lib/flags';
 import { LiveSection } from '../components/LiveSection';
+import { DashboardHero } from '../components/DashboardHero';
 import { RaceCard } from '../components/RaceCard';
 import { SessionTabs, sessionToTabItem } from '../components/SessionTabs';
 import { MultiViewer } from '../components/MultiViewer';
@@ -279,7 +280,7 @@ export function DashboardView({
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
+      <main className="max-w-[1600px] 2xl:max-w-[94vw] mx-auto px-4 sm:px-6 py-6">
         {error && (
           <div className="mb-4 error" role="alert">
             {error}
@@ -295,6 +296,14 @@ export function DashboardView({
               exit={{ opacity: 0, x: -30 }}
               transition={{ duration: 0.3 }}
             >
+              <DashboardHero
+                liveItem={itemsForSelectedYear.find((it) => it.kind === 'live')}
+                latestEvent={selectedYear !== -1 ? currentEvents?.[0] : undefined}
+                loading={loadingEvs ?? false}
+                onWatchLive={onOpen}
+                onWatchLatest={handleSelectEvent}
+              />
+
               <LiveSection
                 items={itemsForSelectedYear}
                 onOpen={onOpen}
@@ -416,31 +425,6 @@ export function DashboardView({
                   </div>
 
                   {sessionForViewer && (
-                    <>
-                    <div className="flex justify-end mb-3">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          window.f1?.liveTiming
-                            ?.openWindow({
-                              year: selectedYear,
-                              meetingName: selectedEvent.meetingName,
-                              meetingNumber: selectedEvent.meetingNumber,
-                              sessionName: sessionForViewer.title,
-                              sessionType: sessionForViewer.type,
-                              title: `${selectedEvent.meetingName} — ${sessionForViewer.title}`,
-                            })
-                            .catch((e) =>
-                              onEmbedError?.(e?.message || 'Live timing unavailable for this session.')
-                            )
-                        }
-                        className="flex items-center gap-2 text-sm font-heading tracking-wider px-3 py-1.5 rounded-md border border-border hover:bg-accent transition-colors"
-                        title="Open Live Timing window"
-                      >
-                        <BarChart3 className="w-4 h-4 text-emerald-400" />
-                        Live Timing
-                      </button>
-                    </div>
                     <MultiViewer
                       session={sessionForViewer}
                       streams={
@@ -458,9 +442,16 @@ export function DashboardView({
                       onPlayAllEmbedded={onPlayAllEmbedded}
                       accessToken={accessToken}
                       onEmbedError={onEmbedError}
+                      liveTimingQuery={{
+                        year: selectedYear,
+                        meetingName: selectedEvent.meetingName,
+                        meetingNumber: selectedEvent.meetingNumber,
+                        sessionName: sessionForViewer.title,
+                        sessionType: sessionForViewer.type,
+                        title: `${selectedEvent.meetingName} — ${sessionForViewer.title}`,
+                      }}
                       onPortStreamsToWindow={(ids) => {
-                        // Release the transferred streams from the dashboard — they continue
-                        // playing only in the new multiview window.
+                        // Drop transferred streams here; they keep playing in the popout only.
                         if (!ids.length) return;
                         setEmbeddedPlayback((prev) => {
                           const next = { ...prev };
@@ -469,7 +460,6 @@ export function DashboardView({
                         });
                       }}
                     />
-                    </>
                   )}
                 </>
               ) : (

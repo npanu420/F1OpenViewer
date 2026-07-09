@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, BarChart3 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodSession, VodOnboard } from '../../domain/vod';
 import { getContentVideoStreams, type SessionStreams } from '../../services/vod';
@@ -114,7 +114,7 @@ export function LiveEventView({
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
+      <main className="max-w-[1600px] 2xl:max-w-[94vw] mx-auto px-4 sm:px-6 py-6">
         <div className="mb-6">
           <button
             onClick={onBack}
@@ -138,25 +138,6 @@ export function LiveEventView({
             <h2 className="font-heading text-2xl font-bold tracking-wider">
               {item.title}
             </h2>
-            <button
-              type="button"
-              onClick={() =>
-                window.f1?.liveTiming
-                  ?.openWindow({
-                    live: true,
-                    year: new Date().getFullYear(),
-                    sessionKey: item.sessionKey,
-                    sessionName: item.title,
-                    title: item.title,
-                  })
-                  .catch((e) => onEmbedError?.(e?.message || 'Live timing unavailable.'))
-              }
-              className="ml-auto flex items-center gap-2 text-sm font-heading tracking-wider px-3 py-1.5 rounded-md border border-border hover:bg-accent transition-colors"
-              title="Open Live Timing window"
-            >
-              <BarChart3 className="w-4 h-4 text-emerald-400" />
-              Live Timing
-            </button>
           </div>
         </div>
 
@@ -187,6 +168,13 @@ export function LiveEventView({
               onPlayAllEmbedded={onPlayAllEmbedded}
               accessToken={accessToken}
               onEmbedError={onEmbedError}
+              liveTimingQuery={{
+                live: true,
+                year: new Date().getFullYear(),
+                sessionKey: item.sessionKey,
+                sessionName: item.title,
+                title: item.title,
+              }}
               onPortStreamsToWindow={(ids) => {
                 if (!ids.length) return;
                 setEmbeddedPlayback((prev) => {

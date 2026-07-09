@@ -95,7 +95,7 @@ function persistCookies(cookieList) {
   try {
     const p = getCookiesFilePath();
     fs.writeFileSync(p, JSON.stringify(cookieList), 'utf-8');
-    console.log('[session] salvati', cookieList.length, 'cookie su disco');
+    console.log('[session] saved', cookieList.length, 'cookies to disk');
   } catch (e) {
     console.warn('[session] persist cookies:', e?.message);
   }
@@ -287,7 +287,7 @@ async function refreshSessionBeforePlayback() {
   }
   try {
     await f1tv.initClient(token);
-    console.log('[session] refreshed before playback');
+    console.log('[session] refreshed token before playback');
   } catch (e) {
     console.warn('[session] refresh before playback failed, trying silent refresh:', e?.message);
     const fresh = await silentTokenRefresh();

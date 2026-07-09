@@ -3,7 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  base: './', // necessario per Electron: in produzione loadFile usa file://, i path assoluti /assets/ non funzionano
+  base: './', // required for Electron file:// loadFile; absolute /assets/ paths break in production
   plugins: [react()],
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },

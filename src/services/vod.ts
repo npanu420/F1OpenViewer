@@ -49,13 +49,13 @@ export async function getContentVideoOnboard(contentId: number): Promise<VodOnbo
 export type SessionStreams = {
   onboard: VodOnboard[];
   dataChannel: VodOnboard[];
-  /** World feed channel from additionalStreams (PRES/WIF/default) — required for live DRM. */
+  /** World feed from additionalStreams (PRES/WIF/default). Needed for live DRM. */
   mainChannel?: VodOnboard;
 };
 
 export async function getContentVideoStreams(contentId: number): Promise<SessionStreams> {
   if (!window.f1?.getContentVideo) return { onboard: [], dataChannel: [] };
-  const data = await window.f1.getContentVideo(contentId).catch(() => ({ onboard: [], dataChannel: [] }));
+  const data = await window.f1.getContentVideo(contentId).catch(() => ({ onboard: [], dataChannel: [], mainChannel: undefined }));
   return {
     onboard: (data?.onboard || []) as VodOnboard[],
     dataChannel: (data?.dataChannel || []) as VodOnboard[],

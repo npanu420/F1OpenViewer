@@ -1,5 +1,5 @@
 /**
- * Struttura catalogo VOD: Campionati passati → Anni → Gare → Sessioni / Onboard
+ * VOD catalog shape: past championships -> years -> events -> sessions / onboard
  */
 
 export type SessionType = 'race' | 'qualifying' | 'practice' | 'sprint' | 'show' | 'onboard' | 'other';

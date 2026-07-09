@@ -52,7 +52,7 @@ export type PreloadApi = {
     fallbackDrmToken?: string;
     fallbackStreamType?: string;
   }>;
-  /** Apre il contenuto nel player web F1 TV (nuova finestra, stesso dominio = DRM ok). */
+  /** Open content in the F1 TV web player (new window, same origin = DRM ok). */
   openInF1TVWeb?(contentId: number, title?: string, channelId?: number): Promise<void>;
   isF1Ready?(): Promise<boolean>;
   restoreSession?(): Promise<{ accessToken: string | null; restored: boolean }>;
@@ -74,11 +74,11 @@ export type PreloadApi = {
   /** Standalone player window: main process is about to destroy the window, tear down
    *  the DRM player first. Returns an unsubscribe function. */
   onPlayerTeardownRequest?(callback: () => void): () => void;
-  /** Apre una nuova finestra multiview numerata; ritorna `{ id }`. */
+  /** Open a new numbered multiview window; returns `{ id }`. */
   openMultiviewWindow?(): Promise<{ id: number }>;
-  /** Id numerici delle finestre multiview aperte (ordinati). */
+  /** Numeric ids of open multiview windows (sorted). */
   getMultiviewWindows?(): Promise<number[]>;
-  /** Notifica quando si apre/chiude una finestra multiview. */
+  /** Fires when a multiview window opens or closes. */
   onMultiviewWindowsChanged?(callback: (payload: { ids: number[]; count: number }) => void): () => void;
   closeMultiviewWindow?(): Promise<void>;
   /** Live Timing (separate public feed; no DRM). */
@@ -94,6 +94,9 @@ export type PreloadApi = {
     /** Open a standalone live-timing window; it resolves the path + sync itself so the click is instant.
      *  `live: true` opens it in live (SignalR) mode instead of replay for a session still in progress. */
     openWindow(opts: { path?: string; title?: string; year?: number; sessionKey?: string | number; meetingKey?: string | number; meetingNumber?: number; meetingName?: string; sessionName?: string; sessionType?: string; live?: boolean }): Promise<{ ok: boolean }>;
+    /** In-window dock: live-timing IPC (liveUpdate/liveStatus/clock), no popout. */
+    dockRegister(): Promise<{ ok: boolean }>;
+    dockUnregister(): Promise<{ ok: boolean }>;
     /** Source window: publish the main-feed video clock for live-timing sync. wallClockMs is the
      *  frame's real broadcast UTC (DASH only) enabling exact auto-sync; null falls back to manual. */
     reportClock(payload: { timeSec: number; paused: boolean; wallClockMs: number | null }): void;

@@ -1,12 +1,12 @@
 /**
- * F1 TV client lifecycle: login, the @exhumer/f1tv-api client instance, and the per-play
- * entitlement override used for license requests. Owns the module-level auth state that the
- * catalog and playback modules read through getClient()/fetchPage().
+ * F1 TV client lifecycle: login, the F1TVClient instance (electron/f1tvapi.js), and the
+ * per-play entitlement override used for license requests. Owns the module-level auth state
+ * that the catalog and playback modules read through getClient()/fetchPage().
  */
 
 const axios = require('axios');
 const { fetch: undiciFetch } = require('undici');
-const { F1TVClient, F1TV } = require('@exhumer/f1tv-api');
+const { F1TVClient, F1TV } = require('./f1tvapi');
 
 const F1TV_BASE = 'https://f1tv.formula1.com';
 const F1TV_PLATFORM = 'WEB_DASH';
@@ -204,7 +204,7 @@ function initClient(token, readyTimeoutMs = 15000) {
       }
       if (!client.ascendon) return;
 
-      // Entitlement può arrivare in ritardo dopo ascendon: aspettiamo.
+      // Entitlement can lag behind ascendon; wait for it.
       if (!client.entitlement) {
         await new Promise((r) => {
           let done = false;

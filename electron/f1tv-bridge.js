@@ -1,5 +1,5 @@
 /**
- * Bridge for F1 TV: login (api.formula1.com) + client @exhumer/f1tv-api.
+ * Bridge for F1 TV: login (api.formula1.com) + client (electron/f1tvapi.js).
  * Runs in the main process (Node) to avoid CORS and to use undici.
  *
  * Thin facade over the three modules that actually do the work, kept so callers don't need to

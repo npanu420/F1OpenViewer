@@ -32,7 +32,7 @@ function toCatalogItemOnboard(ob: VodOnboard): CatalogItem {
 }
 
 type StandaloneMultiviewViewProps = {
-  /** Da hash ?mv= (Electron); titolo finestra e menu. */
+  /** From hash ?mv= (Electron); window title and menu. */
   multiviewInstanceId?: number;
 };
 
@@ -58,9 +58,8 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
   }, [multiviewInstanceId]);
 
   /**
-   * For items that were playing in the source window but DIDN'T travel as embeddedPlayback
-   * (legacy snapshots, or items added since the snapshot), resolve playback now. When
-   * `state.embeddedPlayback` is present we skip resolution entirely so streams resume instantly.
+   * Resolve playback for items that were playing in the source window but aren't in
+   * embeddedPlayback (old snapshots, or added after save). Skip if embeddedPlayback is set.
    */
   useEffect(() => {
     if (!state) return;
@@ -186,6 +185,12 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
           session={savedSession}
           streams={streams}
           seasonYear={seasonYear}
+          liveTimingQuery={{
+            year: seasonYear,
+            sessionName: savedSession.title,
+            sessionType: savedSession.type,
+            title: savedSession.title,
+          }}
           onOpen={() => {}}
           toCatalogItem={toCatalogItem}
           toCatalogItemOnboard={toCatalogItemOnboard}

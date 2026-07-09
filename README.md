@@ -58,7 +58,7 @@ Manual alignment used to be difficult because the archive and video clocks weren
 | Desktop shell / DRM | **Electron** (Castlabs fork for Widevine), CDM handling, IPC to avoid CORS |
 | UI | **React + Vite** |
 | Playback | **Shaka Player** — DASH/HLS and Widevine DRM |
-| Data | Unofficial F1 TV APIs — login at `api.formula1.com`, catalog/playback via [`@exhumer/f1tv-api`](https://www.npmjs.com/package/@exhumer/f1tv-api) (f1tv.formula1.com) |
+| Data | Unofficial F1 TV APIs — login at `api.formula1.com`, catalog/playback via an in-house client (`electron/f1tvapi.js`, MIT) against f1tv.formula1.com |
 
 ---
 

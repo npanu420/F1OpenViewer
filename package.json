@@ -1,6 +1,6 @@
 {
   "name": "f1-openviewer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "",
   "main": "electron/main.js",
   "scripts": {
@@ -21,7 +21,6 @@
   "type": "commonjs",
   "private": true,
   "dependencies": {
-    "@exhumer/f1tv-api": "^2.4.0",
     "@radix-ui/react-switch": "^1.2.5",
     "axios": "^1.13.6",
     "clsx": "^2.1.1",
@@ -33,6 +32,7 @@
     "react-grid-layout": "^2.2.2",
     "shaka-player": "^5.0.5",
     "tailwind-merge": "^2.6.0",
+    "undici": "^7.3.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
