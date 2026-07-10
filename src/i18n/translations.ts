@@ -176,6 +176,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     'header.live': 'LIVE',
     'header.offline': 'OFFLINE',
     'header.settingsTitle': 'Settings',
+    'header.collapseTitle': 'Collapse header',
+    'header.expandTitle': 'Expand header',
 
     // Sync
     'sync.inProgress': 'Sync in progress',
@@ -382,6 +384,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     'header.live': 'LIVE',
     'header.offline': 'OFFLINE',
     'header.settingsTitle': 'Impostazioni',
+    'header.collapseTitle': 'Comprimi intestazione',
+    'header.expandTitle': 'Espandi intestazione',
 
     // Sync
     'sync.inProgress': 'SINCRONIZZAZIONE IN CORSO',

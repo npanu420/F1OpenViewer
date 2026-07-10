@@ -1,4 +1,4 @@
-import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import shaka from 'shaka-player/dist/shaka-player.ui';
 import { useLocale } from '../../i18n/LocaleContext';
 import { VideoControls } from './VideoControls';
@@ -200,6 +200,13 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
   const lastPositionRef = useRef<{ manifestUrl: string; time: number } | null>(null);
   /** Manifest URL for which the parent-supplied initialSeekSeconds has already been consumed. */
   const initialSeekConsumedRef = useRef<string>('');
+
+  /**
+   * Stable getters for VideoControls. 
+   */
+  const getVideoElement = useCallback(() => videoRef.current, []);
+  const getPlayerInstance = useCallback(() => playerRef.current, []);
+  const getContainerElement = useCallback(() => containerRef.current, []);
 
   const redact = (v: unknown) => {
     if (v == null) return '';
@@ -595,9 +602,9 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
           />
           {ready && (
             <VideoControls
-              getVideo={() => videoRef.current}
-              getPlayer={() => playerRef.current}
-              getContainer={() => containerRef.current}
+              getVideo={getVideoElement}
+              getPlayer={getPlayerInstance}
+              getContainer={getContainerElement}
               onUnmute={props.onAudioFocus}
             />
           )}
@@ -622,9 +629,9 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
         />
         {ready && (
           <VideoControls
-            getVideo={() => videoRef.current}
-            getPlayer={() => playerRef.current}
-            getContainer={() => containerRef.current}
+            getVideo={getVideoElement}
+            getPlayer={getPlayerInstance}
+            getContainer={getContainerElement}
             compact={compact}
             onUnmute={props.onAudioFocus}
           />

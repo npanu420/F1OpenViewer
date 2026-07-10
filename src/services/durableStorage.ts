@@ -12,6 +12,7 @@ const DURABLE_KEYS = [
   'f1openviewer-sync-keep-locked',
   'f1openviewer-sync-reference-mode',
   'f1openviewer-livetiming-dock-width',
+  'f1openviewer-header-collapsed',
 ] as const;
 
 /** Load durable settings into localStorage before first render. */

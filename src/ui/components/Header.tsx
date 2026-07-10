@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings } from 'lucide-react';
+import { Settings, ChevronUp, ChevronDown } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleContext';
 import { SeasonSelector } from './SeasonSelector';
+import { getHeaderCollapsed, setHeaderCollapsed } from '../../services/headerSettings';
 
 interface HeaderProps {
   selectedYear: number;
@@ -23,6 +25,31 @@ export function Header({
   hasLive = false,
 }: HeaderProps) {
   const { t } = useLocale();
+  const [collapsed, setCollapsed] = useState(() => getHeaderCollapsed());
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      setHeaderCollapsed(next);
+      return next;
+    });
+  };
+
+  if (collapsed) {
+    return (
+      <header className="border-b border-border/50 glass-panel sticky top-0 z-50">
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className="w-full h-2.5 flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-accent/40 transition-colors"
+          title={t('header.expandTitle')}
+          aria-label={t('header.expandTitle')}
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+      </header>
+    );
+  }
 
   return (
     <header className="border-b border-border/50 glass-panel sticky top-0 z-50">
@@ -87,6 +114,15 @@ export function Header({
             title={t('header.settingsTitle')}
           >
             <Settings className="w-4.5 h-4.5" />
+          </motion.button>
+          <motion.button
+            onClick={toggleCollapsed}
+            className="w-9 h-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            title={t('header.collapseTitle')}
+          >
+            <ChevronUp className="w-4.5 h-4.5" />
           </motion.button>
         </div>
       </div>
