@@ -67,8 +67,10 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
     window.addEventListener('mouseup', onUp);
   }, []);
 
-  // Wide dock gets sectors, race control, team radio columns.
+  // Wide dock gets interval/last lap; race control stays in the popout only.
   const compact = width < WIDE_DOCK_THRESHOLD;
+  const dockWide = width >= WIDE_DOCK_THRESHOLD;
+  const dockProps = { docked: true as const, dockWide };
 
   return (
     <div
@@ -100,6 +102,7 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
         {query.live ? (
           <LiveTimingPanel
             compact={compact}
+            {...dockProps}
             title={query.title || ''}
             query={{
               year: query.year,
@@ -111,6 +114,7 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
         ) : (
           <ReplayResolvingPanel
             compact={compact}
+            {...dockProps}
             title={query.title || ''}
             query={{
               year: query.year ?? null,

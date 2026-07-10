@@ -164,33 +164,72 @@ function stintTooltip(row: DriverRow): string {
   return `${stops} pit stop${stops === 1 ? '' : 's'}\n${lines.join('\n')}`;
 }
 
-function DriverRowItem({ row, index, compact }: { row: DriverRow; index: number; compact?: boolean }) {
+/** Numeric timing cells: fixed width, no bleed into the next column. */
+function TimingCell({
+  value,
+  width,
+  muted,
+}: {
+  value: string;
+  width: string;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      className={`${width} shrink-0 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-[11px] leading-none ${
+        muted ? 'text-muted-foreground' : ''
+      }`}
+      title={value || undefined}
+    >
+      {value || '—'}
+    </div>
+  );
+}
+
+function DriverRowItem({
+  row,
+  index,
+  compact,
+  docked,
+  dockWide,
+}: {
+  row: DriverRow;
+  index: number;
+  compact?: boolean;
+  docked?: boolean;
+  dockWide?: boolean;
+}) {
   const tyre = TYRE_COLOR[row.tyre] || '#888';
   const pitStops = Math.max(0, row.stints.length - 1);
+  const showInterval = dockWide || (!compact && !docked);
+  const showLastLap = dockWide || (!compact && !docked);
+  const showBestLap = !compact && !docked;
+  const showSectors = !compact && !docked;
+  const showSpeed = !compact && !docked;
   return (
     <div
       className={`flex items-center h-9 border-b border-border/40 text-sm hover:bg-white/[0.05] transition-colors ${
         index % 2 === 1 ? 'bg-white/[0.015]' : ''
       } ${row.retired ? 'opacity-50' : ''}`}
     >
-      <div className="w-7 text-center font-bold tabular-nums">{row.position}</div>
-      <div className="w-1 h-6 rounded-sm mr-2" style={{ backgroundColor: row.teamColour }} />
-      <div className={`${compact ? 'w-16' : 'w-24'} font-heading font-bold tracking-wider flex items-center gap-1.5`}>
-        {row.tla}
-        {row.drs && <span className="text-[8px] font-bold text-emerald-400" title="DRS active">DRS</span>}
+      <div className="w-7 shrink-0 text-center font-bold tabular-nums">{row.position}</div>
+      <div className="w-1 h-6 shrink-0 rounded-sm mr-2" style={{ backgroundColor: row.teamColour }} />
+      <div className={`${compact ? 'w-14' : 'w-24'} shrink-0 font-heading font-bold tracking-wider flex items-center gap-1 min-w-0 overflow-hidden`}>
+        <span className="truncate">{row.tla}</span>
+        {row.drs && <span className="text-[8px] font-bold text-emerald-400 shrink-0" title="DRS active">DRS</span>}
         {row.retired ? (
-          <span className="text-[9px] font-bold text-destructive">OUT</span>
+          <span className="text-[9px] font-bold text-destructive shrink-0">OUT</span>
         ) : row.inPit ? (
-          <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-destructive/80 text-white leading-none">PIT</span>
+          <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-destructive/80 text-white leading-none shrink-0">PIT</span>
         ) : row.pitOut ? (
-          <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/80 text-black leading-none">OUT</span>
+          <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/80 text-black leading-none shrink-0">OUT</span>
         ) : null}
       </div>
-      <div className="w-14 tabular-nums text-muted-foreground">{row.gapToLeader || '—'}</div>
-      {!compact && <div className="w-16 tabular-nums text-muted-foreground">{row.interval || '—'}</div>}
-      {!compact && <div className="w-20 tabular-nums">{row.lastLap || '—'}</div>}
-      {!compact && <div className="w-20 tabular-nums text-muted-foreground">{row.bestLap || '—'}</div>}
-      <div className="w-16 flex items-center gap-1.5 cursor-default" title={stintTooltip(row)}>
+      <TimingCell value={row.gapToLeader} width="w-[3.25rem]" muted />
+      {showInterval && <TimingCell value={row.interval} width="w-[3.75rem]" muted />}
+      {showLastLap && <TimingCell value={row.lastLap} width="w-[4.25rem]" />}
+      {showBestLap && <TimingCell value={row.bestLap} width="w-[4.25rem]" muted />}
+      <div className="w-[2.75rem] shrink-0 flex items-center justify-start gap-1 cursor-default" title={stintTooltip(row)}>
         {row.tyre ? (
           <>
             <span
@@ -199,20 +238,20 @@ function DriverRowItem({ row, index, compact }: { row: DriverRow; index: number;
             >
               {TYRE_LETTER[row.tyre] ?? row.tyre[0]}
             </span>
-            {!compact && <span className="text-[11px] text-muted-foreground tabular-nums">{row.stintLaps ?? ''}</span>}
-            {!compact && pitStops > 0 && <span className="text-[9px] text-muted-foreground/70 tabular-nums">×{pitStops}</span>}
+            {showBestLap && <span className="text-[11px] text-muted-foreground tabular-nums">{row.stintLaps ?? ''}</span>}
+            {showBestLap && pitStops > 0 && <span className="text-[9px] text-muted-foreground/70 tabular-nums">×{pitStops}</span>}
           </>
         ) : (
           <span className="text-muted-foreground">—</span>
         )}
       </div>
-      {!compact && (
-        <div className="flex-1 flex items-center">
+      {showSectors && (
+        <div className="flex-1 flex items-center min-w-0">
           {row.sectors.map((s, i) => <Sector key={i} s={s} />)}
         </div>
       )}
-      {!compact && (
-        <div className="w-16 text-right pr-3">
+      {showSpeed && (
+        <div className="w-16 shrink-0 text-right pr-3">
           {row.speedKmh ? <span className="text-[11px] tabular-nums text-muted-foreground">{row.speedKmh} km/h</span> : null}
         </div>
       )}
@@ -359,6 +398,10 @@ interface TimingBodyProps {
   footer: React.ReactNode;
   /** Dock: narrower rows, no race-control side panel. */
   compact?: boolean;
+  /** In-window dock (not popout). */
+  docked?: boolean;
+  /** Wide dock: interval + last lap, still no sectors sidebar. */
+  dockWide?: boolean;
 }
 
 /**
@@ -378,6 +421,8 @@ function TimingBody({
   headerBadge,
   footer,
   compact,
+  docked,
+  dockWide,
 }: TimingBodyProps) {
   const tlaByNum: Record<string, string> = {};
   for (const d of drivers) tlaByNum[d.number] = d.tla;
@@ -419,22 +464,31 @@ function TimingBody({
 
       <div className="flex-1 flex min-h-0">
         {/* Timing table */}
-        <div className="flex-1 overflow-y-auto thin-scrollbar min-w-0">
-          {!compact && (
-            <div className="flex items-center h-7 px-0 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 bg-background">
-              <div className="w-7 text-center">P</div>
-              <div className="w-3 mr-2" />
-              <div className="w-24">Drv</div>
-              <div className="w-14">Gap</div>
-              <div className="w-16">Int</div>
-              <div className="w-20">Last</div>
-              <div className="w-20">Best</div>
-              <div className="w-16">Tyre</div>
-              <div className="flex-1">Sectors</div>
-              <div className="w-16 text-right pr-3">Spd</div>
+        <div className={`flex-1 overflow-y-auto thin-scrollbar min-w-0 ${docked ? 'overflow-x-auto' : ''}`}>
+          {(dockWide || (!compact && !docked)) && (
+            <div className="flex items-center h-7 px-0 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 bg-background min-w-max">
+              <div className="w-7 shrink-0 text-center">P</div>
+              <div className="w-3 mr-2 shrink-0" />
+              <div className={`${compact ? 'w-14' : 'w-24'} shrink-0`}>Drv</div>
+              <div className="w-[3.25rem] shrink-0">Gap</div>
+              {(dockWide || !docked) && <div className="w-[3.75rem] shrink-0">Int</div>}
+              {(dockWide || !docked) && <div className="w-[4.25rem] shrink-0">Last</div>}
+              {!docked && <div className="w-[4.25rem] shrink-0">Best</div>}
+              <div className="w-[2.75rem] shrink-0">Tyre</div>
+              {!docked && <div className="flex-1">Sectors</div>}
+              {!docked && <div className="w-16 text-right pr-3 shrink-0">Spd</div>}
             </div>
           )}
-          {drivers.map((row, i) => <DriverRowItem key={row.number} row={row} index={i} compact={compact} />)}
+          {drivers.map((row, i) => (
+            <DriverRowItem
+              key={row.number}
+              row={row}
+              index={i}
+              compact={compact}
+              docked={docked}
+              dockWide={dockWide}
+            />
+          ))}
           {!drivers.length && (
             <div className="p-8 text-center text-muted-foreground">No driver data at this point.</div>
           )}
@@ -442,7 +496,7 @@ function TimingBody({
 
         {/* Race control + team radio feed, each panel scrolls on its own and never grows past its share.
             Dropped in compact mode: the dock is a glance surface, full detail stays in the popout. */}
-        {!compact && (
+        {!compact && !docked && (
           <div className="w-80 border-l border-border bg-card/30 flex flex-col min-h-0">
             <div className="flex-1 min-h-0 flex flex-col basis-0">
               <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border bg-card/60 shrink-0">
@@ -505,11 +559,15 @@ export function ReplayTimingPanel({
   title,
   syncStart,
   compact,
+  docked,
+  dockWide,
 }: {
   path: string;
   title: string;
   syncStart: number | null;
   compact?: boolean;
+  docked?: boolean;
+  dockWide?: boolean;
 }) {
   const t = useReplayTiming(path, syncStart);
   if (t.loading) return <LoadingScreen label="Loading live timing…" compact={compact} />;
@@ -574,6 +632,8 @@ export function ReplayTimingPanel({
       sessionPath={path}
       footer={footer}
       compact={compact}
+      docked={docked}
+      dockWide={dockWide}
     />
   );
 }
@@ -585,12 +645,16 @@ export function ReplayResolvingPanel({
   syncStart,
   query,
   compact,
+  docked,
+  dockWide,
 }: {
   path?: string;
   title: string;
   syncStart?: number | null;
   query?: ResolveQuery | null;
   compact?: boolean;
+  docked?: boolean;
+  dockWide?: boolean;
 }) {
   const [resolved, setResolved] = useState<{
     path: string;
@@ -627,7 +691,7 @@ export function ReplayResolvingPanel({
 
   if (resolveErr) return <ErrorScreen message={resolveErr} compact={compact} />;
   if (!resolved) return <LoadingScreen label="Loading live timing…" compact={compact} />;
-  return <ReplayTimingPanel path={resolved.path} title={resolved.title} syncStart={resolved.syncStart} compact={compact} />;
+  return <ReplayTimingPanel path={resolved.path} title={resolved.title} syncStart={resolved.syncStart} compact={compact} docked={docked} dockWide={dockWide} />;
 }
 
 export function LivePill({ connected }: { connected: boolean }) {
@@ -647,10 +711,14 @@ export function LiveTimingPanel({
   query,
   title,
   compact,
+  docked,
+  dockWide,
 }: {
   query: LiveTimingQuery;
   title: string;
   compact?: boolean;
+  docked?: boolean;
+  dockWide?: boolean;
 }) {
   const t = useLiveTiming(query);
   if (t.loading) return <LoadingScreen label="Connecting to live timing…" compact={compact} />;
@@ -676,6 +744,8 @@ export function LiveTimingPanel({
       headerBadge={<LivePill connected={t.connected} />}
       footer={footer}
       compact={compact}
+      docked={docked}
+      dockWide={dockWide}
     />
   );
 }
