@@ -408,8 +408,7 @@ async function contentPlay(contentId, channelId) {
       }
     } catch (_) {}
   }
-  // Try all platforms in parallel so we get one round-trip per stream instead of 6 sequential calls.
-  // Prefer DASH/Widevine as primary; HLS stays as fallback for hosts without a working key system.
+  // Try platforms in parallel to keep round-trips low, but staged rather than all 6 at once
   const platformOrder = [
     F1TV.Platform.WEB_DASH,
     F1TV.Platform.BIG_SCREEN_DASH,
@@ -418,28 +417,37 @@ async function contentPlay(contentId, channelId) {
     F1TV.Platform.MOBILE_HLS,
     F1TV.Platform.TABLET_HLS,
   ];
-  const results = await Promise.allSettled(
-    platformOrder.map((p) => f1Client.contentPlay(contentIdNum, requestChannelId, p))
-  );
+  const stage1 = platformOrder.slice(0, 3);
+  const stage2 = platformOrder.slice(3);
+
   const candidates = [];
   let firstError = null;
   let firstF1Message = '';
-  results.forEach((outcome, idx) => {
-    const p = platformOrder[idx];
-    if (outcome.status === 'fulfilled') {
-      const res = outcome.value;
-      if (res && !res?.resultObj?.url) {
-        const resMsg = getMessageFromF1Response(res);
-        if (resMsg && !firstF1Message) firstF1Message = resMsg;
+  const runStage = async (platforms) => {
+    const results = await Promise.allSettled(
+      platforms.map((p) => f1Client.contentPlay(contentIdNum, requestChannelId, p))
+    );
+    results.forEach((outcome, idx) => {
+      const p = platforms[idx];
+      if (outcome.status === 'fulfilled') {
+        const res = outcome.value;
+        if (res && !res?.resultObj?.url) {
+          const resMsg = getMessageFromF1Response(res);
+          if (resMsg && !firstF1Message) firstF1Message = resMsg;
+        }
+        const obj = res?.resultObj;
+        if (obj?.url) candidates.push({ platform: p, ...obj });
+      } else {
+        const e = outcome.reason;
+        if (!firstError) firstError = e;
+        if (!firstF1Message) firstF1Message = extractF1ErrorMessage(e) || getMessageFromF1Response(e?.response?.data);
       }
-      const obj = res?.resultObj;
-      if (obj?.url) candidates.push({ platform: p, ...obj });
-    } else {
-      const e = outcome.reason;
-      if (!firstError) firstError = e;
-      if (!firstF1Message) firstF1Message = extractF1ErrorMessage(e) || getMessageFromF1Response(e?.response?.data);
-    }
-  });
+    });
+  };
+
+  await runStage(stage1);
+  if (!candidates.length) await runStage(stage2);
+
   // Preserve preference order: first candidate in platformOrder wins as primary.
   candidates.sort((a, b) => platformOrder.indexOf(a.platform) - platformOrder.indexOf(b.platform));
   if (!candidates.length) {

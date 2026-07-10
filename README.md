@@ -41,7 +41,9 @@ Official login, entitlement, and DRM (Widevine) playback in an Electron app. Aut
 
 Live Timing opens in its own window next to a session replay and shows the same kind of data you'd see on the official timing screen: standings, gaps, sector times, tyre stints, race control messages and team radio clips.
 
-![Live Timing](assets/livetiming.png)
+| Ultrawide (dock + multiview side by side) | Standard width |
+|---|---|
+| ![Live Timing dock, ultrawide](assets/livetiming.png) | ![Live Timing dock, standard width](assets/livetiming-compact.png) |
 
 It runs on a public F1 archive that has nothing to do with F1 TV or DRM, so it doesn't need you to be logged in at all. The only login in this app is still the one for video playback.
 
