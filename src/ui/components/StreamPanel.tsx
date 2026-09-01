@@ -35,8 +35,7 @@ interface StreamPanelProps {
   onAudioFocus?: (itemId: string) => void;
   /** External signal: when itemId !== this panel's itemId, mute. Resets when null. */
   audioFocusedItemId?: string | null;
-  /** Initial seek position (seconds) for the underlying ShakaVideo — used when porting a
-   *  playing stream into the standalone multiview window. */
+  /** Initial seek position used when moving a stream to another window. */
   initialSeekSeconds?: number;
 }
 
@@ -73,7 +72,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       getWallClockMs: () => shakaRef.current?.getWallClockMs() ?? null,
     }));
 
-    // External audio focus: parent tells us "another panel has focus" → mute ourselves.
+    // Mute when another panel receives audio focus.
     useEffect(() => {
       const id = catalogItem?.id;
       if (!id || audioFocusedItemId == null) return;
@@ -97,7 +96,6 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
     const borderColor = teamColor ? `hsl(${teamColor})` : undefined;
     const canEmbed = catalogItem && onPlayEmbedded;
     const showPlaceholder = !playback && !loading;
-    /** Avoid showing the spinner and the video at once (e.g. "play all" with streams already active: loading is true while playback is still present). */
     const showLoadingOverlay = loading && !playback;
 
     function toggleMute() {
@@ -120,7 +118,6 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: index * 0.04, duration: 0.3 }}
       >
-        {/* Header bar — hidden when hideHeader (e.g. fullscreen with titles hidden) */}
         {!hideHeader && (
         <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -148,7 +145,6 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
             )}
           </div>
 
-          {/* Volume button — only active when stream is playing */}
           <button
             type="button"
             onClick={playback ? toggleMute : undefined}

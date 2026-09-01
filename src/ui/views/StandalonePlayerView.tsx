@@ -33,7 +33,6 @@ export function StandalonePlayerView({ contentId, channelId, title }: Props) {
   const [switchSubmenuOpen, setSwitchSubmenuOpen] = useState(false);
   const shakaRef = useRef<ShakaVideoHandle | null>(null);
 
-  // Camera/channel currently playing — switchable at runtime without closing the window.
   // `contentId` (the session) never changes; only the channel does.
   const [activeChannelId, setActiveChannelId] = useState<number | undefined>(channelId);
   const [activeTitle, setActiveTitle] = useState(title);
@@ -170,7 +169,6 @@ export function StandalonePlayerView({ contentId, channelId, title }: Props) {
         />
       )}
 
-      {/* Overlay drag handle — zero layout impact. */}
       <div className="standalone-player-drag" aria-hidden />
 
       {menu && (

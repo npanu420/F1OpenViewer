@@ -29,7 +29,7 @@ export async function resolvePlayback(item: CatalogItem): Promise<PlaybackInfo> 
   if (play.licenseAscendonToken) licenseHeaders.ascendontoken = play.licenseAscendonToken;
   if (play.licenseEntitlementToken) licenseHeaders.entitlementtoken = play.licenseEntitlementToken;
   // playToken is registered per-stream in the main-process license proxy at contentPlay time.
-  // Do NOT pass it through renderer headers — binary tokens get corrupted over IPC/strings.
+  // Binary tokens can be corrupted when passed through renderer headers.
   const fallbackLicenseHeaders: Record<string, string> = {};
   if (play.fallbackDrmToken) {
     fallbackLicenseHeaders.Authorization = `Bearer ${play.fallbackDrmToken}`;

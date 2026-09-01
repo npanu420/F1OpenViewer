@@ -220,7 +220,7 @@ export function ResizableStreamGrid({
   const [dragOverSlotId, setDragOverSlotId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
-  /** slotId → videoWidth/videoHeight ratio when the slot is playing */
+  /** Video aspect ratio for each active slot. */
   const [slotStreamAspectRatio, setSlotStreamAspectRatio] = useState<Record<string, number>>({});
   const prevSlotToItemId = useRef<Record<string, string>>({});
   /** slotIds already auto-fitted to their stream's aspect since the current stream was picked;

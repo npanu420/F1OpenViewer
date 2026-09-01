@@ -9,6 +9,8 @@ export type VodSession = {
   title: string;
   type: SessionType;
   channelId?: number;
+  /** Racing series for this session. Defaults to F1. */
+  series?: string;
 };
 
 export type VodOnboard = {
@@ -27,6 +29,8 @@ export type VodEvent = {
   country?: string;
   /** F1 TV pageId for lazy-loading sessions */
   pageId?: number;
+  /** Whether this entry is pre-season testing. */
+  isTest?: boolean;
   sessions: VodSession[];
   onboard: VodOnboard[];
 };

@@ -1,4 +1,39 @@
-# Release Notes – F1 OpenViewer
+# Release Notes - F1 OpenViewer
+
+## v1.2.2
+
+This patch restores reliable F1 account sign-in and live timing, improves replay synchronization, and makes race weekend navigation clearer across F1 and support series.
+
+### Login and sessions
+
+- **Reliable browser sign-in**: the login window now uses the app's actual Chromium user agent and persistent session instead of a hardcoded browser version and a temporary partition.
+- **Safer token capture**: sign-in completes from the updated `login-session` cookie, without injecting fetch or XHR overrides into the F1 account page.
+- **Session persistence**: successful browser sign-in saves the current F1 cookies immediately and restores a valid existing session when available.
+- **Clearer diagnostics**: browser login failures and session initialization now produce focused main-process logs.
+
+### Live Timing
+
+- **Live feed restored**: the live timing client now connects to F1's current SignalR Core endpoint, including negotiation, protocol handshake, keepalive handling, and reconnects.
+- **No account token required for timing**: live timing uses the public timing service independently from F1 TV video authentication.
+- **Improved full-window layout**: the standalone timing view uses larger rows, typography, sector indicators, tyre markers, weather data, race control, and team radio panels.
+- **Replay scrub synchronization**: seeking from the replay timing timeline now seeks the video, while the existing multiview synchronization keeps the other streams aligned.
+
+### Archive and session navigation
+
+- **Weekend stage tabs**: practice, sprint qualifying, sprint, qualifying, and race sessions are grouped in chronological order.
+- **Broadcast variants**: pre-show, main session, post-show, and F1 Kids broadcasts are grouped under their matching weekend stage.
+- **Support series**: Formula 2, Formula 3, F1 Academy, and Porsche Supercup sessions remain available under separate series tabs instead of being filtered out.
+- **Better defaults**: event pages select the race replay by default when available, identify testing events separately, remove duplicate event containers, and preserve chronological event order.
+
+### Maintenance
+
+- Added focused tests for browser-login cookie handling, SignalR Core messages, and session grouping.
+- Removed the obsolete login preload bridge and simplified related IPC and timing code.
+- Fixed Windows executable icon application with the current `rcedit` module API.
+- Updated HTTP clients and build tooling to patched releases.
+- Cleaned up comments and implementation details across the touched code paths.
+
+---
 
 ## v1.2.1
 

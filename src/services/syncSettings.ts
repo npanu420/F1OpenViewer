@@ -52,8 +52,7 @@ export function setSyncDoneDelayMs(ms: number): void {
 
 export function getSyncKeepLocked(): boolean {
   if (typeof localStorage === 'undefined') return true;
-  // Default ON — drift correction is the desired behaviour. Users who want a one-shot snap can
-  // explicitly disable in Settings.
+  // Drift correction stays enabled unless the user selects one-shot synchronization.
   const v = localStorage.getItem(SYNC_KEEP_LOCKED_KEY);
   if (v == null) return true;
   return v === '1';
@@ -69,9 +68,7 @@ export function setSyncKeepLocked(on: boolean): void {
 
 export function getSyncReferenceMode(): SyncReferenceMode {
   if (typeof localStorage === 'undefined') return 'first';
-  // Default = main session feed. The race feed is the natural anchor — onboards/data should
-  // align to it even when they're ahead, otherwise a single-stream rebuffer would drag the
-  // entire multiview backwards every time the world feed hiccups.
+  // The race feed remains the anchor so one stalled stream cannot shift the entire multiview.
   const v = localStorage.getItem(SYNC_REFERENCE_MODE_KEY);
   return v === 'latest' ? 'latest' : 'first';
 }

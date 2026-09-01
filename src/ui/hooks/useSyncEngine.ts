@@ -11,15 +11,13 @@ import {
  * Multi-stage sync engine for VOD/live multiview.
  *
  * Reference selection (priority order):
- *   1. The entry flagged `isMainFeed` (the race / world feed) — always wins when present, even
+ *   1. The entry flagged `isMainFeed` always wins when present, even
  *      when it's behind the others. Rationale: onboards/data should follow the race; if the
  *      race rebuffers we want everyone to wait for it, not the inverse.
  *   2. User preference from settings: 'first' (legacy) or 'latest' (most-ahead).
  *
  * Continuous mode:
- *   When `keepLocked` is true (the default) the engine never goes idle — after the initial
- *   convergence it keeps watching every WATCH_MS and re-corrects drift. This is what the user
- *   actually wants: sync once, stay synced.
+ *   When `keepLocked` is true, the engine checks for drift after initial convergence.
  *
  * Buffering protection:
  *   When the reference video stalls (paused without user action, or readyState < HAVE_FUTURE_DATA)
@@ -28,9 +26,9 @@ import {
  *   every time the world feed hiccups" failure mode of pure offset-driven sync.
  *
  * Per-stream correction:
- *   - |Δ| ≥ COARSE_SEEK_THRESHOLD (0.5s) → seek to the reference time.
- *   - threshold ≤ |Δ| < 0.5s → playbackRate nudge (1.05× behind / 0.95× ahead) until inside.
- *   - |Δ| < threshold → done (rate snaps to 1.0×).
+ *   - Drift at or above the coarse threshold seeks to the reference time.
+ *   - Smaller drift adjusts playback rate until it falls within the target threshold.
+ *   - Drift below the target threshold restores normal playback speed.
  */
 
 export interface SyncEntry {
@@ -85,7 +83,7 @@ export function useSyncEngine() {
   const keepLockedRef = useRef<boolean>(true);
   /** Streams that the engine paused itself (so we resume only those, not user-paused ones). */
   const enginePausedRef = useRef<Set<string>>(new Set());
-  /** True after the reference has played at least once — prevents pre-autoplay false buffers. */
+  /** True after the reference has played once, to avoid false buffering before autoplay. */
   const refHasStartedRef = useRef<boolean>(false);
 
   const stopTimers = useCallback(() => {
@@ -137,7 +135,7 @@ export function useSyncEngine() {
       const threshold = thresholdRef.current;
       const refIsLive = isLikelyLiveVideo(refVideo);
 
-      // Update "ref has started" once — used to filter false buffers during initial autoplay.
+      // Record the first reference playback to filter initial autoplay stalls.
       if (!refHasStartedRef.current) {
         if (refVideo.played?.length > 0 || refTime > 0.1 || (!refVideo.paused && refVideo.readyState >= HAVE_FUTURE_DATA)) {
           refHasStartedRef.current = true;
@@ -164,7 +162,7 @@ export function useSyncEngine() {
 
         if (refIsBuffering) {
           // Hold the line: stop everyone else so we don't accumulate drift while the reference
-          // catches up. Don't try to seek/rate-correct during this window — it only causes more
+          // catches up. Avoid seek and rate correction during this window because it causes more
           // buffering noise.
           if (Math.abs(rate - 1) > 0.001) v.playbackRate = 1;
           if (!v.paused) {
@@ -182,7 +180,7 @@ export function useSyncEngine() {
           };
         }
 
-        // Reference is healthy — resume any stream we paused, then run normal correction.
+        // Resume streams paused while the reference was buffering.
         if (enginePausedRef.current.has(e.id) && v.paused) {
           v.play().catch(() => {});
           enginePausedRef.current.delete(e.id);
@@ -299,7 +297,7 @@ export function useSyncEngine() {
           setSyncStatus('done');
 
           if (keepLockedRef.current) {
-            // Continuous drift watcher. Also handles the buffer-pause/resume logic — if the main
+            // Continuous drift watcher, including buffer pause and resume handling. If the main
             // feed rebuffers, this is what catches the offset growth and pauses the others.
             watchTimerRef.current = setInterval(() => {
               const { infos: w } = computeAndCorrect(true);
@@ -341,7 +339,7 @@ export function useSyncEngine() {
     syncStatus,
     syncStreams,
     showSyncOverlay,
-    /** True iff a watch/converge cycle is active — drives the floating "minimized" badge. */
+    /** Whether a watch or convergence cycle is active. */
     isSyncEngineRunning: isEngineActive,
   };
 }

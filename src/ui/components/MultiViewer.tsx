@@ -329,6 +329,18 @@ export function MultiViewer({
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const lt = window.f1?.liveTiming;
+    if (!lt?.onSeekRequest) return;
+    return lt.onSeekRequest(({ timeSec }) => {
+      const { mainId, slotToItemId: s2i, embeddedPlayback: emb } = clockSrcRef.current;
+      if (!mainId || !emb[mainId] || !Object.values(s2i).includes(mainId)) return;
+      const v = panelRefsByItemId.current.get(mainId)?.getVideoElement?.();
+      if (!v || !Number.isFinite(timeSec)) return;
+      try { v.currentTime = timeSec; } catch (_) {}
+    });
+  }, []);
+
   const handleAudioFocus = useCallback((itemId: string) => {
     setAudioFocusedItemId(itemId);
   }, []);

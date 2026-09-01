@@ -1,8 +1,5 @@
 import { useEffect, useState } from 'react';
 
-/**
- * Elenco id finestre multiview aperte (Electron). In browser senza preload resta [].
- */
 export function useMultiviewWindows(): number[] {
   const [ids, setIds] = useState<number[]>([]);
 

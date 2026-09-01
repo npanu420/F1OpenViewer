@@ -41,7 +41,7 @@ export interface Slice {
 }
 
 /**
- * Records in `(fromIndex .. ]` whose offset ≤ targetMs, plus the index to resume from.
+ * Records after `fromIndex` whose offset does not exceed `targetMs`, plus the next index.
  * Timeline is sorted, so scanning stops at the first record past the target.
  */
 export function sliceUntil(timeline: TimelineEntry[], fromIndex: number, targetMs: number): Slice {

@@ -12,7 +12,7 @@ async function applyIcon(appOutDir, productFilename) {
   const iconPath = path.join(process.cwd(), 'build', 'icon.ico');
   if (!fs.existsSync(exePath) || !fs.existsSync(iconPath)) return;
   try {
-    const rcedit = require('rcedit');
+    const { rcedit } = await import('rcedit');
     await rcedit(exePath, { icon: iconPath });
     console.log('[apply-exe-icon] Icon applied to', exeName);
   } catch (err) {

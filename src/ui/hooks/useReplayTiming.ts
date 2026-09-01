@@ -33,7 +33,7 @@ export interface ReplayTimingState {
   synced: boolean;
   /** True when sync is driven by the DASH broadcast wall clock (exact, no calibration needed). */
   autoSynced: boolean;
-  /** Manual alignment offset (ms) added to the video time, since video t=0 ≠ session t=0. */
+  /** Manual alignment offset used when video and session timelines start at different times. */
   syncOffsetMs: number;
 }
 
@@ -144,7 +144,7 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
   const lastVideoSecRef = useRef(0);
   const lastWallClockRef = useRef<number | null>(null);
   const feedBaseUtcRef = useRef<number | null>(null);
-  // lap number → first replay offset (ms) it appears at. Used to calibrate sync from the lap
+  // Maps each lap to its first replay offset. Used to calibrate sync from the lap
   // shown on the video, since that's the only reliable anchor when the VOD carries no wall clock.
   const lapOffsetsRef = useRef<Map<number, number>>(new Map());
 
@@ -327,6 +327,15 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
     offsetRef.current = Math.max(0, Math.min(ms, durationRef.current));
     pushState();
   }, [pushState]);
+  const requestVideoSeek = useCallback((ms: number) => {
+    const lt = window.f1?.liveTiming;
+    if (!lt?.requestSeek) return;
+    const offsetAtVideoStartMs = offsetRef.current - lastVideoSecRef.current * 1000;
+    const timeSec = Math.max(0, (ms - offsetAtVideoStartMs) / 1000);
+    lt.requestSeek({ timeSec });
+    offsetRef.current = Math.max(0, Math.min(ms, durationRef.current));
+    pushState();
+  }, [pushState]);
   const setSpeed = useCallback((s: number) => {
     speedRef.current = s;
     pushState();
@@ -348,7 +357,7 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
       autoResidualRef.current += deltaMs;
     } else {
       syncOffsetRef.current += deltaMs;
-      mvSyncedRef.current = false; // user tuned it → now a local override, persist
+      mvSyncedRef.current = false; // User adjustments become a persisted local override.
       persistOffset();
     }
     if (syncedRef.current) recomputeSynced();
@@ -376,5 +385,5 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
     return true;
   }, [pushState, persistOffset]);
 
-  return { ...state, play, pause, seek, setSpeed, nudgeSync, unsync, calibrateToLap };
+  return { ...state, play, pause, seek, requestVideoSeek, setSpeed, nudgeSync, unsync, calibrateToLap };
 }

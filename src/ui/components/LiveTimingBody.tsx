@@ -143,15 +143,15 @@ function segColor(status: number): string {
 function Sector({ s }: { s: SectorView }) {
   const color = s.overallFastest ? '#b14bff' : s.personalFastest ? '#43d675' : 'hsl(var(--muted-foreground))';
   return (
-    <div className="flex flex-col gap-0.5 px-1">
+    <div className="flex flex-col gap-1 px-2">
       {s.segments.length > 0 && (
         <div className="flex gap-0.5">
           {s.segments.map((st, i) => (
-            <span key={i} className="h-1 w-2 rounded-[1px]" style={{ backgroundColor: segColor(st) }} />
+            <span key={i} className="h-1.5 w-3 rounded-[1px]" style={{ backgroundColor: segColor(st) }} />
           ))}
         </div>
       )}
-      <span className="tabular-nums text-[11px] leading-none" style={{ color }}>{s.value || '—'}</span>
+      <span className="tabular-nums text-sm leading-none" style={{ color }}>{s.value || '—'}</span>
     </div>
   );
 }
@@ -169,16 +169,18 @@ function TimingCell({
   value,
   width,
   muted,
+  large,
 }: {
   value: string;
   width: string;
   muted?: boolean;
+  large?: boolean;
 }) {
   return (
     <div
-      className={`${width} shrink-0 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-[11px] leading-none ${
-        muted ? 'text-muted-foreground' : ''
-      }`}
+      className={`${width} shrink-0 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums leading-none ${
+        large ? 'text-sm' : 'text-[11px]'
+      } ${muted ? 'text-muted-foreground' : ''}`}
       title={value || undefined}
     >
       {value || '—'}
@@ -206,15 +208,17 @@ function DriverRowItem({
   const showBestLap = !compact && !docked;
   const showSectors = !compact && !docked;
   const showSpeed = !compact && !docked;
+  const full = !compact && !docked;
+  const tlaWidth = compact ? 'w-14' : full ? 'w-32' : 'w-24';
   return (
     <div
-      className={`flex items-center h-9 border-b border-border/40 text-sm hover:bg-white/[0.05] transition-colors ${
-        index % 2 === 1 ? 'bg-white/[0.015]' : ''
-      } ${row.retired ? 'opacity-50' : ''}`}
+      className={`flex items-center border-b border-border/40 hover:bg-white/[0.05] transition-colors ${
+        full ? 'h-12 text-base' : 'h-9 text-sm'
+      } ${index % 2 === 1 ? 'bg-white/[0.015]' : ''} ${row.retired ? 'opacity-50' : ''}`}
     >
-      <div className="w-7 shrink-0 text-center font-bold tabular-nums">{row.position}</div>
-      <div className="w-1 h-6 shrink-0 rounded-sm mr-2" style={{ backgroundColor: row.teamColour }} />
-      <div className={`${compact ? 'w-14' : 'w-24'} shrink-0 font-heading font-bold tracking-wider flex items-center gap-1 min-w-0 overflow-hidden`}>
+      <div className={`${full ? 'w-9' : 'w-7'} shrink-0 text-center font-bold tabular-nums`}>{row.position}</div>
+      <div className={`${full ? 'w-1.5 h-8' : 'w-1 h-6'} shrink-0 rounded-sm mr-2`} style={{ backgroundColor: row.teamColour }} />
+      <div className={`${tlaWidth} shrink-0 font-heading font-bold tracking-wider flex items-center gap-1 min-w-0 overflow-hidden`}>
         <span className="truncate">{row.tla}</span>
         {row.drs && <span className="text-[8px] font-bold text-emerald-400 shrink-0" title="DRS active">DRS</span>}
         {row.retired ? (
@@ -225,20 +229,22 @@ function DriverRowItem({
           <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/80 text-black leading-none shrink-0">OUT</span>
         ) : null}
       </div>
-      <TimingCell value={row.gapToLeader} width="w-[3.25rem]" muted />
-      {showInterval && <TimingCell value={row.interval} width="w-[3.75rem]" muted />}
-      {showLastLap && <TimingCell value={row.lastLap} width="w-[4.25rem]" />}
-      {showBestLap && <TimingCell value={row.bestLap} width="w-[4.25rem]" muted />}
-      <div className="w-[2.75rem] shrink-0 flex items-center justify-start gap-1 cursor-default" title={stintTooltip(row)}>
+      <TimingCell value={row.gapToLeader} width={full ? 'w-20' : 'w-[3.25rem]'} muted large={full} />
+      {showInterval && <TimingCell value={row.interval} width={full ? 'w-20' : 'w-[3.75rem]'} muted large={full} />}
+      {showLastLap && <TimingCell value={row.lastLap} width={full ? 'w-24' : 'w-[4.25rem]'} large={full} />}
+      {showBestLap && <TimingCell value={row.bestLap} width={full ? 'w-24' : 'w-[4.25rem]'} muted large={full} />}
+      <div className={`${full ? 'w-20' : 'w-[2.75rem]'} shrink-0 flex items-center justify-start gap-1.5 cursor-default`} title={stintTooltip(row)}>
         {row.tyre ? (
           <>
             <span
-              className="inline-flex items-center justify-center w-4 h-4 rounded-full border text-[9px] font-bold leading-none"
+              className={`inline-flex items-center justify-center shrink-0 rounded-full border font-bold leading-none ${
+                full ? 'w-6 h-6 text-xs' : 'w-4 h-4 text-[9px]'
+              }`}
               style={{ borderColor: tyre, color: tyre }}
             >
               {TYRE_LETTER[row.tyre] ?? row.tyre[0]}
             </span>
-            {showBestLap && <span className="text-[11px] text-muted-foreground tabular-nums">{row.stintLaps ?? ''}</span>}
+            {showBestLap && <span className={`${full ? 'text-sm' : 'text-[11px]'} text-muted-foreground tabular-nums`}>{row.stintLaps ?? ''}</span>}
             {showBestLap && pitStops > 0 && <span className="text-[9px] text-muted-foreground/70 tabular-nums">×{pitStops}</span>}
           </>
         ) : (
@@ -246,13 +252,13 @@ function DriverRowItem({
         )}
       </div>
       {showSectors && (
-        <div className="flex-1 flex items-center min-w-0">
+        <div className="flex-1 flex items-center justify-between min-w-0">
           {row.sectors.map((s, i) => <Sector key={i} s={s} />)}
         </div>
       )}
       {showSpeed && (
-        <div className="w-16 shrink-0 text-right pr-3">
-          {row.speedKmh ? <span className="text-[11px] tabular-nums text-muted-foreground">{row.speedKmh} km/h</span> : null}
+        <div className={`${full ? 'w-24' : 'w-16'} shrink-0 text-right pr-3`}>
+          {row.speedKmh ? <span className={`${full ? 'text-sm' : 'text-[11px]'} tabular-nums text-muted-foreground`}>{row.speedKmh} km/h</span> : null}
         </div>
       )}
     </div>
@@ -374,12 +380,12 @@ function RadioClip({ clip, tla, sessionPath }: { clip: TeamRadioClip; tla: strin
   );
 }
 
-function WeatherStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function WeatherStat({ icon: Icon, label, value, large }: { icon: React.ElementType; label: string; value: string; large?: boolean }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-muted-foreground">{icon}</span>
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
-      <span className="text-sm font-semibold tabular-nums">{value}</span>
+      <Icon className={`text-muted-foreground ${large ? 'w-4 h-4' : 'w-3.5 h-3.5'}`} />
+      <span className={`uppercase tracking-wider text-muted-foreground ${large ? 'text-xs' : 'text-[10px]'}`}>{label}</span>
+      <span className={`font-semibold tabular-nums ${large ? 'text-base' : 'text-sm'}`}>{value}</span>
     </div>
   );
 }
@@ -426,24 +432,26 @@ function TimingBody({
 }: TimingBodyProps) {
   const tlaByNum: Record<string, string> = {};
   for (const d of drivers) tlaByNum[d.number] = d.tla;
+  const full = !compact && !docked;
+  const tlaHeadWidth = compact ? 'w-14' : full ? 'w-32' : 'w-24';
 
   return (
     <div className={`${compact ? 'h-full' : 'h-screen'} overflow-hidden bg-background text-foreground flex flex-col`}>
       {/* Header: title, status, weather */}
-      <div className={`flex items-center gap-4 border-b border-border bg-card/60 flex-wrap ${compact ? 'px-2 py-1.5' : 'px-4 py-2'}`}>
+      <div className={`flex items-center gap-4 border-b border-border bg-card/60 flex-wrap ${full ? 'px-6 py-3' : compact ? 'px-2 py-1.5' : 'px-4 py-2'}`}>
         <div className="flex items-center gap-2 min-w-0">
           {headerBadge}
-          <span className="font-heading font-bold tracking-wider truncate">{title || 'Live Timing'}</span>
+          <span className={`font-heading font-bold tracking-wider truncate ${full ? 'text-lg' : ''}`}>{title || 'Live Timing'}</span>
           {lapCount && (
-            <span className="tabular-nums text-xs font-bold px-2 py-0.5 rounded bg-secondary shrink-0">
+            <span className={`tabular-nums font-bold rounded bg-secondary shrink-0 ${full ? 'text-sm px-2.5 py-1' : 'text-xs px-2 py-0.5'}`}>
               LAP {lapCount.current}/{lapCount.total}
             </span>
           )}
-          {clock && <span className="tabular-nums text-primary font-bold shrink-0">{clock.remaining}</span>}
+          {clock && <span className={`tabular-nums text-primary font-bold shrink-0 ${full ? 'text-lg' : ''}`}>{clock.remaining}</span>}
         </div>
         {trackStatus && (
           <span
-            className={`text-xs font-bold px-2 py-0.5 rounded shrink-0 ${
+            className={`font-bold rounded shrink-0 ${full ? 'text-sm px-2.5 py-1' : 'text-xs px-2 py-0.5'} ${
               trackStatus.status === '1' ? 'bg-emerald-600/80 text-white' : 'bg-amber-500/80 text-black'
             }`}
           >
@@ -451,13 +459,13 @@ function TimingBody({
           </span>
         )}
         {w && !compact && (
-          <div className="flex items-center gap-4 ml-auto">
-            <WeatherStat icon={<Wind className="w-3.5 h-3.5" />} label="Wind" value={`${w.windSpeed} m/s`} />
-            <WeatherStat icon={<Thermometer className="w-3.5 h-3.5" />} label="Track" value={`${w.trackTemp}°`} />
-            <WeatherStat icon={<Thermometer className="w-3.5 h-3.5" />} label="Air" value={`${w.airTemp}°`} />
-            <WeatherStat icon={<Droplets className="w-3.5 h-3.5" />} label="Hum" value={`${w.humidity}%`} />
-            <WeatherStat icon={<Gauge className="w-3.5 h-3.5" />} label="Press" value={`${w.pressure}`} />
-            <WeatherStat icon={<CloudRain className="w-3.5 h-3.5" />} label="Rain" value={w.rainfall ? 'Yes' : 'No'} />
+          <div className={`flex items-center ml-auto ${full ? 'gap-6' : 'gap-4'}`}>
+            <WeatherStat icon={Wind} label="Wind" value={`${w.windSpeed} m/s`} large={full} />
+            <WeatherStat icon={Thermometer} label="Track" value={`${w.trackTemp}°`} large={full} />
+            <WeatherStat icon={Thermometer} label="Air" value={`${w.airTemp}°`} large={full} />
+            <WeatherStat icon={Droplets} label="Hum" value={`${w.humidity}%`} large={full} />
+            <WeatherStat icon={Gauge} label="Press" value={`${w.pressure}`} large={full} />
+            <WeatherStat icon={CloudRain} label="Rain" value={w.rainfall ? 'Yes' : 'No'} large={full} />
           </div>
         )}
       </div>
@@ -465,18 +473,18 @@ function TimingBody({
       <div className="flex-1 flex min-h-0">
         {/* Timing table */}
         <div className={`flex-1 overflow-y-auto thin-scrollbar min-w-0 ${docked ? 'overflow-x-auto' : ''}`}>
-          {(dockWide || (!compact && !docked)) && (
-            <div className="flex items-center h-7 px-0 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 bg-background min-w-max">
-              <div className="w-7 shrink-0 text-center">P</div>
+          {(dockWide || full) && (
+            <div className={`flex items-center px-0 uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 bg-background min-w-max ${full ? 'h-9 text-xs' : 'h-7 text-[10px]'}`}>
+              <div className={`${full ? 'w-9' : 'w-7'} shrink-0 text-center`}>P</div>
               <div className="w-3 mr-2 shrink-0" />
-              <div className={`${compact ? 'w-14' : 'w-24'} shrink-0`}>Drv</div>
-              <div className="w-[3.25rem] shrink-0">Gap</div>
-              {(dockWide || !docked) && <div className="w-[3.75rem] shrink-0">Int</div>}
-              {(dockWide || !docked) && <div className="w-[4.25rem] shrink-0">Last</div>}
-              {!docked && <div className="w-[4.25rem] shrink-0">Best</div>}
-              <div className="w-[2.75rem] shrink-0">Tyre</div>
+              <div className={`${tlaHeadWidth} shrink-0`}>Drv</div>
+              <div className={`${full ? 'w-20' : 'w-[3.25rem]'} shrink-0`}>Gap</div>
+              {(dockWide || !docked) && <div className={`${full ? 'w-20' : 'w-[3.75rem]'} shrink-0`}>Int</div>}
+              {(dockWide || !docked) && <div className={`${full ? 'w-24' : 'w-[4.25rem]'} shrink-0`}>Last</div>}
+              {!docked && <div className={`${full ? 'w-24' : 'w-[4.25rem]'} shrink-0`}>Best</div>}
+              <div className={`${full ? 'w-20' : 'w-[2.75rem]'} shrink-0`}>Tyre</div>
               {!docked && <div className="flex-1">Sectors</div>}
-              {!docked && <div className="w-16 text-right pr-3 shrink-0">Spd</div>}
+              {!docked && <div className={`${full ? 'w-24' : 'w-16'} text-right pr-3 shrink-0`}>Spd</div>}
             </div>
           )}
           {drivers.map((row, i) => (
@@ -496,33 +504,33 @@ function TimingBody({
 
         {/* Race control + team radio feed, each panel scrolls on its own and never grows past its share.
             Dropped in compact mode: the dock is a glance surface, full detail stays in the popout. */}
-        {!compact && !docked && (
-          <div className="w-80 border-l border-border bg-card/30 flex flex-col min-h-0">
+        {full && (
+          <div className="w-96 border-l border-border bg-card/30 flex flex-col min-h-0">
             <div className="flex-1 min-h-0 flex flex-col basis-0">
-              <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border bg-card/60 shrink-0">
+              <div className="px-4 py-2.5 text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-card/60 shrink-0">
                 Race Control
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
                 {raceControl.map((m, i) => (
-                  <div key={i} className="px-3 py-2 border-b border-border/40 text-xs">
+                  <div key={i} className="px-4 py-2.5 border-b border-border/40 text-sm">
                     {m.flag && <span className="font-bold mr-1" style={{ color: flagColor(m.flag) }}>{m.flag}</span>}
                     <span className="text-foreground">{m.message}</span>
                     {m.lap != null && <span className="text-muted-foreground ml-1">(L{m.lap})</span>}
                   </div>
                 ))}
-                {!raceControl.length && <div className="p-3 text-xs text-muted-foreground">No messages yet.</div>}
+                {!raceControl.length && <div className="p-4 text-sm text-muted-foreground">No messages yet.</div>}
               </div>
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col basis-0 border-t border-border">
-              <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border bg-card/60 shrink-0">
+              <div className="px-4 py-2.5 text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-card/60 shrink-0">
                 Team Radio
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
                 {teamRadio.map((clip, i) => (
                   <RadioClip key={i} clip={clip} tla={tlaByNum[clip.number] || ''} sessionPath={sessionPath} />
                 ))}
-                {!teamRadio.length && <div className="p-3 text-xs text-muted-foreground">No clips yet.</div>}
+                {!teamRadio.length && <div className="p-4 text-sm text-muted-foreground">No clips yet.</div>}
               </div>
             </div>
           </div>
@@ -590,7 +598,7 @@ export function ReplayTimingPanel({
           min={0}
           max={t.durationMs || 1}
           value={t.offsetMs}
-          onChange={(e) => t.seek(Number(e.target.value))}
+          onChange={(e) => (t.synced ? t.requestVideoSeek(Number(e.target.value)) : t.seek(Number(e.target.value)))}
           className="flex-1 accent-primary"
         />
       )}

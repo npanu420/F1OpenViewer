@@ -16,7 +16,7 @@ export async function backendRequest<T = unknown>(req: NetRequest): Promise<NetR
     return window.f1.request<T>(req);
   }
 
-  // Fallback (dev in pure browser) — may be blocked by CORS.
+  // Browser-only development fallback. CORS may block it.
   const url = buildUrl(req.url, req.query);
   const res = await fetch(url, {
     method: req.method,

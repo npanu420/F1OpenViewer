@@ -141,8 +141,8 @@ test('selectDrivers: joins feeds, sorts by line, maps tyre/telemetry', () => {
   assert.equal(rus.lastLap, '1:30.123');
   assert.equal(rus.sectors.length, 2);
   assert.equal(rus.sectors[0].overallFastest, true);
-  assert.deepEqual(rus.sectors[0].segments, [2051, 2049]); // keyed segments → index order
-  assert.deepEqual(rus.sectors[1].segments, []); // missing Segments → empty
+  assert.deepEqual(rus.sectors[0].segments, [2051, 2049]); // Keyed segments retain index order.
+  assert.deepEqual(rus.sectors[1].segments, []); // Missing segments produce an empty list.
   const ham = rows[1];
   assert.equal(ham.inPit, true);
   assert.equal(ham.tyre, 'SOFT');

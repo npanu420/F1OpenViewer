@@ -101,14 +101,9 @@ export function useLiveTiming(query: LiveTimingQuery | null) {
     });
 
     lt.liveStart(query)
-      .then(({ path, hasToken }) => {
+      .then(({ path }) => {
         if (cancelled) return;
-        setState((p) => ({
-          ...p,
-          loading: false,
-          sessionPath: path,
-          error: hasToken ? null : 'Sign in required for live timing.',
-        }));
+        setState((p) => ({ ...p, loading: false, sessionPath: path }));
       })
       .catch((e) => {
         if (!cancelled) setState((p) => ({ ...p, loading: false, error: e?.message || 'Live timing unavailable.' }));

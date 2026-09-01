@@ -30,8 +30,8 @@ export type PreloadApi = {
   searchVod?(params?: Record<string, string>): Promise<unknown[]>;
   getVodCatalog?(): Promise<{ seasons: Array<{ year: number; events: unknown[] }> }>;
   getVodSeasons?(): Promise<Array<{ year: number; pageId: number }>>;
-  getVodEvents?(seasonPageId: number): Promise<Array<{ meetingKey: string; meetingName: string; meetingNumber: number; pageId: number }>>;
-  getVodSessions?(gpPageId: number): Promise<Array<{ contentId: number; title: string; type: string }>>;
+  getVodEvents?(seasonPageId: number): Promise<Array<{ meetingKey: string; meetingName: string; meetingNumber: number; pageId: number; isTest?: boolean }>>;
+  getVodSessions?(gpPageId: number): Promise<Array<{ contentId: number; title: string; type: string; series?: string }>>;
   getContentVideo?(contentId: number): Promise<{ onboard: unknown[]; dataChannel?: unknown[]; mainChannel?: unknown; container: unknown }>;
   contentPlay?(contentId: number, channelId?: number): Promise<{
     manifestUrl: string;
@@ -102,9 +102,11 @@ export type PreloadApi = {
     reportClock(payload: { timeSec: number; paused: boolean; wallClockMs: number | null }): void;
     /** Timing window: subscribe to the relayed video clock. Returns an unsubscribe fn. */
     onClock(callback: (payload: { timeSec: number; paused: boolean; wallClockMs: number | null }) => void): () => void;
+    requestSeek(payload: { timeSec: number }): void;
+    onSeekRequest(callback: (payload: { timeSec: number }) => void): () => void;
     /** Starts (or attaches to) the shared live SignalR connection. Returns the archive path once
      *  resolvable (for team-radio audio URLs) and whether an account token was available. */
-    liveStart(opts: { year?: number; sessionKey?: string | number; meetingName?: string; sessionName?: string }): Promise<{ path: string | null; hasToken: boolean }>;
+    liveStart(opts: { year?: number; sessionKey?: string | number; meetingName?: string; sessionName?: string }): Promise<{ path: string | null }>;
     liveStop(): Promise<{ ok: boolean }>;
     /** Live feed records: same (feed,data) shape replay records feed into the reducer. */
     onLiveUpdate(callback: (payload: { feed: string; data: unknown }) => void): () => void;

@@ -86,6 +86,12 @@ contextBridge.exposeInMainWorld('f1', {
       ipcRenderer.on('livetiming:clock', handler);
       return () => ipcRenderer.removeListener('livetiming:clock', handler);
     },
+    requestSeek: (payload) => ipcRenderer.send('livetiming:requestSeek', payload),
+    onSeekRequest: (callback) => {
+      const handler = (_event, payload) => { try { callback(payload); } catch (_) {} };
+      ipcRenderer.on('livetiming:seekRequest', handler);
+      return () => ipcRenderer.removeListener('livetiming:seekRequest', handler);
+    },
   },
 });
 

@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, ChevronRight } from 'lucide-react';
+import { Calendar, MapPin, ChevronRight, Wrench } from 'lucide-react';
 import type { VodEvent } from '../../domain/vod';
 import { getFlag, getCountryCodeFromMeetingKey } from '@/lib/flags';
 
@@ -29,9 +29,13 @@ export function RaceCard({ event, onClick, index, circuit }: RaceCardProps) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg leading-none">{flag}</span>
+            {event.isTest ? (
+              <Wrench className="w-4 h-4 text-muted-foreground" />
+            ) : (
+              <span className="text-lg leading-none">{flag}</span>
+            )}
             <span className="text-xs font-heading font-bold text-primary tracking-widest">
-              R{String(event.meetingNumber || index + 1).padStart(2, '0')}
+              {event.isTest ? 'TEST' : `R${String(event.meetingNumber || index + 1).padStart(2, '0')}`}
             </span>
           </div>
           <h3 className="font-heading text-sm font-bold text-foreground truncate group-hover:text-primary transition-colors">

@@ -15,6 +15,7 @@ export async function getVodEvents(seasonPageId: number): Promise<VodEvent[]> {
     meetingName: ev.meetingName,
     meetingNumber: ev.meetingNumber,
     pageId: ev.pageId,
+    isTest: ev.isTest,
     sessions: [],
     onboard: [],
   }));
@@ -28,6 +29,7 @@ export async function getVodSessions(gpPageId: number): Promise<VodSession[]> {
     contentId: s.contentId,
     title: s.title,
     type: s.type as VodSession['type'],
+    series: s.series,
   }));
 }
 

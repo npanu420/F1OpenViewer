@@ -1,5 +1,5 @@
 /**
- * F1 TV archive browsing: live-now, search, and the season → GP → session catalog walk.
+ * F1 TV archive browsing: live-now, search, and the season, GP, and session catalog walk.
  * Pages are plain F1TV "PAGE" containers; the parsing here maps their nested container shape
  * into the flat season/event/session lists the renderer works with.
  */
@@ -51,7 +51,7 @@ async function searchVod(params = {}) {
 }
 
 /**
- * F1 TV archive page ID and mapping year → season pageId.
+ * F1 TV archive page ID and year-to-page mapping.
  * Obtained by exploring https://f1tv.formula1.com/2.0/A/ENG/WEB_DASH/ALL/PAGE/493/F1_TV_Pro_Annual/2
  */
 const ARCHIVE_PAGE_ID = 493;
@@ -101,6 +101,21 @@ function mapSubtypeToSessionType(subtype, videoType) {
   return 'other';
 }
 
+const KNOWN_SERIES_LABELS = {
+  'FORMULA 1': 'F1',
+  'FORMULA 2': 'F2',
+  'FORMULA 3': 'F3',
+  'F1 ACADEMY': 'F1 Academy',
+  'PORSCHE': 'Porsche Supercup',
+};
+
+/** Normalizes F1TV series constants and treats missing legacy values as F1. */
+function normalizeSeries(rawSeries) {
+  const s = String(rawSeries || '').toUpperCase().trim();
+  if (!s) return 'F1';
+  return KNOWN_SERIES_LABELS[s] || s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /**
  * Extracts all GP containers from a season page.
  * Each GP container has an action with pageId for the GP page.
@@ -138,6 +153,9 @@ function extractEventsFromSeasonPage(containers) {
         meetingName: String(title).trim(),
         contentId: meta.contentId,
         meetingNumber: Number(props.meeting_Number || emf.Meeting_Number || 0),
+        startMs: meetingStartMs,
+        // Testing and the season opener can both be tagged as round one.
+        isTest: /test/i.test(title),
       });
     }
   }
@@ -152,9 +170,6 @@ function extractSessionsFromGPPage(containers) {
   const sessions = [];
   const onboard = [];
   for (const c of containers) {
-    const containerTitle = String(c.title || '').toLowerCase();
-    // Salta F2/F3/Porsche/W-Series/ecc.
-    if (/formula [23]|porsche|w series|f[23]:/i.test(containerTitle)) continue;
     const subs = c.retrieveItems?.resultObj?.containers || [];
     for (const s of subs) {
       const meta = s.metadata || {};
@@ -164,12 +179,11 @@ function extractSessionsFromGPPage(containers) {
       const title = s.title || meta.title || '';
       const subtype = meta.contentSubtype || '';
       const videoType = emf.VideoType || '';
-      // Skip F2/F3 content
-      if (/\bF[23]\b/.test(title)) continue;
+      const series = normalizeSeries(emf.Series);
       const type = mapSubtypeToSessionType(subtype, videoType);
       // Main sessions only: meetingSession REPLAY (FP, Q, race, sprint).
       if (videoType === 'meetingSession' && subtype === 'REPLAY') {
-        sessions.push({ contentId, title: String(title).trim(), type });
+        sessions.push({ contentId, title: String(title).trim(), type, series });
       }
     }
   }
@@ -232,13 +246,20 @@ async function getVodSeasons() {
 async function getVodEvents(seasonPageId) {
   console.log('[VOD] getVodEvents: loading season page', seasonPageId);
   const containers = await client.fetchPage(seasonPageId);
-  const gpItems = extractEventsFromSeasonPage(containers);
-  console.log('[VOD] events found (held only):', gpItems.length);
+  const rawEvents = extractEventsFromSeasonPage(containers);
+  // Featured containers can duplicate an event from the season grid.
+  const byPageId = new Map();
+  for (const gp of rawEvents) {
+    if (!byPageId.has(gp.pageId)) byPageId.set(gp.pageId, gp);
+  }
+  const gpItems = Array.from(byPageId.values()).sort((a, b) => a.startMs - b.startMs);
+  console.log('[VOD] events found (held only):', gpItems.length, '(', rawEvents.length, 'before dedupe)');
   return gpItems.map((gp, i) => ({
     meetingKey: String(gp.pageId),
     meetingName: gp.meetingName,
     meetingNumber: gp.meetingNumber || (i + 1),
     pageId: gp.pageId,
+    isTest: gp.isTest,
   }));
 }
 

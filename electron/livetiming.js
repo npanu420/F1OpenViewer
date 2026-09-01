@@ -1,13 +1,6 @@
 /**
- * F1 Live Timing data backbone (main process).
- *
- * Live timing is a separate, DRM-free public system from F1 TV video. It has two transports
- * that deliver byte-identical JSON feeds, so a single parser/reducer serves both:
- *   - Replay/VOD: static `.jsonStream` files under https://livetiming.formula1.com/static/{Path}
- *   - Live:       SignalR WebSocket at https://livetiming.formula1.com/signalr (auth-gated)
- *
- * This module (M1) owns parsing, decompression, and the static archive fetch. The SignalR
- * transport and the state reducer are layered on top in later milestones, reusing these helpers.
+ * Parses archived F1 timing feeds and manages the live SignalR Core connection.
+ * Live connections are anonymous because F1TV account tokens use a different backend.
  */
 
 const zlib = require('zlib');
@@ -21,7 +14,7 @@ const STATIC_BASE = `${LIVETIMING_BASE}/static`;
 /** Feeds whose payload is a base64-encoded raw-deflate blob (vs. plain JSON). */
 const COMPRESSED_FEEDS = new Set(['CarData.z', 'Position.z']);
 
-/** CarData channel ids → meaning (telemetry overlay). */
+/** Maps CarData channel IDs to telemetry fields. */
 const CAR_DATA_CHANNELS = { RPM: 0, Speed: 2, Gear: 3, Throttle: 4, Brake: 5, DRS: 45 };
 
 /** The feeds a MultiViewer-style timing screen subscribes to. */
@@ -75,7 +68,7 @@ function isCompressedFeed(feed) {
   return COMPRESSED_FEEDS.has(feed);
 }
 
-/** base64 raw-deflate blob → parsed JSON object (CarData.z / Position.z). */
+/** Inflates a base64 raw-deflate telemetry payload. */
 function inflateZ(b64) {
   const buf = Buffer.from(String(b64), 'base64');
   const json = zlib.inflateRawSync(buf).toString('utf8');
@@ -84,15 +77,14 @@ function inflateZ(b64) {
 
 /**
  * Decode one jsonStream record payload for a feed.
- * - Plain feeds: payload is a JSON value → JSON.parse.
- * - Compressed feeds: payload is a JSON-quoted base64 string → unquote → inflateRaw → JSON.parse.
+ * Plain feeds contain JSON. Compressed feeds contain a JSON-quoted base64 payload.
  * Returns null on malformed input (a single bad record must not abort the whole stream).
  */
 function decodePayload(feed, payloadStr) {
   if (payloadStr == null) return null;
   try {
     if (isCompressedFeed(feed)) {
-      const b64 = JSON.parse(payloadStr); // quoted base64 string → string
+      const b64 = JSON.parse(payloadStr);
       return inflateZ(b64);
     }
     return JSON.parse(payloadStr);
@@ -138,7 +130,7 @@ function parseJsonStream(text, feed) {
   return out;
 }
 
-/** Lowercase, strip diacritics, canonicalize known F1TV↔archive aliases, collapse spaces. */
+/** Normalizes names and aliases shared by F1TV and the timing archive. */
 function normalizeName(s) {
   return String(s || '')
     .normalize('NFD')
@@ -149,16 +141,17 @@ function normalizeName(s) {
     .trim();
 }
 
-/** F1TV `type` enum → archive session Name (lowercased). Practice/sprint-qual rely on the title. */
+/** Maps F1TV session types to lowercase timing archive names. */
 const SESSION_TYPE_TO_NAME = { race: 'race', qualifying: 'qualifying', sprint: 'sprint' };
 
 /**
  * Find a session's archive Path in a season Index.json.
  * Replays resolve by name: F1TV titles are noisy ("FORMULA 1 HEINEKEN CHINESE GRAND PRIX 2026",
  * session title "2026 Chinese Grand Prix"), so meetings match by substring either direction and
- * sessions match by exact title → archive-name-contained-in-title → `type` mapping.
+ * sessions match by exact title, contained archive name, and then `type` mapping.
  * @param {object} index - parsed Index.json
- * @param {{sessionKey?:string|number, meetingKey?:string|number, meetingName?:string, sessionName?:string, sessionType?:string}} q
+ * @param {{sessionKey?:string|number, meetingKey?:string|number, meetingName?:string,
+ * sessionName?:string, sessionType?:string}} q
  * @returns {{path:string, meeting:object, session:object}|null}
  */
 function findSession(index, q = {}) {
@@ -171,7 +164,7 @@ function findSession(index, q = {}) {
   const wantName = q.sessionName ? normalizeName(q.sessionName) : null;
   const wantType = q.sessionType ? String(q.sessionType).toLowerCase() : null;
   const typeName = wantType ? SESSION_TYPE_TO_NAME[wantType] : null;
-  // Trailing number in the session title (e.g. "Practice 2" / "Prove Libere 2" → 2) to disambiguate
+  // A trailing practice number disambiguates sessions with the same type.
   // the three practices when the title is localized and the archive Name doesn't match.
   const numMatch = q.sessionName ? String(q.sessionName).match(/(\d+)\s*$/) : null;
   const wantSessionNum = numMatch ? Number(numMatch[1]) : null;
@@ -205,7 +198,7 @@ function findSession(index, q = {}) {
       score += wantIsSprint === archiveIsSprint ? 1 : -3; // wrong sprint variant loses
       return score;
     }
-    if (typeName && n && n === typeName) return 6;             // type → archive Name
+    if (typeName && n && n === typeName) return 6;
     return 0;
   };
 
@@ -298,7 +291,6 @@ async function fetchTeamRadioClip(sessionPath, clipPath) {
   return buf.toString('base64');
 }
 
-/** Season index: meetings → sessions → Path/Key. */
 async function getIndex(year) {
   const txt = await fetchText(`${STATIC_BASE}/${year}/Index.json`);
   return JSON.parse(stripBom(txt));
@@ -338,7 +330,7 @@ async function loadSession(sessionPath, feeds) {
   return out;
 }
 
-// MultiViewer's open, no-auth curated sync API. Returns the video→timing anchor (`session_start`,
+// MultiViewer's open, no-auth curated sync API. Returns the video-to-timing anchor (`session_start`,
 // seconds) + per-channel camera diffs they computed once and serve to everyone. Same value their
 // app uses for "perfect" auto-sync; we just read it instead of making the user hand-align.
 const MV_SYNC_BASE = 'https://api.multiviewer.app/api/v1';
@@ -367,9 +359,10 @@ async function httpGetText(url, extraHeaders = {}) {
 }
 
 /**
- * Fetch MultiViewer's curated sync record for a session. Returns the video→timing offset in seconds
+ * Fetch MultiViewer's curated sync record for a session. Returns the video-to-timing offset in seconds
  * and per-channel diffs, or null if the session isn't synced / the request fails.
- * @returns {{sessionStartSec:number, channelDiffs:Record<string,{diff:number,diffV2:number}>, contentId:string|null}|null}
+ * @returns {{sessionStartSec:number,
+ * channelDiffs:Record<string,{diff:number,diffV2:number}>, contentId:string|null}|null}
  */
 async function fetchSyncData(meetingKey, sessionKey) {
   if (meetingKey == null || sessionKey == null) return null;
@@ -390,46 +383,83 @@ async function fetchSyncData(meetingKey, sessionKey) {
   }
 }
 
-// ----- live transport (SignalR, old ASP.NET protocol, not SignalR Core) -----
-//
-// GET /signalr/negotiate (authed, curl-routed like the static fetches above) → ConnectionToken,
-// then a WebSocket to /signalr/connect, Subscribe to the feed list, and the server replies with
-// an `R` snapshot (one entry per subscribed feed, same order) followed by `M` delta frames.
-// Same (feed,data) shape the static archive replay already feeds into the reducer.
-//
-// KNOWN LIMITATION: unlike the curl-proxied static/audio fetches, this WebSocket runs in-process
-// (electron.exe), so a full-tunnel VPN that can only split-tunnel by app will route it over the
-// VPN and may hit the same WAF block the curl trick exists to dodge. Not solved here. Old
-// SignalR also supports a long-polling transport (plain HTTP, curl-friendly) as a fallback if
-// this actually blocks someone in practice.
-//
-// Can only be verified end-to-end during a real live session (negotiate 401s otherwise).
+// SignalR Core uses an ALB affinity cookie, a negotiate request, and a WebSocket handshake.
+// The socket runs in Electron, so application-based VPN split tunneling may not bypass its WAF.
 
-const SIGNALR_HUB = 'Streaming';
+const SIGNALR_RS = '\x1e';
+const CORE_KEEPALIVE_MS = 15000;
 const LIVE_RECONNECT_MS = 2000;
 
 let liveSocket = null;
 let liveReconnectTimer = null;
+let liveKeepaliveTimer = null;
 
-/** GET /signalr/negotiate with the F1TV account token → { ConnectionToken, ... }. */
-async function negotiateSignalR(token) {
-  const connectionData = encodeURIComponent(JSON.stringify([{ name: SIGNALR_HUB }]));
-  const url = `${LIVETIMING_BASE}/signalr/negotiate?clientProtocol=1.5&connectionData=${connectionData}`;
-  const txt = await httpGetText(url, { Authorization: `Bearer ${token}` });
-  const j = JSON.parse(stripBom(txt));
-  if (!j || !j.ConnectionToken) throw new Error('SignalR negotiate: no ConnectionToken in response');
-  return j;
+function curlOptionsCookie(url) {
+  return new Promise((resolve, reject) => {
+    const args = ['-s', '-S', '--max-time', '15', '-i', '-X', 'OPTIONS'];
+    for (const [k, v] of Object.entries(STATIC_HEADERS)) args.push('-H', `${k}: ${v}`);
+    args.push(url);
+    execFile(WIN_CURL, args, { maxBuffer: 1024 * 1024, windowsHide: true, timeout: 20000 }, (err, stdout) => {
+      if (err) return reject(new Error(`curl OPTIONS ${url} failed: ${err.message}`));
+      resolve(stdout);
+    });
+  });
 }
 
-function buildLiveSocketUrl(connectionToken) {
-  const connectionData = encodeURIComponent(JSON.stringify([{ name: SIGNALR_HUB }]));
-  return `wss://livetiming.formula1.com/signalr/connect?transport=webSockets&clientProtocol=1.5`
-    + `&connectionToken=${encodeURIComponent(connectionToken)}&connectionData=${connectionData}`;
+function curlPostText(url, headers) {
+  return new Promise((resolve, reject) => {
+    const args = ['-s', '-S', '--max-time', '15', '-X', 'POST', '-w', '\n%{http_code}'];
+    for (const [k, v] of Object.entries({ ...STATIC_HEADERS, ...headers })) args.push('-H', `${k}: ${v}`);
+    args.push(url);
+    execFile(WIN_CURL, args, { maxBuffer: 1024 * 1024, windowsHide: true, timeout: 20000 }, (err, stdout) => {
+      if (err) return reject(new Error(`curl POST ${url} failed: ${err.message}`));
+      const nl = stdout.lastIndexOf('\n');
+      const code = Number(stdout.slice(nl + 1).trim());
+      if (code < 200 || code >= 300) return reject(new Error(`POST ${url} returned HTTP ${code}`));
+      resolve(stdout.slice(0, nl));
+    });
+  });
+}
+
+/** Attempts to obtain the optional ALB affinity cookie. */
+async function fetchAwsAlbCookie() {
+  const url = `${LIVETIMING_BASE}/signalrcore/negotiate`;
+  try {
+    if (USE_CURL) {
+      const raw = await curlOptionsCookie(url);
+      const m = raw.match(/^set-cookie:\s*(AWSALBCORS=[^;]+)/im);
+      return m ? m[1] : null;
+    }
+    const res = await undiciFetch(url, { method: 'OPTIONS', headers: STATIC_HEADERS });
+    const getSetCookie = res.headers.getSetCookie;
+    const cookies = typeof getSetCookie === 'function' ? getSetCookie.call(res.headers) : [res.headers.get('set-cookie')].filter(Boolean);
+    const hit = cookies.find((c) => c && c.startsWith('AWSALBCORS='));
+    return hit ? hit.split(';')[0] : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function negotiateCore(cookie) {
+  const url = `${LIVETIMING_BASE}/signalrcore/negotiate?negotiateVersion=1`;
+  const headers = cookie ? { Cookie: cookie } : {};
+  let txt;
+  if (USE_CURL) {
+    txt = await curlPostText(url, headers);
+  } else {
+    const res = await undiciFetch(url, { method: 'POST', headers: { ...STATIC_HEADERS, ...headers } });
+    if (!res.ok) throw new Error(`POST ${url} returned HTTP ${res.status}`);
+    txt = await res.text();
+  }
+  const j = JSON.parse(stripBom(txt));
+  const token = j && (j.connectionToken || j.connectionId);
+  if (!token) throw new Error('SignalR Core negotiate: no connectionToken in response');
+  return token;
 }
 
 /**
- * `.z` feeds (CarData.z/Position.z) arrive over SignalR the same way they do in the static
- * archive: a base64 raw-deflate string, just already JSON-parsed into a JS string (not a
+ * `.z` feeds (CarData.z/Position.z) arrive over the live socket the same way they do in the
+ * static archive: a base64 raw-deflate string, just already JSON-parsed into a JS string (not a
  * JSON-quoted text line like jsonStream), so this inflates without decodePayload's unquoting
  * step. Returns null on a bad blob so the caller can drop the record instead of applying garbage.
  */
@@ -439,63 +469,84 @@ function decodeLiveValue(feed, value) {
   try { return inflateZ(value); } catch (_) { return null; }
 }
 
-/**
- * Parse one SignalR text frame into `{feed,data}` records. `R` (initial reply to Subscribe) is
- * a snapshot array in the same order as the requested feeds; `M` entries are deltas shaped
- * `{H,M:feedName,A:[feedName,data,timestamp]}`. Keep-alive frames (`{}`) yield no records.
- */
-function parseSignalRFrame(raw, feeds) {
-  let msg;
-  try { msg = JSON.parse(raw); } catch (_) { return []; }
+function splitCoreFrames(raw) {
+  const out = [];
+  for (const part of String(raw).split(SIGNALR_RS)) {
+    if (!part) continue;
+    try { out.push(JSON.parse(part)); } catch (_) {}
+  }
+  return out;
+}
+
+function recordsFromCoreMessages(msgs) {
   const out = [];
   const push = (feed, rawData) => {
     const data = decodeLiveValue(feed, rawData);
     if (data != null) out.push({ feed, data });
   };
-  if (Array.isArray(msg.R)) {
-    msg.R.forEach((data, i) => {
-      if (data != null && feeds[i]) push(feeds[i], data);
-    });
-  } else if (msg.R && typeof msg.R === 'object') {
-    for (const feed of feeds) {
-      if (msg.R[feed] !== undefined) push(feed, msg.R[feed]);
-    }
-  }
-  if (Array.isArray(msg.M)) {
-    for (const m of msg.M) {
-      const a = m && m.A;
-      if (Array.isArray(a) && a.length >= 2) push(String(a[0]), a[1]);
+  for (const msg of msgs) {
+    const isFeedUpdate = msg
+      && msg.type === 1
+      && msg.target === 'feed'
+      && Array.isArray(msg.arguments)
+      && msg.arguments.length >= 2;
+    if (isFeedUpdate) {
+      push(String(msg.arguments[0]), msg.arguments[1]);
+    } else if (msg && msg.type === 3 && msg.result && typeof msg.result === 'object') {
+      for (const feed of Object.keys(msg.result)) push(feed, msg.result[feed]);
     }
   }
   return out;
 }
 
-/**
- * Open (or reuse) the single shared live connection. `onRecord(feed, data)` fires per record,
- * `onStatus(status, detail?)` fires on connect/disconnect/error. Auto-reconnects with a fixed
- * delay until `disconnectLiveSocket()` is called.
- */
-async function connectLiveSocket(token, feeds, onRecord, onStatus) {
-  if (liveSocket) return; // already connected; caller just wants to (re)attach a listener via main.js
-  const negotiated = await negotiateSignalR(token);
-  const ws = new WebSocket(buildLiveSocketUrl(negotiated.ConnectionToken), {
-    headers: { Authorization: `Bearer ${token}` },
+function parseCoreFrame(raw) {
+  return recordsFromCoreMessages(splitCoreFrames(raw));
+}
+
+function sendCoreMessage(ws, message) {
+  ws.send(JSON.stringify(message) + SIGNALR_RS);
+}
+
+async function connectLiveSocket(feeds, onRecord, onStatus) {
+  if (liveSocket) return;
+  const cookie = await fetchAwsAlbCookie();
+  const token = await negotiateCore(cookie);
+  const wsUrl = `wss://livetiming.formula1.com/signalrcore?id=${encodeURIComponent(token)}`;
+  const ws = new WebSocket(wsUrl, {
+    headers: { ...STATIC_HEADERS, ...(cookie ? { Cookie: cookie } : {}) },
   });
   liveSocket = ws;
+  let handshaken = false;
 
   ws.on('open', () => {
-    ws.send(JSON.stringify({ H: SIGNALR_HUB, M: 'Subscribe', A: [feeds], I: 0 }));
-    if (onStatus) onStatus('connected');
+    sendCoreMessage(ws, { protocol: 'json', version: 1 });
   });
   ws.on('message', (raw) => {
-    for (const rec of parseSignalRFrame(raw.toString(), feeds)) onRecord(rec.feed, rec.data);
+    const frames = splitCoreFrames(raw.toString());
+    if (!handshaken) {
+      if (!frames.length) return;
+      const handshake = frames.shift();
+      if (handshake?.error) {
+        if (onStatus) onStatus('error', handshake.error);
+        ws.close();
+        return;
+      }
+      handshaken = true;
+      sendCoreMessage(ws, { type: 1, invocationId: '1', target: 'Subscribe', arguments: [feeds] });
+      if (onStatus) onStatus('connected');
+      liveKeepaliveTimer = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) sendCoreMessage(ws, { type: 6 });
+      }, CORE_KEEPALIVE_MS);
+    }
+    for (const rec of recordsFromCoreMessages(frames)) onRecord(rec.feed, rec.data);
   });
   ws.on('close', () => {
-    if (liveSocket !== ws) return; // superseded by a newer socket already
+    if (liveSocket !== ws) return;
     liveSocket = null;
+    if (liveKeepaliveTimer) { clearInterval(liveKeepaliveTimer); liveKeepaliveTimer = null; }
     if (onStatus) onStatus('disconnected');
     liveReconnectTimer = setTimeout(() => {
-      connectLiveSocket(token, feeds, onRecord, onStatus).catch((e) => onStatus && onStatus('error', e?.message));
+      connectLiveSocket(feeds, onRecord, onStatus).catch((e) => onStatus && onStatus('error', e?.message));
     }, LIVE_RECONNECT_MS);
   });
   ws.on('error', (err) => {
@@ -507,6 +558,10 @@ function disconnectLiveSocket() {
   if (liveReconnectTimer) {
     clearTimeout(liveReconnectTimer);
     liveReconnectTimer = null;
+  }
+  if (liveKeepaliveTimer) {
+    clearInterval(liveKeepaliveTimer);
+    liveKeepaliveTimer = null;
   }
   if (liveSocket) {
     try { liveSocket.close(); } catch (_) {}
@@ -536,8 +591,7 @@ module.exports = {
   REPLAY_FEEDS,
   resolveSessionPath,
   loadSession,
-  negotiateSignalR,
-  parseSignalRFrame,
+  parseCoreFrame,
   connectLiveSocket,
   disconnectLiveSocket,
 };

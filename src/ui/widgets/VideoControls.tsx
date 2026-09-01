@@ -76,7 +76,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
       const r = p && typeof p.seekRange === 'function' ? p.seekRange() : null;
       if (r && Number.isFinite(r.end)) range = r;
     } catch (_) {}
-    // Manifests with a wall-clock timeline report a huge/non-finite duration → also "live".
+    // Wall-clock manifests can report very large or non-finite live durations.
     const dur = v.duration;
     if (!Number.isFinite(dur) || dur > 60 * 60 * 24) live = true;
     setIsLive(live);

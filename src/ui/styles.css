@@ -328,7 +328,7 @@ video {
   bottom: -7px;
 }
 
-/* Corners: 20px × 20px hit area */
+/* Corners use a 20px by 20px hit area. */
 .react-resizable-handle-ne,
 .react-resizable-handle-nw,
 .react-resizable-handle-se,

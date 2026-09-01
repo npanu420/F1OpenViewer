@@ -37,7 +37,7 @@ type Props = {
   onIntrinsicVideoSize?: (width: number, height: number) => void;
   /**
    * Optional initial playback position (seconds). Used when the standalone multiview window
-   * resumes a stream that was already playing in the source window — Shaka seeks here once
+   * resumes a stream that was already playing in the source window. Shaka seeks here once
    * after the first successful load so the user lands on the same frame.
    * Re-mounting/changing manifestUrl resets the "applied" state so a new initialSeekSeconds
    * value is honored.
@@ -354,7 +354,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
           manifestFilter = (type: any, response: any) => {
             if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
               const text = new TextDecoder().decode(response.data);
-              // Log ContentProtection blocks before stripping — may contain laURL/laurl
+              // Log ContentProtection blocks before stripping possible license URLs.
               const cpBlocks = text.match(/<ContentProtection[\s\S]*?(?:\/>|<\/ContentProtection>)/gi) ?? [];
               // eslint-disable-next-line no-console
               console.log('[manifest][ContentProtection blocks]', JSON.stringify(cpBlocks));
@@ -416,7 +416,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
 
       /**
        * Compute the start time to pass to player.load:
-       *   1. Last captured position for THIS manifest (re-init from header change) — wins.
+       *   1. The last captured position for this manifest takes precedence.
        *   2. Parent-supplied initialSeekSeconds, but only if not already consumed for this manifest.
        *   3. Otherwise undefined (start at default).
        */
@@ -461,8 +461,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
         applyConfig(licenseUrl);
         setLicenseHeaders(headers, !Boolean(licenseUrl?.trim()));
         const startTime = computeStartTime(manifestUrl);
-        // Shaka's player.load(uri, startTime) honours startTime on the initial load — better than
-        // seeking after-the-fact because the buffer fetches around the right segment immediately.
+        // Supplying startTime lets the initial buffer fetch begin at the requested segment.
         const loadPromise = startTime != null ? player.load(manifestUrl, startTime) : player.load(manifestUrl);
         let timer: ReturnType<typeof setTimeout> | null = null;
         const timeoutPromise = new Promise<never>((_, reject) => {

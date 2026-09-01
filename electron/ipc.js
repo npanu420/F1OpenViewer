@@ -40,12 +40,18 @@ function setupIpc() {
     return { accessToken: subscriptionToken };
   });
   ipcMain.handle('f1:loginWithBrowser', async () => {
-    const raw = await openLoginWindow();
-    const { subscriptionToken } = f1tv.loginWithToken(raw);
-    await f1tv.initClient(subscriptionToken);
-    memSession.accessToken = subscriptionToken;
-    sessionState.persistSession(subscriptionToken);
-    return { accessToken: subscriptionToken };
+    try {
+      const raw = await openLoginWindow();
+      const { subscriptionToken } = f1tv.loginWithToken(raw);
+      await f1tv.initClient(subscriptionToken);
+      memSession.accessToken = subscriptionToken;
+      sessionState.persistSession(subscriptionToken);
+      console.log('[login] browser sign-in completed and app session initialized');
+      return { accessToken: subscriptionToken };
+    } catch (e) {
+      console.warn('[login] browser sign-in failed:', e?.message);
+      throw e;
+    }
   });
   ipcMain.handle('f1:restoreSession', async () => {
     if (f1tv.isClientReady) return { accessToken: memSession.accessToken, restored: true };
@@ -78,7 +84,7 @@ function setupIpc() {
   ipcMain.handle('f1:getVodSessions', async (_evt, gpPageId) => f1tv.getVodSessions(gpPageId));
   ipcMain.handle('f1:getContentVideo', async (_evt, contentId) => f1tv.getContentVideo(contentId));
 
-  // Serialize contentPlay so "Play all" / multiple streams don't run initClient in parallel (client gets reset and "not ready")
+  // Serialize playback setup because client initialization resets shared state.
   // Add delay between requests to avoid CloudFront 403 "Request blocked" / "too much traffic" when opening many streams
   const CONTENT_PLAY_DELAY_MS = 450;
   let contentPlayQueue = Promise.resolve();
@@ -148,6 +154,8 @@ function setupIpc() {
   );
   // Relays the main feed's video clock to every open live-timing window so they can sync to it.
   ipcMain.on('livetiming:reportClock', (_evt, payload) => windows.broadcastLiveTimingClock(payload));
+  // Relays timing-bar seeks back to the video window.
+  ipcMain.on('livetiming:requestSeek', (_evt, payload) => windows.broadcastVideoSeekRequest(payload));
   ipcMain.handle('livetiming:getSyncData', async (_evt, meetingKey, sessionKey) =>
     livetiming.fetchSyncData(meetingKey, sessionKey)
   );
@@ -186,12 +194,10 @@ function setupIpc() {
       // Archive not resolvable yet (session still in progress). Live feed still works, just
       // no radio audio URL until it is.
     }
-    const token = f1tv.ascendonToken;
-    if (!token) return { path, hasToken: false };
     livetiming
-      .connectLiveSocket(token, livetiming.DEFAULT_FEEDS, windows.broadcastLiveTimingUpdate, windows.broadcastLiveTimingStatus)
+      .connectLiveSocket(livetiming.DEFAULT_FEEDS, windows.broadcastLiveTimingUpdate, windows.broadcastLiveTimingStatus)
       .catch((e) => windows.broadcastLiveTimingStatus('error', e?.message));
-    return { path, hasToken: true };
+    return { path };
   });
   ipcMain.handle('livetiming:liveStop', async (evt) => {
     const win = BrowserWindow.fromWebContents(evt.sender);

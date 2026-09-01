@@ -16,6 +16,7 @@ import { LiveSection } from '../components/LiveSection';
 import { DashboardHero } from '../components/DashboardHero';
 import { RaceCard } from '../components/RaceCard';
 import { SessionTabs, sessionToTabItem } from '../components/SessionTabs';
+import { pickDefaultSessionId } from '../../domain/sessionGrouping';
 import { MultiViewer } from '../components/MultiViewer';
 
 type Props = {
@@ -241,7 +242,8 @@ export function DashboardView({
 
   useEffect(() => {
     if (currentSessions?.length && !activeSessionId) {
-      setActiveSessionId(sessionToTabItem(currentSessions[0]).id);
+      const defaultId = pickDefaultSessionId(currentSessions.map(sessionToTabItem));
+      if (defaultId) setActiveSessionId(defaultId);
     }
   }, [currentSessions, activeSessionId]);
 
@@ -298,7 +300,11 @@ export function DashboardView({
             >
               <DashboardHero
                 liveItem={itemsForSelectedYear.find((it) => it.kind === 'live')}
-                latestEvent={selectedYear !== -1 ? currentEvents?.[0] : undefined}
+                latestEvent={
+                  selectedYear !== -1
+                    ? [...(currentEvents ?? [])].reverse().find((ev) => !ev.isTest) ?? currentEvents?.[currentEvents.length - 1]
+                    : undefined
+                }
                 loading={loadingEvs ?? false}
                 onWatchLive={onOpen}
                 onWatchLatest={handleSelectEvent}

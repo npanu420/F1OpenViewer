@@ -179,6 +179,12 @@ function broadcastLiveTimingClock(payload) {
   }
 }
 
+function broadcastVideoSeekRequest(payload) {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('livetiming:seekRequest', payload);
+  }
+}
+
 /**
  * Put an existing window on the live-timing broadcast list (no new BrowserWindow).
  * The in-window dock uses this to get the same livetiming:liveUpdate/liveStatus/clock
@@ -363,6 +369,7 @@ module.exports = {
   broadcastLiveTimingUpdate,
   broadcastLiveTimingStatus,
   broadcastLiveTimingClock,
+  broadcastVideoSeekRequest,
   registerLiveTimingBroadcastTarget,
   unregisterLiveTimingBroadcastTarget,
   openCustomPlayerWindow,

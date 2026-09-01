@@ -17,7 +17,7 @@ export type TimingStore = Record<string, Json>;
 /** Feeds where each record is a complete snapshot to replace (not merge). */
 const REPLACE_FEEDS = new Set(['CarData', 'Position']);
 
-/** `CarData.z` → `CarData`. The store keys on the logical feed name. */
+/** Removes the compression suffix from feed names used as store keys. */
 export function feedKey(feed: string): string {
   return feed.endsWith('.z') ? feed.slice(0, -2) : feed;
 }
@@ -28,10 +28,10 @@ function isPlainContainer(v: unknown): v is Record<string, Json> {
 
 /**
  * Recursive merge of an F1 delta into the existing value. Mutates and returns `target`.
- * - source array  → merge into an array by index (recursing per element)
- * - source object → merge keys (recursing per key); if target is an array, numeric keys
+ * - Source arrays merge by index, recursing into each element.
+ * - Source objects merge by key; numeric keys preserve array targets.
  *   index into it (covers RaceControlMessages: snapshot is an array, deltas are keyed objects)
- * - source scalar → replace
+ * - Source scalars replace the target.
  */
 export function mergeDeep(target: Json, source: Json): Json {
   if (Array.isArray(source)) {
@@ -79,7 +79,7 @@ export function applyRecords(
   return store;
 }
 
-// ----- selectors: store → view models -----
+// View model selectors
 
 export interface SectorView {
   value: string;
@@ -165,7 +165,7 @@ function toSectors(timingLine: Json): SectorView[] {
 
 /**
  * Join DriverList + TimingData + TimingAppData + CarData into per-driver rows,
- * sorted by timing line (track position order). DRS channel ≥ 8 means active.
+ * sorted by track position. A DRS channel value of eight or more means active.
  */
 export function selectDrivers(store: TimingStore): DriverRow[] {
   const drivers = store.DriverList;

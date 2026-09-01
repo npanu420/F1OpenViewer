@@ -149,7 +149,7 @@ function buildLaDiscoveryAttempts(ctx, playToken) {
     attempts.push({ label, url, extraHeaders: extraHeaders || {}, _k: key });
   };
 
-  // If primary LA was WEB_DASH widevine (pipeline 5+), try BIG_SCREEN_DASH widevine, same pattern as older third-party clients (HLS/DASH).
+  // WEB_DASH failures can recover through the BIG_SCREEN_DASH Widevine endpoint.
   if (ctx.contentId != null && !Number.isNaN(Number(ctx.contentId))) {
     try {
       const authMatch = String(ctx.baseLaUrl || '').match(/\/2\.0\/(R|A)\//);

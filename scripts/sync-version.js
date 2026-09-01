@@ -1,5 +1,5 @@
 /**
- * Copia la versione da config/appVersion.json a package.json.
+ * Copies the version from config/appVersion.json to package.json.
  * Single place to change the app version: config/appVersion.json
  */
 const fs = require('fs');

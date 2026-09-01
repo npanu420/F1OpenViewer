@@ -28,7 +28,7 @@ export async function loginWithBrowser(): Promise<{ accessToken: string }> {
 }
 
 /**
- * Login with token copied from browser (DevTools → Network → by-password → Response).
+ * Login with a token copied from the by-password response in browser DevTools.
  * Useful when direct login returns 403.
  */
 export async function loginWithToken(tokenOrJson: string): Promise<{ accessToken: string }> {

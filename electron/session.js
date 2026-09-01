@@ -171,7 +171,7 @@ function tokenTtlMs(token) {
 
 function isTokenExpired(token, skewMs = 60 * 1000) {
   const ttl = tokenTtlMs(token);
-  // Unreadable exp → assume valid and let the F1 client decide.
+  // Let the F1 client validate tokens without a readable expiration claim.
   if (ttl == null) return false;
   return ttl <= skewMs;
 }
@@ -381,6 +381,7 @@ module.exports = {
   loadPersistedSession,
   persistSession,
   persistCookies,
+  snapshotAndPersistCookies,
   tokenTtlMs,
   isTokenExpired,
   silentTokenRefresh,
