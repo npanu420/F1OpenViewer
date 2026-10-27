@@ -2,7 +2,7 @@
 
 # F1 OpenViewer by npanu420
 
-Official login, entitlement, and DRM (Widevine) playback in an Electron app. Authorized access only — no piracy.
+Official login, entitlement, and DRM (Widevine) playback in an Electron app. Authorized access only, no piracy.
 
 📖 **Setup:** [docs/SETUP.md](docs/SETUP.md) — clone, configure `.env`, run in dev, build and sign.
 
@@ -79,17 +79,6 @@ Manual alignment used to be difficult because the archive and video clocks weren
 | **Main Grid UI** | ![Screenshot 1](assets/screenshot001.png) |
 | **Fullscreen view** | ![Screenshot 2](assets/screenshot002.png) |
 | **Home with Live Event** | ![Screenshot 3](assets/screenshot003.png) |
-
----
-
-## Roadmap
-
-1. **Login / Auth** (Milestone 1) — Done: login UI, session token in memory, network layer.
-2. **Entitlement / Licenses** (Milestone 2) — Entitlement, asset/manifest selection, permissions and expiry.
-3. **DRM playback** (Milestone 3) — End-to-end playback with real licenses.
-4. **UI and UX improvements** — New UI and better UX
-5. **Live Timing** — Live Timing support for replays, synced automatically to the video
-**--WE ARE HERE--**
 
 ---
 
