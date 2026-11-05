@@ -27,7 +27,7 @@ Open an issue and include:
 See `docs/SETUP.md` for the full setup (Node version, Widevine CDM, env vars). Quick version:
 
 ```
-npm install
+npm install          # npm 11/12: npm install --allow-git=all (Electron comes from castlabs on GitHub)
 npm run dev
 ```
 
@@ -35,17 +35,20 @@ npm run dev
 
 1. Fork the repo and create a branch off `main`.
 2. Make your change.
-3. Run `npm test` and make sure it passes.
+3. Run `npm run check` (typecheck + tests, the same thing CI runs) and make sure it passes.
 4. If you touched playback/DRM/UI, actually run the app (`npm run dev`) and check the flow you changed still works. Automated tests don't cover DRM playback.
 5. Open a PR against `main` with a clear description of what changed and why.
 
 ## Coding conventions
 
-Nothing formal enforced yet (no linter/formatter wired into CI), just:
+CI runs typecheck, tests, a production build and a dependency audit; there is no linter/formatter yet, so:
 
 - Match the style of the file you're editing.
 - Keep comments to the "why", not the "what" — the code should already say what it does.
 - Prefer small, focused PRs over one PR touching many unrelated things.
+- New user-facing text goes through `t()` with keys in both languages (`src/i18n/translations.ts`); a test fails if EN and IT drift apart or a key is missing.
+- Settings persisted from the renderer must be added to **both** `src/services/durableStorage.ts` and `electron/durableSettings.js` (a test enforces it).
+- Never log tokens, signed URLs or JWT contents; use `redact` / `redactUrl` from `electron/util.js`.
 
 ## Code of conduct
 

@@ -1,8 +1,18 @@
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+/* Fonts (Rajdhani, Space Grotesk) are bundled via @fontsource in main.tsx: no request to Google at runtime. */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Keyboard focus is always visible (mouse clicks don't show it). */
+button:focus-visible,
+[role='button']:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
 
 @layer base {
   :root {

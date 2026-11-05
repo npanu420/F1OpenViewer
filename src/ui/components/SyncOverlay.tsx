@@ -115,7 +115,8 @@ export function SyncOverlay({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             // Lighter backdrop so the user can still see what's playing underneath while syncing.
-            className="fixed inset-0 bg-background/40 backdrop-blur-[2px] z-[60]"
+            // No backdrop-filter: it re-blurred every video frame underneath on each paint.
+            className="fixed inset-0 bg-background/50 z-[60]"
             onClick={onBackdropClick}
           />
 

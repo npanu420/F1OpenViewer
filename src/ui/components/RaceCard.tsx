@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { Calendar, MapPin, ChevronRight, Wrench } from 'lucide-react';
 import type { VodEvent } from '../../domain/vod';
-import { getFlag, getCountryCodeFromMeetingKey } from '@/lib/flags';
+import { getFlag, getEventCountryCode } from '@/lib/flags';
 
 interface RaceCardProps {
   event: VodEvent;
@@ -12,7 +12,7 @@ interface RaceCardProps {
 }
 
 export function RaceCard({ event, onClick, index, circuit }: RaceCardProps) {
-  const countryCode = getCountryCodeFromMeetingKey(event.meetingKey);
+  const countryCode = getEventCountryCode(event);
   const flag = countryCode ? getFlag(countryCode) : '🏁';
 
   return (

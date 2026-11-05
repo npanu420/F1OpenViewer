@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { buildTimeline, timelineDuration } from '../../domain/replay';
 import { ReplayController } from '../../domain/replayController';
+import { persistDurableSetting } from '../../services/durableStorage';
+import { sessionMatches } from '../../domain/clockFilter';
 import {
   selectDrivers,
   selectWeather,
@@ -9,6 +11,7 @@ import {
   selectClock,
   selectLapCount,
   selectTeamRadio,
+  stabilizeRows,
   type DriverRow,
   type WeatherView,
   type RaceControlMessage,
@@ -35,9 +38,13 @@ export interface ReplayTimingState {
   autoSynced: boolean;
   /** Manual alignment offset used when video and session timelines start at different times. */
   syncOffsetMs: number;
+  /** The user took manual control (play/pause/seek/Unsync); the video clock is ignored until resync(). */
+  detached: boolean;
+  /** At least one video clock message has been received, so resync() has something to follow. */
+  videoAvailable: boolean;
 }
 
-const EMPTY: Omit<ReplayTimingState, 'loading' | 'error' | 'offsetMs' | 'durationMs' | 'playing' | 'speed' | 'synced' | 'autoSynced' | 'syncOffsetMs'> = {
+const EMPTY: Omit<ReplayTimingState, 'loading' | 'error' | 'offsetMs' | 'durationMs' | 'playing' | 'speed' | 'synced' | 'autoSynced' | 'syncOffsetMs' | 'detached' | 'videoAvailable'> = {
   drivers: [],
   weather: null,
   trackStatus: null,
@@ -112,6 +119,21 @@ function computeClockStartOffset(byFeed: Record<string, Array<{ offsetMs: number
 
 const SYNC_KEY = (path: string) => `f1lt-sync:${path}`;
 
+/** Shallow equality; `clock` is a fresh object per tick so it is compared by value. */
+export function sameReplayState(a: ReplayTimingState, b: ReplayTimingState): boolean {
+  for (const k of Object.keys(b) as Array<keyof ReplayTimingState>) {
+    if (k === 'clock') {
+      const x = a.clock;
+      const y = b.clock;
+      if (x === y) continue;
+      if (!x || !y || x.remaining !== y.remaining || x.extrapolating !== y.extrapolating) return false;
+    } else if (!Object.is(a[k], b[k])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function fmtHMS(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(s / 3600);
@@ -126,7 +148,7 @@ function fmtHMS(ms: number): string {
  * view-model plus transport controls. The clock source is internal for now; M4 swaps it for
  * the video playback offset (call seek() from a timeupdate listener instead).
  */
-export function useReplayTiming(path: string | null, mvSyncStartSec: number | null = null) {
+export function useReplayTiming(path: string | null, mvSyncStartSec: number | null = null, contentId?: number) {
   const controllerRef = useRef<ReplayController | null>(null);
   const durationRef = useRef(0);
   const offsetRef = useRef(0);
@@ -141,12 +163,21 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
   const mvSyncedRef = useRef(false);   // seeded from the sync endpoint's session_start (exact, no user effort)
   const syncOffsetRef = useRef(0);   // manual lead-in (video-time mode); seeded from sync data/SessionInfo, persisted
   const autoResidualRef = useRef(0); // small fine-tune applied on top of exact wall-clock sync
+  // Manual control: without this flag the next relayed clock message (every 250 ms) re-attached the
+  // timing right after the user pressed Unsync / pause / seek, so those controls did nothing while
+  // the video was playing.
+  const detachedRef = useRef(false);
+  const seenClockRef = useRef(false);
   const lastVideoSecRef = useRef(0);
   const lastWallClockRef = useRef<number | null>(null);
   const feedBaseUtcRef = useRef<number | null>(null);
   // Maps each lap to its first replay offset. Used to calibrate sync from the lap
   // shown on the video, since that's the only reliable anchor when the VOD carries no wall clock.
   const lapOffsetsRef = useRef<Map<number, number>>(new Map());
+
+  // View models derived from the store; only recomputed when the controller's version changes.
+  const derivedRef = useRef<Pick<ReplayTimingState, 'drivers' | 'weather' | 'trackStatus' | 'raceControl' | 'lapCount' | 'teamRadio'> | null>(null);
+  const derivedVersionRef = useRef(-1);
 
   const [state, setState] = useState<ReplayTimingState>({
     loading: true,
@@ -159,6 +190,8 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
     synced: false,
     autoSynced: false,
     syncOffsetMs: 0,
+    detached: false,
+    videoAvailable: false,
   });
 
   const pushState = useCallback((extra?: Partial<ReplayTimingState>) => {
@@ -183,25 +216,38 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
         clock = { remaining: fmtHMS(b.remainingMs), extrapolating: false };
       }
     }
-    const drivers = selectDrivers(store);
-    setState((prev) => ({
-      ...prev,
-      drivers,
-      weather: selectWeather(store),
-      trackStatus: selectTrackStatus(store),
-      raceControl: selectRaceControl(store),
-      clock,
-      lapCount: selectLapCount(store),
-      teamRadio: selectTeamRadio(store),
-      offsetMs: offsetRef.current,
-      durationMs: durationRef.current,
-      playing: playingRef.current,
-      speed: speedRef.current,
-      synced: syncedRef.current,
-      autoSynced: autoSyncedRef.current || mvSyncedRef.current,
-      syncOffsetMs: autoSyncedRef.current ? autoResidualRef.current : syncOffsetRef.current,
-      ...extra,
-    }));
+    if (derivedVersionRef.current !== ctl.version || !derivedRef.current) {
+      derivedRef.current = {
+        drivers: stabilizeRows(derivedRef.current?.drivers ?? [], selectDrivers(store)),
+        weather: selectWeather(store),
+        trackStatus: selectTrackStatus(store),
+        raceControl: selectRaceControl(store),
+        lapCount: selectLapCount(store),
+        teamRadio: selectTeamRadio(store),
+      };
+      derivedVersionRef.current = ctl.version;
+    }
+    const derived = derivedRef.current;
+    setState((prev) => {
+      const next: ReplayTimingState = {
+        ...prev,
+        ...derived,
+        clock,
+        offsetMs: offsetRef.current,
+        durationMs: durationRef.current,
+        playing: playingRef.current,
+        speed: speedRef.current,
+        synced: syncedRef.current,
+        autoSynced: autoSyncedRef.current || mvSyncedRef.current,
+        syncOffsetMs: autoSyncedRef.current ? autoResidualRef.current : syncOffsetRef.current,
+        detached: detachedRef.current,
+        videoAvailable: seenClockRef.current,
+        ...extra,
+      };
+      // Called 4-5x/s (relayed video clock + self tick) even while paused: keep the old object when
+      // nothing changed so React bails out instead of re-rendering the whole timing panel.
+      return sameReplayState(prev, next) ? prev : next;
+    });
   }, []);
 
   // Load the session once per path.
@@ -211,13 +257,21 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
       setState((p) => ({ ...p, loading: false, error: 'Live timing unavailable.' }));
       return;
     }
-    setState((p) => ({ ...p, loading: true, error: null }));
+    // New session: drop the previous one's controller and rows (the old clock kept ticking on it).
+    controllerRef.current = null;
+    derivedRef.current = null;
+    derivedVersionRef.current = -1;
+    clockBaseRef.current = null;
+    lapOffsetsRef.current = new Map();
+    setState((p) => ({ ...p, ...EMPTY, loading: true, error: null, offsetMs: 0, durationMs: 0 }));
     window.f1.liveTiming
       .loadSession(path)
       .then((byFeed) => {
         if (cancelled) return;
         const timeline = buildTimeline(byFeed as any);
         controllerRef.current = new ReplayController(timeline);
+        derivedRef.current = null;
+        derivedVersionRef.current = -1;
         durationRef.current = timelineDuration(timeline);
         // Map each lap number to the first offset its CurrentLap appears at (for calibrate-by-lap).
         const laps = new Map<number, number>();
@@ -259,6 +313,8 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
           }
         } catch (_) {}
         syncOffsetRef.current = seed;
+        detachedRef.current = false;
+        seenClockRef.current = false;
         mvSyncedRef.current = mv;
         autoResidualRef.current = 0;
         offsetRef.current = 0;
@@ -290,8 +346,15 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
   useEffect(() => {
     const lt = window.f1?.liveTiming;
     if (!lt?.onClock) return;
-    return lt.onClock(({ timeSec, paused, wallClockMs }) => {
+    return lt.onClock(({ timeSec, paused, wallClockMs, contentId: from }) => {
       if (!controllerRef.current) return;
+      if (!sessionMatches(contentId, from)) return; // another session's multiview
+      const firstClock = !seenClockRef.current;
+      seenClockRef.current = true;
+      if (detachedRef.current) {
+        if (firstClock) pushState(); // reveal the "sync to video" button
+        return;
+      }
       lastVideoSecRef.current = timeSec;
       lastWallClockRef.current = wallClockMs;
       syncedRef.current = true;
@@ -308,9 +371,15 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
       playingRef.current = !paused;
       pushState();
     });
-  }, [pushState]);
+  }, [pushState, contentId]);
 
-  const detach = () => { syncedRef.current = false; autoSyncedRef.current = false; mvSyncedRef.current = false; };
+  const detach = () => {
+    syncedRef.current = false;
+    autoSyncedRef.current = false;
+    // mvSyncedRef stays: it only says "the offset came from the curated sync data and the user did
+    // not override it" (nudge/calibrate clear it), so re-syncing later is still an exact sync.
+    detachedRef.current = true;
+  };
   const play = useCallback(() => {
     detach(); // manual transport detaches from video sync
     if (offsetRef.current >= durationRef.current) offsetRef.current = 0;
@@ -332,16 +401,18 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
     if (!lt?.requestSeek) return;
     const offsetAtVideoStartMs = offsetRef.current - lastVideoSecRef.current * 1000;
     const timeSec = Math.max(0, (ms - offsetAtVideoStartMs) / 1000);
-    lt.requestSeek({ timeSec });
+    lt.requestSeek({ timeSec, contentId });
     offsetRef.current = Math.max(0, Math.min(ms, durationRef.current));
     pushState();
-  }, [pushState]);
+  }, [pushState, contentId]);
   const setSpeed = useCallback((s: number) => {
     speedRef.current = s;
     pushState();
   }, [pushState]);
   const persistOffset = useCallback(() => {
-    try { if (path) localStorage.setItem(SYNC_KEY(path), String(syncOffsetRef.current)); } catch (_) {}
+    if (!path) return;
+    try { localStorage.setItem(SYNC_KEY(path), String(syncOffsetRef.current)); } catch (_) {}
+    persistDurableSetting(SYNC_KEY(path), String(syncOffsetRef.current));
   }, [path]);
   const recomputeSynced = () => {
     const base = feedBaseUtcRef.current;
@@ -363,6 +434,11 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
     if (syncedRef.current) recomputeSynced();
     pushState();
   }, [pushState, persistOffset]);
+  /** Follow the video clock again after a manual detach; the next clock message re-attaches. */
+  const resync = useCallback(() => {
+    detachedRef.current = false;
+    pushState();
+  }, [pushState]);
   /** Detach from video sync and resume manual self-drive. */
   const unsync = useCallback(() => {
     detach();
@@ -385,5 +461,5 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
     return true;
   }, [pushState, persistOffset]);
 
-  return { ...state, play, pause, seek, requestVideoSeek, setSpeed, nudgeSync, unsync, calibrateToLap };
+  return { ...state, play, pause, seek, requestVideoSeek, setSpeed, nudgeSync, unsync, resync, calibrateToLap };
 }

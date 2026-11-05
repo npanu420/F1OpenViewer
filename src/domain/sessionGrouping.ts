@@ -20,23 +20,6 @@ export const STAGE_ORDER: StageKey[] = [
   'race',
 ];
 
-export const STAGE_LABELS: Record<StageKey, string> = {
-  fp1: 'FP1',
-  fp2: 'FP2',
-  fp3: 'FP3',
-  'sprint-quali': 'Sprint Quali',
-  sprint: 'Sprint',
-  qualifying: 'Qualifying',
-  race: 'Race',
-};
-
-export const VARIANT_LABELS: Record<SessionVariant, string> = {
-  session: 'Session',
-  'pre-show': 'Pre-Show',
-  'post-show': 'Post-Show',
-  kids: 'F1 Kids',
-};
-
 // Specific matches must precede broader ones such as sprint and qualifying.
 const STAGE_MATCHERS: Record<StageKey, RegExp> = {
   fp1: /\bpractice\s*1\b|\bfp1\b/i,

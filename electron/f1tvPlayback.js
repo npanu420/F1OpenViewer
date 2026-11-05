@@ -8,6 +8,7 @@
 const { F1TV } = require('./f1tvapi');
 const { fetch: undiciFetch } = require('undici');
 const client = require('./f1tvClient');
+const { parseJwtPayload, redactUrl } = require('./util');
 const { pickMainChannelStream } = require('./f1tvCatalog');
 
 const { F1TV_BASE, F1TV_PLATFORM, F1TV_LANG, F1TV_ENTITLEMENT, F1TV_GROUP } = client;
@@ -165,7 +166,7 @@ async function fetchManifestData(manifestUrl, f1Client, playTokenCookie) {
           await jar.cookies.set({ url: `${u.origin}/`, name: 'playToken', value: String(playTokenCookie), path: '/' });
         } catch (_) {}
       }
-      const res = await jar.fetch(manifestUrl, { method: 'GET', headers: { ...headers } });
+      const res = await jar.fetch(manifestUrl, { method: 'GET', headers: { ...headers }, signal: AbortSignal.timeout(20000) });
       const pt = extractPlayTokenFromFetchHeaders(res.headers);
       if (pt) out.playToken = pt;
       const text = await res.text();
@@ -202,7 +203,7 @@ async function fetchManifestData(manifestUrl, f1Client, playTokenCookie) {
     try {
       const h = { ...headers };
       if (attempt.cookie) h.Cookie = attempt.cookie;
-      const res = await undiciFetch(manifestUrl, { method: 'GET', headers: h });
+      const res = await undiciFetch(manifestUrl, { method: 'GET', headers: h, signal: AbortSignal.timeout(20000) });
       const pt = extractPlayTokenFromFetchHeaders(res.headers);
       if (pt) out.playToken = pt;
 
@@ -497,14 +498,11 @@ async function contentPlay(contentId, channelId) {
     } catch (_) {}
   }
 
-  // Decode the per-play entitlementToken JWT; payload may contain laURL or kid hints.
+  // The per-play entitlementToken JWT payload carries session/account identifiers: log which claims
+  // it has, never their values (logs get pasted into bug reports).
   try {
-    const jwt = primary.entitlementToken;
-    if (jwt && jwt.includes('.')) {
-      const parts = jwt.split('.');
-      const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString('utf8'));
-      console.log('[playback] entitlementToken JWT payload:', JSON.stringify(payload));
-    }
+    const payload = parseJwtPayload(primary.entitlementToken);
+    if (payload) console.log('[playback] entitlementToken JWT claims:', Object.keys(payload).sort().join(','));
   } catch (_) {}
 
   if (!licenseUrl && md.licenseUrl) licenseUrl = md.licenseUrl;
@@ -547,10 +545,10 @@ async function contentPlay(contentId, channelId) {
       );
     }
   }
-  console.log('[playback] selected platform:', primary.platform, '| streamType:', primary.streamType, '| manifest:', primary.url);
-  console.log('[playback] licenseUrl:', licenseUrl ? `${licenseUrl.slice(0, 80)}…` : '(empty)', '| drmToken:', !!primary.drmToken);
+  console.log('[playback] selected platform:', primary.platform, '| streamType:', primary.streamType, '| manifest:', redactUrl(primary.url));
+  console.log('[playback] licenseUrl:', licenseUrl ? redactUrl(licenseUrl) : '(empty)', '| drmToken:', !!primary.drmToken);
   if (fallback?.url) {
-    console.log('[playback] fallback platform:', fallback.platform, '| streamType:', fallback.streamType, '| manifest:', fallback.url);
+    console.log('[playback] fallback platform:', fallback.platform, '| streamType:', fallback.streamType, '| manifest:', redactUrl(fallback.url));
   }
 
   if (playToken) {

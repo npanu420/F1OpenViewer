@@ -10,9 +10,16 @@
 
 const http = require('http');
 const { session } = require('electron');
+const { devEnv } = require('./devFlags');
 const f1tv = require('./f1tv-bridge');
 const sessionState = require('./session');
-const { redact, parseJwtPayload, isFormula1Hostname, hasFormula1Host } = require('./util');
+const { redact, parseJwtPayload, isFormula1Hostname, hasFormula1Host, isF1LicenseUrl } = require('./util');
+const { createProxySecret, isAuthorized } = require('./proxyAuth');
+
+const MAX_LICENSE_BODY_BYTES = 256 * 1024;
+
+/** Random per launch; required on every /la request (see proxyAuth.js). */
+const PROXY_SECRET = createProxySecret();
 
 const LICENSE_PROXY_PORT_MIN = 18765;
 const LICENSE_PROXY_PORT_MAX = 18775;
@@ -26,8 +33,6 @@ let licenseProxyBaseUrl = `http://127.0.0.1:${LICENSE_PROXY_PORT_MIN}/la`;
  * "last contentPlay wins" race when multiple streams ran at once.
  */
 const licenseProxyStreams = new Map();
-/** Legacy single-stream identifier used by the custom player window (no streamKey in its license URL). */
-const LEGACY_PLAYER_STREAM_KEY = '__player_window__';
 /** Dedupe CloudFront HTML error logs within one /la request (PRE text differs per Request ID). */
 let lastCloudFront403SemanticKey = '';
 
@@ -38,7 +43,7 @@ function buildStreamKey(contentId, channelId) {
 }
 
 function streamProxyUrl(streamKey) {
-  return `${licenseProxyBaseUrl}?stream=${encodeURIComponent(streamKey)}`;
+  return `${licenseProxyBaseUrl}?stream=${encodeURIComponent(streamKey)}&k=${PROXY_SECRET}`;
 }
 
 function clearStreams() {
@@ -106,7 +111,7 @@ function logCloudFrontHtml403(dataBuf, cfIdHeader) {
       const semKey = cloudFront403SemanticKey(summary);
       if (semKey && semKey === lastCloudFront403SemanticKey) {
         console.warn(
-          '[license-proxy] CloudFront 403 (stesso messaggio di prima; Request ID diverso nel PRE) | x-amz-cf-id:',
+          '[license-proxy] CloudFront 403 (same message as before; only the Request ID in the body differs) | x-amz-cf-id:',
           cfIdHeader || 'n/a'
         );
         return;
@@ -353,6 +358,7 @@ async function sendLicenseToF1(target, body, headers, playToken, opts = {}) {
     method: 'POST',
     headers: reqHeaders,
     body,
+    signal: AbortSignal.timeout(20000),
   });
 
   const arrayBuf = await res.arrayBuffer();
@@ -400,13 +406,27 @@ function startLicenseProxy() {
         res.end();
         return;
       }
-      const requestedStreamKey = parsedUrl.searchParams.get('stream') || '';
-      const streamKey = requestedStreamKey || LEGACY_PLAYER_STREAM_KEY;
-      const entry = licenseProxyStreams.get(streamKey)
-        || (requestedStreamKey ? null : licenseProxyStreams.get(LEGACY_PLAYER_STREAM_KEY) || null);
+      if (!isAuthorized(PROXY_SECRET, parsedUrl.searchParams.get('k') || '')) {
+        res.writeHead(403);
+        res.end();
+        return;
+      }
+      const streamKey = parsedUrl.searchParams.get('stream') || '';
+      const entry = streamKey ? licenseProxyStreams.get(streamKey) || null : null;
 
+      // A Widevine challenge is a few KB; refuse anything absurd instead of buffering it.
       const chunks = [];
-      for await (const c of req) chunks.push(c);
+      let received = 0;
+      for await (const c of req) {
+        received += c.length;
+        if (received > MAX_LICENSE_BODY_BYTES) {
+          res.writeHead(413);
+          res.end();
+          req.destroy();
+          return;
+        }
+        chunks.push(c);
+      }
       const body = Buffer.concat(chunks);
       lastCloudFront403SemanticKey = '';
 
@@ -432,8 +452,6 @@ function startLicenseProxy() {
           '| body(bytes):', body.length
         );
         if (body.length) {
-          const sig = body.slice(0, 24).toString('base64');
-          console.log('[license-proxy] challenge prefix (base64, 24 bytes):', sig);
           if (body.length <= 64) logLicenseBodyHint(body);
         }
 
@@ -553,11 +571,10 @@ function startLicenseProxy() {
 
 function setupCorsRelaxForDev() {
   // Renderer uses IPC, not direct calls. We still enable a dev-only policy for cross-origin (manifest/segment).
-  if (process.env.ELECTRON_RELAX_CORS === 'true') {
-    session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-      details.requestHeaders['Origin'] = details.requestHeaders['Origin'] || 'https://localhost';
-      callback({ requestHeaders: details.requestHeaders });
-    });
+  // Only the response side lives here. Electron keeps a single onBeforeSendHeaders listener per
+  // session, so the request-side Origin default is applied inside setupLicenseRequestHeaders
+  // (registering a second listener here silently replaced/was replaced by that one).
+  if (devEnv('ELECTRON_RELAX_CORS') === 'true') {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const headers = details.responseHeaders || {};
       headers['access-control-allow-origin'] = ['*'];
@@ -571,7 +588,7 @@ function setupCorsRelaxForDev() {
 function setupLicenseResponseLog() {
   session.defaultSession.webRequest.onCompleted((details) => {
     const url = details.url || '';
-    if (hasFormula1Host(url) && (url.includes('/LA') || url.includes('/CONTENT/LA'))) {
+    if (isF1LicenseUrl(url)) {
       console.log('[license] LA response status:', details.statusCode, details.statusCode >= 400 ? '(request rejected)' : '');
     }
   });
@@ -589,9 +606,18 @@ function isF1OttVideoCdnUrl(urlString) {
 
 /** Injects ascendon/entitlement and cookies on F1 license acquisition and ott-video CDN requests. */
 function setupLicenseRequestHeaders() {
-  session.defaultSession.webRequest.onBeforeSendHeaders(async (details, callback) => {
+  const relaxCors = devEnv('ELECTRON_RELAX_CORS') === 'true';
+  session.defaultSession.webRequest.onBeforeSendHeaders(async (details, rawCallback) => {
+    // Dev-only: give every request an Origin (see setupCorsRelaxForDev).
+    const callback = relaxCors
+      ? ({ requestHeaders }) => {
+          const h = { ...requestHeaders };
+          if (!h.Origin) h.Origin = 'https://localhost';
+          rawCallback({ requestHeaders: h });
+        }
+      : rawCallback;
     const url = details.url || '';
-    const isF1License = hasFormula1Host(url) && (url.includes('/LA') || url.includes('/CONTENT/LA'));
+    const isF1License = isF1LicenseUrl(url);
     const isF1OttCdn = isF1OttVideoCdnUrl(url);
 
     if (isF1OttCdn) {
@@ -643,9 +669,9 @@ function setupLicenseRequestHeaders() {
       return;
     }
 
-    // Non-proxy path (legacy single-stream player window): fill in missing tokens from the
-    // global f1tv state and attach session cookies. This branch only runs when no streamKey
-    // was present in the proxy URL.
+    // Non-proxy path: a license request the renderer sent straight to F1 (e.g. the fallback license
+    // URL after Shaka error 6001, which is not registered with the proxy). Fill in the account tokens
+    // from the global f1tv state and attach session cookies.
     const headers = f1tv.getLicenseRequestHeaders();
     if (headers) {
       for (const [k, v] of Object.entries(headers)) {

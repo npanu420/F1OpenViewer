@@ -1,22 +1,25 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { login, loginWithToken, loginWithBrowser } from '../../services/auth';
 import { useLocale } from '../../i18n/LocaleContext';
 
 type Props = {
   onLoggedIn: () => Promise<void>;
+  error: string | null;
   setError: (e: string | null) => void;
   setBusy: (b: boolean) => void;
 };
 
 type Mode = 'browser' | 'credentials' | 'token';
 
-export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
+export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
   const { t } = useLocale();
   const [mode, setMode] = useState<Mode>('browser');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [tokenInput, setTokenInput] = useState('');
+
+  useEffect(() => window.f1?.onLoginValidationError?.(setError), [setError]);
 
   async function onLoginWithBrowser() {
     setBusy(true);
@@ -77,6 +80,11 @@ export function LoginView({ onLoggedIn, setError, setBusy }: Props) {
         </div>
 
         <div className="space-y-4">
+          {error && (
+            <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
           <motion.button
             type="button"
             onClick={onLoginWithBrowser}

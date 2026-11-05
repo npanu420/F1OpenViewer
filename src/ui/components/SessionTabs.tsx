@@ -2,11 +2,10 @@ import React, { useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Flag, Radio, Zap, MessageSquare, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { VodSession, SessionType } from '../../domain/vod';
+import { useLocale } from '../../i18n/LocaleContext';
 import {
   groupSessionTabs,
   groupBySeries,
-  STAGE_LABELS,
-  VARIANT_LABELS,
   type StageKey,
   type SessionVariant,
 } from '../../domain/sessionGrouping';
@@ -121,6 +120,7 @@ function CompactTab({
 }
 
 export function SessionTabs({ sessions, activeSessionId, onSelectSession }: SessionTabsProps) {
+  const { t } = useLocale();
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const scrollBy = (direction: 'left' | 'right') => {
@@ -185,7 +185,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelectSession }: Sess
       <div className="flex items-center gap-2">
         <button
           type="button"
-          aria-label="Scroll left"
+          aria-label={t('ui.scrollLeft')}
           onClick={() => scrollBy('left')}
           className="hidden sm:flex items-center justify-center w-7 h-7 rounded-full border border-border bg-background/80 hover:bg-accent/60 text-muted-foreground hover:text-foreground transition-colors"
         >
@@ -202,7 +202,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelectSession }: Sess
                 active={stage.key === activeStage?.key}
                 layoutId="stage-tab"
                 icon={stageIcons[stage.key]}
-                label={STAGE_LABELS[stage.key]}
+                label={t(`stage.${stage.key}`)}
                 onClick={() => selectStage(stage.key)}
               />
             ))}
@@ -237,7 +237,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelectSession }: Sess
         </div>
         <button
           type="button"
-          aria-label="Scroll right"
+          aria-label={t('ui.scrollRight')}
           onClick={() => scrollBy('right')}
           className="hidden sm:flex items-center justify-center w-7 h-7 rounded-full border border-border bg-background/80 hover:bg-accent/60 text-muted-foreground hover:text-foreground transition-colors"
         >
@@ -254,7 +254,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelectSession }: Sess
                 key={item.id}
                 active={item.id === activeSessionId}
                 layoutId="variant-tab"
-                label={VARIANT_LABELS[variant]}
+                label={t(`variant.${variant}`)}
                 onClick={() => onSelectSession(item.id)}
               />
             );

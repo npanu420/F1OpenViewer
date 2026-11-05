@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { ReplayResolvingPanel, LiveTimingPanel } from './LiveTimingBody';
+import { useLocale } from '../../i18n/LocaleContext';
 import { getDockWidth, setDockWidth, MIN_DOCK_WIDTH, MAX_DOCK_WIDTH, WIDE_DOCK_THRESHOLD } from '../../services/dockSettings';
 
 /** Same fields as liveTiming.openWindow; one object works for dock or popout. */
 export interface DockSessionQuery {
+  /** contentId of the session's main feed; tags clock/seek messages (see domain/clockFilter). */
+  contentId?: number;
   live?: boolean;
   year?: number;
   meetingName?: string;
@@ -28,6 +31,7 @@ function effectiveMaxWidth(): number {
 }
 
 export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockProps) {
+  const { t } = useLocale();
   const [width, setWidth] = useState(() => Math.min(getDockWidth(), effectiveMaxWidth()));
   const draggingRef = useRef(false);
 
@@ -81,18 +85,18 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
     >
       <div
         onMouseDown={onDragStart}
-        title="Drag to resize"
+        title={t('timing.dragResize')}
         className="absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-ew-resize hover:bg-primary/40 transition-colors z-10"
       />
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
         <span className="font-heading text-xs font-bold tracking-widest text-muted-foreground uppercase">
-          Live Timing
+          {t('timing.title')}
         </span>
         <button
           type="button"
           onClick={onClose}
-          title="Close"
-          aria-label="Close"
+          title={t('timing.close')}
+          aria-label={t('timing.close')}
           className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <X className="w-3.5 h-3.5" />
@@ -115,6 +119,7 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
           <ReplayResolvingPanel
             compact={compact}
             {...dockProps}
+            contentId={query.contentId}
             title={query.title || ''}
             query={{
               year: query.year ?? null,

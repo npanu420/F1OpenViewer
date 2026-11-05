@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Monitor, Radio, BarChart3, Volume2, VolumeX, Play } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
@@ -22,7 +22,6 @@ interface StreamPanelProps {
   catalogItem?: CatalogItem;
   playback?: PlaybackInfo | null;
   loading?: boolean;
-  accessToken?: string;
   onPlayEmbedded?: (item: CatalogItem) => void;
   onEmbedError?: (msg: string) => void;
   /** When true, panel fills container height (e.g. inside grid slot) */
@@ -51,7 +50,6 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       catalogItem,
       playback,
       loading = false,
-      accessToken,
       onPlayEmbedded,
       onEmbedError,
       fillHeight = false,
@@ -66,6 +64,16 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
     const { t } = useLocale();
     const shakaRef = useRef<ShakaVideoHandle | null>(null);
     const [muted, setMuted] = useState(true);
+
+    // Stable callbacks for the (memoized) player: parents pass fresh closures on every render.
+    const latestRef = useRef({ onEmbedError, onVideoIntrinsicSize, onAudioFocus, itemId: catalogItem?.id });
+    latestRef.current = { onEmbedError, onVideoIntrinsicSize, onAudioFocus, itemId: catalogItem?.id };
+    const handleError = useCallback((msg: string) => latestRef.current.onEmbedError?.(msg), []);
+    const handleIntrinsicSize = useCallback((w: number, h: number) => latestRef.current.onVideoIntrinsicSize?.(w, h), []);
+    const handleAudioFocus = useCallback(() => {
+      const { itemId, onAudioFocus: cb } = latestRef.current;
+      if (itemId) cb?.(itemId);
+    }, []);
 
     useImperativeHandle(ref, () => ({
       getVideoElement: () => shakaRef.current?.getVideoElement() ?? null,
@@ -149,6 +157,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
             type="button"
             onClick={playback ? toggleMute : undefined}
             title={muted ? t('ui.audioOn') : t('ui.audioOff')}
+            aria-label={muted ? t('ui.audioOn') : t('ui.audioOff')}
             className={`shrink-0 w-6 h-6 flex items-center justify-center rounded transition-colors ${
               playback
                 ? 'hover:bg-accent cursor-pointer text-muted-foreground hover:text-foreground'
@@ -187,12 +196,11 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
                 fallbackManifestUrl={playback.fallbackManifestUrl}
                 fallbackLicenseUrl={playback.fallbackLicenseUrl}
                 fallbackLicenseHeaders={playback.fallbackLicenseHeaders}
-                accessToken={accessToken}
-                onError={(msg) => onEmbedError?.(msg)}
-                onIntrinsicVideoSize={onVideoIntrinsicSize}
+                onError={handleError}
+                onIntrinsicVideoSize={handleIntrinsicSize}
                 initialSeekSeconds={initialSeekSeconds}
                 preferLiveEdge={catalogItem?.kind === 'live'}
-                onAudioFocus={() => { if (catalogItem?.id) onAudioFocus?.(catalogItem.id); }}
+                onAudioFocus={handleAudioFocus}
                 compact
               />
             </div>
@@ -211,6 +219,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
                       }}
                       className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground mx-auto mb-2 hover:opacity-90 transition-opacity"
                       title={t('dashboard.playEmbedded')}
+                      aria-label={t('dashboard.playEmbedded')}
                     >
                       <Play className="w-5 h-5" />
                     </button>

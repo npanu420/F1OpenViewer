@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
-import shaka from 'shaka-player/dist/shaka-player.ui';
+import shaka from 'shaka-player/dist/shaka-player.compiled-es2021';
 import { useLocale } from '../../i18n/LocaleContext';
 import { VideoControls } from './VideoControls';
+import { debug } from '../../lib/log';
 
 export type ShakaVideoHandle = {
   /** Returns the underlying HTMLVideoElement (or null) */
@@ -17,7 +18,6 @@ export type ShakaVideoHandle = {
 type Props = {
   manifestUrl: string;
   licenseUrl: string;
-  accessToken?: string;
   licenseHeaders?: Record<string, string>;
   fallbackManifestUrl?: string;
   fallbackLicenseUrl?: string;
@@ -129,7 +129,7 @@ async function seekToLiveEdge(player: shaka.Player, video: HTMLVideoElement): Pr
     } catch (_) {}
 
     // eslint-disable-next-line no-console
-    console.log('[shaka][live] edge attempt', {
+    debug('[shaka][live] edge attempt', {
       isLive,
       range,
       seekableStart,
@@ -176,7 +176,7 @@ async function seekToLiveEdge(player: shaka.Player, video: HTMLVideoElement): Pr
   }
 }
 
-export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(props, ref) {
+const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(props, ref) {
   const { t } = useLocale();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -322,7 +322,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
         // Lower buffer when many streams (compact/embedded) to avoid all of them buffering heavily
         const streaming: Record<string, unknown> =
           props.compact
-            ? { bufferingGoal: 10, rebufferingGoal: 3 }
+            ? { bufferingGoal: 10, rebufferingGoal: 3, bufferBehind: 10 } // default 30 s per tile adds up with N streams
             : { bufferingGoal: 20, rebufferingGoal: 6 };
         streaming.returnToEndOfLiveWindowWhenOutside = true;
         streaming.liveSync = { enabled: true, targetLatency: 4 };
@@ -357,7 +357,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
               // Log ContentProtection blocks before stripping possible license URLs.
               const cpBlocks = text.match(/<ContentProtection[\s\S]*?(?:\/>|<\/ContentProtection>)/gi) ?? [];
               // eslint-disable-next-line no-console
-              console.log('[manifest][ContentProtection blocks]', JSON.stringify(cpBlocks));
+              debug('[manifest][ContentProtection blocks]', JSON.stringify(cpBlocks));
               const stripped = text.replace(/<ContentProtection[^>]*(?:\/>|>[\s\S]*?<\/ContentProtection>)/gi, '');
               response.data = new TextEncoder().encode(stripped).buffer;
             }
@@ -371,7 +371,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
             const bytes = response?.data ? (response.data.byteLength ?? 0) : 0;
             const ct = response?.headers?.['content-type'] || response?.headers?.['Content-Type'] || '';
             // eslint-disable-next-line no-console
-            console.log('[shaka][LICENSE][resp]', { bytes, contentType: ct });
+            debug('[shaka][LICENSE][resp]', { bytes, contentType: ct });
           }
         };
         try { (net as any).registerResponseFilter(debugResponseFilter); } catch (_) {}
@@ -397,7 +397,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
               // Electron often serializes args as "[object Object]" in the main log,
               // so log JSON to actually see uris/bodyBytes.
               // eslint-disable-next-line no-console
-              console.log('[shaka][LICENSE][req]', JSON.stringify({
+              debug('[shaka][LICENSE][req]', JSON.stringify({
                 method,
                 uris,
                 bodyBytes,
@@ -441,7 +441,7 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
         try { playerIsLive = typeof player.isLive === 'function' && player.isLive(); } catch (_) {}
         const isLive = propsRef.current.preferLiveEdge || playerIsLive || isLikelyLiveVideo(video);
         // eslint-disable-next-line no-console
-        console.log('[shaka][load] finished', {
+        debug('[shaka][load] finished', {
           preferLiveEdge: propsRef.current.preferLiveEdge,
           playerIsLive,
           isLikelyLive: isLikelyLiveVideo(video),
@@ -544,15 +544,21 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
 
     init().catch((e) => props.onError(`${initFailed}: ${safeErr(e) || unknownErr}`));
 
+    // Auto-start only until playback has begun once. Afterwards a `canplay` (fired after every seek or
+    // rebuffer) must not resume a video the user paused, or one the sync engine is deliberately holding.
+    let hasStarted = false;
+    const onPlaying = () => { hasStarted = true; };
     const onCanPlay = () => {
-      if (destroyed || !video) return;
+      if (destroyed || !video || hasStarted) return;
       if (video.paused) {
         video.play().catch(() => {});
       }
     };
+    video.addEventListener('playing', onPlaying);
     video.addEventListener('canplay', onCanPlay);
 
     return () => {
+      video.removeEventListener('playing', onPlaying);
       video.removeEventListener('canplay', onCanPlay);
       destroyed = true;
       // Capture the playback position so a re-init (header change, same manifest) can resume
@@ -647,3 +653,23 @@ export const ShakaVideo = forwardRef<ShakaVideoHandle, Props>(function ShakaVide
     </div>
   );
 });
+
+/**
+ * Header dicts are compared by content (a re-resolved stream gets a new object with the same
+ * tokens); everything else by identity. Parents pass stable callbacks (the player reads callbacks
+ * through propsRef anyway), so the multiview re-rendering no longer re-renders every player and
+ * its control bar.
+ */
+function propsEqual(prev: Readonly<Props>, next: Readonly<Props>): boolean {
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]) as Set<keyof Props>;
+  for (const k of keys) {
+    if (k === 'licenseHeaders' || k === 'fallbackLicenseHeaders') {
+      if (hashHeaders(prev[k]) !== hashHeaders(next[k])) return false;
+    } else if (!Object.is(prev[k], next[k])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export const ShakaVideo = React.memo(ShakaVideoInner, propsEqual);

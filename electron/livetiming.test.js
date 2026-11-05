@@ -218,6 +218,17 @@ test('findSession: meetingName scopes the session-name match (replay resolution)
   assert.equal(lt.findSession(index, { meetingName: 'Monaco', sessionName: 'Race' }), null);
 });
 
+test('findSession: no meeting hint prefers the newest meeting (live), not round 1', () => {
+  const index = {
+    Meetings: [
+      { Name: 'Australian Grand Prix', Number: 1, Sessions: [{ Name: 'Race', Type: 'Race', Path: 'aus/race/' }] },
+      { Name: 'Chinese Grand Prix', Number: 2, Sessions: [{ Name: 'Race', Type: 'Race', Path: 'chn/race/' }] },
+    ],
+  };
+  assert.equal(lt.findSession(index, { sessionName: 'Race' }).path, 'chn/race/');
+  assert.equal(lt.findSession(index, { meetingNumber: 1, sessionName: 'Race' }).path, 'aus/race/');
+});
+
 test('parseCoreFrame: type:3 Subscribe completion = initial snapshot, keyed by feed', () => {
   const frame = JSON.stringify({ type: 3, invocationId: '1', result: { DriverList: { '1': { Tla: 'VER' } }, TimingData: { Lines: {} } } });
   const recs = lt.parseCoreFrame(frame);
@@ -266,4 +277,47 @@ test('findSession: no match / bad input → null', () => {
   assert.equal(lt.findSession({ Meetings: [] }, { sessionKey: 1 }), null);
   assert.equal(lt.findSession(null, { sessionKey: 1 }), null);
   assert.equal(lt.findSession({}, { sessionKey: 1 }), null);
+});
+
+test('inflateZ refuses decompression bombs (decodePayload drops the record)', () => {
+  const bomb = zlib.deflateRawSync(Buffer.alloc(lt.MAX_INFLATED_BYTES + 1024)).toString('base64');
+  assert.throws(() => lt.inflateZ(bomb));
+  assert.equal(lt.decodePayload('CarData.z', JSON.stringify(bomb)), null);
+  const ok = zlib.deflateRawSync(Buffer.from(JSON.stringify({ Entries: [] }))).toString('base64');
+  assert.deepEqual(lt.inflateZ(ok), { Entries: [] });
+});
+
+test('network helpers reject bad input before any request is made', async () => {
+  for (const y of ['2024/../../x', 1900, 'abc', 2024.5]) await assert.rejects(lt.getIndex(y), /Invalid season year/, String(y));
+  assert.equal(await lt.fetchSyncData('../../admin', 1), null);
+  assert.equal(await lt.fetchSyncData(1, '2?x=1'), null);
+  assert.equal(await lt.fetchSyncData(null, 1), null);
+});
+
+test('assembleSession: missing optional feeds are fine; a failed core feed or total failure throws (not cached)', () => {
+  const list = ['TimingData', 'TeamRadio', 'DriverList'];
+  const rec = [{ offsetMs: 0, ts: '00:00:00.000', data: {} }];
+  assert.deepEqual(lt.assembleSession(list, [rec, [], rec]), { TimingData: rec, DriverList: rec }); // no radio in this session
+  assert.deepEqual(lt.assembleSession(list, [rec, null, rec]), { TimingData: rec, DriverList: rec }); // radio download failed
+  assert.throws(() => lt.assembleSession(list, [null, rec, rec]), /Could not download/);
+  assert.throws(() => lt.assembleSession(list, [null, null, null]), /Could not download/);
+  assert.throws(() => lt.assembleSession(['DriverList'], [null]), /Could not download/);
+});
+
+test('archive requests carry the F1 TV token as Bearer only when signed in', () => {
+  lt.setAuthTokenProvider(() => null);
+  assert.equal(lt.archiveHeaders().Authorization, undefined);
+  lt.setAuthTokenProvider(() => 'eyJhbGciOi.payload-part.signature-part');
+  assert.equal(lt.archiveHeaders().Authorization, 'Bearer eyJhbGciOi.payload-part.signature-part');
+  assert.equal(lt.archiveHeaders()['User-Agent'], 'BestHTTP');
+  lt.setAuthTokenProvider(() => { throw new Error('boom'); });
+  assert.equal(lt.archiveHeaders().Authorization, undefined);
+  lt.setAuthTokenProvider(null);
+});
+
+test('curl header config (stdin) cannot be broken out of by quotes or newlines', () => {
+  const cfg = lt.curlHeaderConfig({ Authorization: 'Bearer a"b\nurl = "http://evil"' });
+  assert.equal(cfg.split('\n').filter(Boolean).length, 1);
+  assert.ok(cfg.startsWith('header = "Authorization: Bearer ab'));
+  assert.ok(!cfg.includes('\nurl'));
 });

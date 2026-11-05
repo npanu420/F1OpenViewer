@@ -5,6 +5,19 @@
  */
 
 const client = require('./f1tvClient');
+const { createMemoCache } = require('./archiveCache');
+
+/**
+ * Short-lived cache for event pages and stream lists: switching back to an event refetched both.
+ * Cleared on Refresh (getVodSeasons IPC), sign-out and reset (ipc.js).
+ */
+const CATALOG_TTL_MS = 3 * 60 * 1000;
+const sessionsCache = createMemoCache(CATALOG_TTL_MS, 16);
+const contentVideoCache = createMemoCache(CATALOG_TTL_MS, 32);
+function clearCatalogCache() {
+  sessionsCache.clear();
+  contentVideoCache.clear();
+}
 
 async function getLiveNow() {
   try {
@@ -24,6 +37,7 @@ async function getLiveNow() {
     }).filter(Boolean);
     return items;
   } catch (e) {
+    console.warn('[catalog] getLiveNow failed, showing no live events:', e?.message);
     return [];
   }
 }
@@ -46,6 +60,7 @@ async function searchVod(params = {}) {
     }).filter(Boolean);
     return items;
   } catch (e) {
+    console.warn('[catalog] searchVod failed:', e?.message);
     return [];
   }
 }
@@ -267,34 +282,15 @@ async function getVodEvents(seasonPageId) {
  * Returns the sessions (FP, Q, Race, Sprint) of a GP given the GP pageId.
  */
 async function getVodSessions(gpPageId) {
+  return sessionsCache.get(String(gpPageId), () => loadVodSessions(gpPageId));
+}
+
+async function loadVodSessions(gpPageId) {
   console.log('[VOD] getVodSessions: loading event page', gpPageId);
   const containers = await client.fetchPage(gpPageId);
   const { sessions } = extractSessionsFromGPPage(containers);
   console.log('[VOD] sessions found:', sessions.length);
   return sessions;
-}
-
-/**
- * Full VOD catalog (legacy, loads everything at once).
- * Prefer getVodSeasons + getVodEvents + getVodSessions for lazy loading.
- */
-async function getVodCatalog() {
-  const result = { seasons: [] };
-  try {
-    const seasons = await getVodSeasons();
-    for (const { year, pageId } of seasons) {
-      const events = await getVodEvents(pageId).catch(e => {
-        console.warn(`[VOD] season ${year} failed:`, e.message);
-        return [];
-      });
-      if (!events.length) continue;
-      result.seasons.push({ year, events: events.map(ev => ({ ...ev, sessions: [], onboard: [] })) });
-    }
-    console.log('[VOD] catalog (seasons+events only):', result.seasons.map(s => `${s.year}(${s.events.length} events)`).join(', '));
-  } catch (e) {
-    console.error('[VOD] getVodCatalog failed:', e?.message, e?.stack);
-  }
-  return result;
 }
 
 function isObcStream(s) {
@@ -322,6 +318,10 @@ function pickMainChannelStream(additional) {
  * Content details for additional streams (onboard).
  */
 async function getContentVideo(contentId) {
+  return contentVideoCache.get(String(contentId), () => loadContentVideo(contentId));
+}
+
+async function loadContentVideo(contentId) {
   try {
     const c = client.getClient();
     const container = await c.contentVideo(contentId);
@@ -363,17 +363,18 @@ async function getContentVideo(contentId) {
     }
     return { onboard, dataChannel, mainChannel, container };
   } catch (e) {
-    return { onboard: [], dataChannel: [], container: null };
+    console.warn('[catalog] getContentVideo failed for', contentId, ':', e?.message);
+    throw e;
   }
 }
 
 module.exports = {
+  clearCatalogCache,
   getLiveNow,
   searchVod,
   getVodSeasons,
   getVodEvents,
   getVodSessions,
-  getVodCatalog,
   getContentVideo,
   pickMainChannelStream,
 };

@@ -16,7 +16,9 @@ export function SeasonSelector({
   availableYears,
 }: SeasonSelectorProps) {
   const { t } = useLocale();
-  const defaultYears = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018];
+  // Fallback until the API answers: current year back to 2018 (the oldest season the app offers).
+  const currentYear = new Date().getFullYear();
+  const defaultYears = Array.from({ length: Math.max(1, currentYear - 2017) }, (_, i) => currentYear - i);
   const years = (availableYears && availableYears.length > 0)
     ? [...availableYears].sort((a, b) => b - a)
     : defaultYears;

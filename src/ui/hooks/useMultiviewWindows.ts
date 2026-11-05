@@ -10,7 +10,7 @@ export function useMultiviewWindows(): number[] {
     let cancelled = false;
     api.getMultiviewWindows().then((list) => {
       if (!cancelled && Array.isArray(list)) setIds(list);
-    });
+    }).catch(() => {});
 
     const unsub = api.onMultiviewWindowsChanged?.((payload) => {
       if (payload?.ids && Array.isArray(payload.ids)) setIds(payload.ids);

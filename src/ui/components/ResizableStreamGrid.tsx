@@ -158,7 +158,6 @@ interface ResizableStreamGridProps {
   loadingItemIds: Record<string, boolean>;
   onPlayEmbedded?: (item: CatalogItem) => void;
   onEmbedError?: (msg: string) => void;
-  accessToken?: string;
   onOpen?: (item: CatalogItem) => void;
   onRegisterPanelRef?: (itemId: string, ref: StreamPanelHandle | null) => void;
   onAddSlot?: () => void;
@@ -197,7 +196,6 @@ export function ResizableStreamGrid({
   loadingItemIds,
   onPlayEmbedded,
   onEmbedError,
-  accessToken,
   onOpen,
   onRegisterPanelRef,
   onAddSlot,
@@ -472,7 +470,6 @@ export function ResizableStreamGrid({
                     loading={loadingItemIds[option.item.id]}
                     onPlayEmbedded={onPlayEmbedded}
                     onEmbedError={onEmbedError}
-                    accessToken={accessToken}
                     onClick={() => onOpen?.(option.item)}
                     fillHeight
                     hideHeader={hideSlotHeadersUntilHover}

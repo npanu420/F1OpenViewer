@@ -1,5 +1,74 @@
 # Release Notes - F1 OpenViewer
 
+## Unreleased
+
+Reliability, security and cleanup pass. No new user-facing feature; a lot of things that failed quietly now work or say why.
+
+### Reliability
+
+- **No more login flash at launch**: the app shows a "Restoring your session…" screen until the saved session is checked, instead of the sign-in form for a few seconds.
+- **Offline at launch**: when F1 TV can't be reached the app says so and offers "Try again" (the saved session is kept) instead of dropping you on the sign-in form.
+- **Replay timing works again**: F1 now requires the F1 TV subscription token on the timing archive (it answered HTTP 401 to every request, so past-session timing and team radio failed for everyone). The token is sent as `Authorization: Bearer`, through curl's stdin so it never appears on a command line.
+- **Expired session**: when F1 rejects the saved session mid-use, the app returns to the sign-in screen with an explanation (and closes its popouts) instead of failing stream by stream.
+- **Sign-out closes the popouts** (multiview, timing, player windows kept playing on a session that no longer existed), and a catalog load still in flight can no longer refill the dashboard after sign-out.
+- The app window opens right away: the Widevine CDM is awaited before the first playback instead of before showing anything (up to 45 s on a fresh profile).
+- Failed "Start all streams" requests keep the 450 ms spacing (a batch of failures used to burst); switching timing sessions no longer shows the previous session's table; no duplicate session/event requests; a session whose title also mentions another year is no longer hidden.
+- **"Start all streams" then switching session** no longer drops the previous session's streams into the new one when they resolve late.
+- **Sign-in survives network hiccups**: a transient error at launch (F1's edge often resets the first request) no longer sends you back to the login screen. Concurrent session restores are merged, every GET to F1 retries transient failures, and a saved session is only dropped for real auth failures.
+- **Live Timing reconnects**: one shared connection with exponential backoff, a watchdog for dead sockets, and a "RECONNECTING…" indicator instead of a permanent error screen. A failed reconnect attempt no longer ends the feed.
+- **One sync engine**: the multiview had two drift correctors fighting each other. Now only the sync engine corrects; live/DVR streams can be seeked inside their window. Verified with real playback: streams stay within ~0.05 s, follow seeks, and hold when the main feed pauses.
+- **Failed streams say why**: region blocks, expired sessions and "Start all streams" failures show a message (before, the play button just came back).
+- **Timing fixes**: the popout multiview showed the wrong race's timing; two open sessions no longer drive each other's clock or seek; radio clips no longer attach to the wrong message; the empty speed column is hidden.
+- Settings that were supposed to survive a reinstall now do (dock width, header state, per-session timing offsets). "Reset all data" now really resets them (and the archive cache).
+- **Timing window controls work**: Unsync, manual pause and seek used to be undone within 250 ms while the video played. It stays detached until you press "Sync to video".
+- A paused video no longer resumes itself after a seek; the standalone player window can be muted again.
+- Calendar / session / stream loading errors show up instead of looking like an empty list. GP flags actually show.
+- The app opens even on a first launch without network (CDM download capped at 45 s); a live socket that never handshakes is retried; live team radio resolves its archive path late if needed.
+- Video controls, session tabs and the whole timing UI are translated (EN/IT).
+
+- **Live timing with two windows** (dock + popout): the second one used to stay on "CONNECTING…" without drivers; it now gets the connection status and a fresh snapshot.
+- **The app always opens**: a failed Widevine CDM download (seen on fresh profiles) used to abort startup and leave the app running with no window; now it logs and opens anyway.
+- **Robustness**: every network request has a timeout (a stalled request used to block the playback queue for up to 5 minutes); one instance per profile (a second launch focuses the running app instead of racing on the same files); a crashed window reloads itself; stray errors in the main process are logged instead of popping an error box; the live timing falls back to the built-in HTTP client when `curl.exe` is missing (Windows older than 1803).
+
+### Performance
+
+- The multiview no longer re-renders twice a second forever after a sync (the drift watcher only updates the UI when something visible changes), and players are memoized so a multiview re-render no longer re-renders every player and control bar.
+- Live timing only rebuilds the lists whose feed changed (race control / radio were rebuilt 10x/s); video control bars skip time updates while hidden; compact tiles keep 10 s of played media instead of 30 s; the video clock is only relayed while a timing window listens; event/stream lists are cached for 3 minutes (Refresh clears it); stale per-launch cache folders in %TEMP% are deleted; no backdrop blur over playing video.
+- Replay timing skips no-op updates (it re-rendered 4-5x/s even while paused); race control and team radio lists only re-render when their data changes.
+- Smaller, split bundle: views load per window (the live-timing popout no longer loads Shaka or the grid), vendors are in separate cached chunks, and Shaka is the core build without its unused UI (-320 KB). Total JS 1.55 MB -> 1.24 MB.
+- Live Timing view models are only recomputed when data changed, rows only re-render when their content changed, live updates are rendered at most every 100 ms.
+- Scrubbing the replay timeline restores the nearest checkpoint instead of rebuilding the whole session.
+- Archive downloads are cached (memory, plus disk for finished sessions), so dock + popout share one download.
+
+### Security and privacy
+
+- **Electron 42** (castlabs `v42.11.18+wvcus`): the v40 line is end-of-life and had open advisories. Production `npm audit` is clean (undici, follow-redirects).
+- The F1 sign-in and silent-refresh windows (remote pages, Chromium sandbox off on Windows for the CDM) can only navigate over https; popups are denied (refresh window) or https-only and locked down (sign-in window).
+- **Stricter CSP**: network, images and media only to F1 hosts, OpenF1 and the local license proxy ports (was any https host and any local port).
+- Developer switches (`ELECTRON_START_URL`, `ELECTRON_OPEN_DEVTOOLS`, `ELECTRON_RELAX_CORS`) are ignored in packaged builds; F12 DevTools there only with `F1OV_DEVTOOLS=1`. Search parameters from the renderer are allowlisted; "open external" only opens this project's GitHub pages; license URLs and challenge bytes are no longer logged.
+- Account tokens are attached only to real license requests (an `LA` path segment on formula1.com), no longer to any formula1.com URL containing `/LA`, query strings included.
+- **No credentials in the UI process**: the F1 TV account token and the account-level license tokens (ascendon, entitlement) no longer reach the renderer. (The per-play playToken still travels inside the signed manifest URL the player has to load; it is scoped to that one stream.) It only learns "signed in / not signed in"; the main process attaches the tokens to license and CDN requests itself.
+- **IPC sender check**: every bridge call is rejected unless it comes from the app's own document.
+- **Permissions locked down**: Electron granted every permission to every page by default (camera, microphone, geolocation, notifications… including the F1 login page). Only fullscreen, the Widevine key system and clipboard write are allowed now.
+- **Input validation at the IPC boundary**: ids, season years, meeting/session keys and feed names are validated before they end up in a URL; live telemetry payloads are decompressed with a size cap.
+
+- Account token and cookies are **encrypted at rest** (OS keystore); old plain files are upgraded automatically.
+- Content-Security-Policy in the packaged app, windows locked to the app document, `window.open` denied.
+- Removed an unused generic network bridge that injected the account token into any URL the renderer asked for.
+- The local license proxy requires a per-launch secret; the multiview hand-off in localStorage carries no account tokens (only per-play data such as signed manifest URLs, removed again on the next start); logs no longer contain entitlement claims or signed manifest URLs.
+- Fonts are bundled: the app no longer contacts Google at runtime.
+
+### Tooling and docs
+
+- Accessibility: icon buttons have labels (screen readers), keyboard focus is always visible, Esc closes Settings.
+
+- CI (typecheck, tests, build, production audit) and Dependabot. `npm run check` runs typecheck + tests locally.
+- Test suite grew from 72 to 150+ tests: connection resilience, sync decisions, replay checkpoints, caches, session storage, translations consistency.
+- Verbose Shaka/license traces are off unless `localStorage.setItem('f1-debug','1')`.
+- `docs/KNOWN_BUGS.md`, `docs/SETUP.md`, README and CONTRIBUTING brought in line with the code.
+
+---
+
 ## v1.2.2
 
 This patch restores reliable F1 account sign-in and live timing, improves replay synchronization, and makes race weekend navigation clearer across F1 and support series.

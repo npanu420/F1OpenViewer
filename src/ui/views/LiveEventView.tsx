@@ -4,7 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodSession, VodOnboard } from '../../domain/vod';
 import { getContentVideoStreams, type SessionStreams } from '../../services/vod';
-import { resolvePlayback, type PlaybackInfo } from '../../services/entitlement';
+import { useEmbeddedPlayback } from '../hooks/useEmbeddedPlayback';
 import { useLocale } from '../../i18n/LocaleContext';
 import { MultiViewer } from '../components/MultiViewer';
 
@@ -20,7 +20,6 @@ function toCatalogItemOnboard(ob: VodOnboard): CatalogItem {
 
 interface LiveEventViewProps {
   item: CatalogItem;
-  accessToken?: string;
   onBack: () => void;
   onOpenExternal?: (item: CatalogItem) => void;
   onEmbedError?: (msg: string) => void;
@@ -38,7 +37,6 @@ function liveItemToSession(item: CatalogItem): VodSession {
 
 export function LiveEventView({
   item,
-  accessToken,
   onBack,
   onOpenExternal,
   onEmbedError,
@@ -48,8 +46,8 @@ export function LiveEventView({
   const session = liveItemToSession(liveItem);
   const [streams, setStreams] = useState<SessionStreams | null>(null);
   const [loadingStreams, setLoadingStreams] = useState(true);
-  const [embeddedPlayback, setEmbeddedPlayback] = useState<Record<string, PlaybackInfo>>({});
-  const [loadingItemIds, setLoadingItemIds] = useState<Record<string, boolean>>({});
+  const { embeddedPlayback, loadingItemIds, onPlayEmbedded, onPlayAllEmbedded, removePlayback } =
+    useEmbeddedPlayback(onEmbedError);
 
   useEffect(() => {
     setLiveItem(item);
@@ -68,6 +66,7 @@ export function LiveEventView({
           );
         }
       })
+      .catch((e) => onEmbedError?.(e instanceof Error && e.message ? e.message : t('error.streamsLoad')))
       .finally(() => setLoadingStreams(false));
   }, [item.contentId]);
 
@@ -75,33 +74,6 @@ export function LiveEventView({
     (_s: VodSession, _year: number) => liveItem,
     [liveItem]
   );
-
-  const onPlayEmbedded = useCallback(async (catalogItem: CatalogItem) => {
-    setLoadingItemIds((prev) => ({ ...prev, [catalogItem.id]: true }));
-    try {
-      const info = await resolvePlayback(catalogItem);
-      setEmbeddedPlayback((prev) => ({ ...prev, [catalogItem.id]: info }));
-    } finally {
-      setLoadingItemIds((prev) => ({ ...prev, [catalogItem.id]: false }));
-    }
-  }, []);
-
-  const onPlayAllEmbedded = useCallback(async (itemsToPlay: CatalogItem[]) => {
-    if (itemsToPlay.length === 0) return;
-    const loading = itemsToPlay.reduce<Record<string, boolean>>((acc, item) => ({ ...acc, [item.id]: true }), {});
-    setLoadingItemIds((prev) => ({ ...prev, ...loading }));
-    const results = await Promise.allSettled(
-      itemsToPlay.map((item) => resolvePlayback(item))
-    );
-    const nextPlayback: Record<string, PlaybackInfo> = {};
-    results.forEach((result, index) => {
-      const item = itemsToPlay[index];
-      if (result.status === 'fulfilled') nextPlayback[item.id] = result.value;
-    });
-    setEmbeddedPlayback((prev) => ({ ...prev, ...nextPlayback }));
-    const done = itemsToPlay.reduce<Record<string, boolean>>((acc, item) => ({ ...acc, [item.id]: false }), {});
-    setLoadingItemIds((prev) => ({ ...prev, ...done }));
-  }, []);
 
   const onOpen = useCallback(
     (openItem: CatalogItem) => {
@@ -166,23 +138,16 @@ export function LiveEventView({
               loadingItemIds={loadingItemIds}
               onPlayEmbedded={onPlayEmbedded}
               onPlayAllEmbedded={onPlayAllEmbedded}
-              accessToken={accessToken}
               onEmbedError={onEmbedError}
               liveTimingQuery={{
+                contentId: item.contentId,
                 live: true,
                 year: new Date().getFullYear(),
                 sessionKey: item.sessionKey,
                 sessionName: item.title,
                 title: item.title,
               }}
-              onPortStreamsToWindow={(ids) => {
-                if (!ids.length) return;
-                setEmbeddedPlayback((prev) => {
-                  const next = { ...prev };
-                  for (const id of ids) delete next[id];
-                  return next;
-                });
-              }}
+              onPortStreamsToWindow={removePlayback}
             />
           </motion.div>
         )}

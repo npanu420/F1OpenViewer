@@ -7,6 +7,7 @@ function hashParams(): {
   title: string;
   syncStart: number | null;
   live: boolean;
+  contentId: number | null;
   query: ResolveQuery | null;
 } {
   const raw = window.location.hash.replace(/^#/, '');
@@ -31,6 +32,7 @@ function hashParams(): {
     title: p.get('title') || '',
     syncStart: num(p.get('syncStart')),
     live: p.get('live') === '1',
+    contentId: num(p.get('cid')),
     query,
   };
 }
@@ -51,6 +53,7 @@ export function LiveTimingView() {
       path={initial.path}
       title={initial.title}
       syncStart={initial.syncStart}
+      contentId={initial.contentId ?? undefined}
       query={initial.query}
     />
   );

@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ShakaVideo, type ShakaVideoHandle } from '../widgets/ShakaVideo';
 import { resolvePlayback, type PlaybackInfo } from '../../services/entitlement';
-import { session } from '../../services/session';
 import { getContentVideoStreams } from '../../services/vod';
 import { useLocale } from '../../i18n/LocaleContext';
+import { playbackErrorMessage } from '../hooks/useEmbeddedPlayback';
 import type { CatalogItem } from '../../domain/catalog';
 
 /**
@@ -28,7 +28,6 @@ export function StandalonePlayerView({ contentId, channelId, title }: Props) {
   const [playback, setPlayback] = useState<PlaybackInfo | null>(null);
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState('');
-  const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [switchSubmenuOpen, setSwitchSubmenuOpen] = useState(false);
   const shakaRef = useRef<ShakaVideoHandle | null>(null);
@@ -52,6 +51,8 @@ export function StandalonePlayerView({ contentId, channelId, title }: Props) {
         opts.push({ channelId: dc.channelId, label: dc.title || t('player.dataChannel') });
       }
       setChannelOptions(opts);
+    }).catch(() => {
+      // The switch-stream menu just stays empty; playback itself is unaffected.
     });
     return () => { cancelled = true; };
   }, [contentId, t]);
@@ -64,10 +65,6 @@ export function StandalonePlayerView({ contentId, channelId, title }: Props) {
   useEffect(() => {
     document.title = `F1 OpenViewer — ${activeTitle || contentId}`;
   }, [activeTitle, contentId]);
-
-  useEffect(() => {
-    session.get().then((s) => setAccessToken(s.accessToken));
-  }, []);
 
   // Main process is about to destroy this window: unmount the player first so Shaka/EME
   // tears down cleanly instead of getting killed mid-playback (native crash otherwise).
@@ -89,7 +86,7 @@ export function StandalonePlayerView({ contentId, channelId, title }: Props) {
     // doubles as "reload": ShakaVideo reinits whenever manifestUrl actually changes value.
     resolvePlayback(item)
       .then((info) => { if (!cancelled) setPlayback(info); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
+      .catch((e) => { if (!cancelled) setError(playbackErrorMessage(e) || String(e)); });
     return () => { cancelled = true; };
   }, [contentId, activeChannelId, activeTitle, reloadNonce]);
 
@@ -105,11 +102,17 @@ export function StandalonePlayerView({ contentId, channelId, title }: Props) {
     if (!playback) return;
     let lastW = 0;
     let lastH = 0;
+    // Unmute once per playback. Forcing it on every tick (the old behaviour) made it impossible to
+    // mute or lower the volume from the control bar: it was undone within 350 ms.
+    let unmuted = false;
     const tick = () => {
       const v = shakaRef.current?.getVideoElement();
       if (!v) return;
-      v.muted = false;
-      if (v.volume === 0) v.volume = 1;
+      if (!unmuted) {
+        v.muted = false;
+        if (v.volume === 0) v.volume = 1;
+        unmuted = true;
+      }
       if (v.videoWidth > 0 && v.videoHeight > 0) {
         if (v.videoWidth !== lastW || v.videoHeight !== lastH) {
           lastW = v.videoWidth;
@@ -162,7 +165,6 @@ export function StandalonePlayerView({ contentId, channelId, title }: Props) {
           fallbackManifestUrl={playback.fallbackManifestUrl}
           fallbackLicenseUrl={playback.fallbackLicenseUrl}
           fallbackLicenseHeaders={playback.fallbackLicenseHeaders}
-          accessToken={accessToken}
           onError={setError}
           onIntrinsicVideoSize={reportVideoSize}
           fill

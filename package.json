@@ -5,6 +5,8 @@
   "main": "electron/main.js",
   "scripts": {
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test",
     "sync-version": "node scripts/sync-version.js",
     "clean:release": "node scripts/clean-release.js",
     "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && npm run electron:dev\"",
@@ -21,9 +23,9 @@
   "type": "commonjs",
   "private": true,
   "dependencies": {
-    "@radix-ui/react-switch": "^1.2.5",
+    "@fontsource/rajdhani": "^5.3.0",
+    "@fontsource/space-grotesk": "^5.3.0",
     "axios": "^1.20.0",
-    "clsx": "^2.1.1",
     "dotenv": "^16.6.1",
     "framer-motion": "^12.35.2",
     "lucide-react": "^0.462.0",
@@ -31,7 +33,6 @@
     "react-dom": "^19.2.4",
     "react-grid-layout": "^2.2.2",
     "shaka-player": "^5.0.5",
-    "tailwind-merge": "^2.6.0",
     "undici": "^7.29.0",
     "ws": "^8.21.0"
   },
@@ -43,7 +44,7 @@
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
-    "electron": "github:castlabs/electron-releases#v40.7.0+wvcus",
+    "electron": "github:castlabs/electron-releases#v42.11.18+wvcus",
     "electron-builder": "^26.8.1",
     "postcss": "^8.5.6",
     "rcedit": "^5.0.2",
@@ -61,8 +62,10 @@
     "files": [
       "dist/**",
       "electron/**",
-      "package.json"
+      "package.json",
+      "!electron/**/*.test.js"
     ],
+    "asar": true,
     "directories": {
       "output": "release"
     },
@@ -75,11 +78,16 @@
       "signAndEditExecutable": true
     },
     "afterPack": "scripts/apply-exe-icon.js",
-    "afterSign": "scripts/evs-after-sign.js"
+    "afterSign": "scripts/evs-after-sign.js",
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns",
+      "category": "public.app-category.sports"
+    }
   },
   "allowScripts": {
-    "github:castlabs/electron-releases#3412c2dfbbaad4136f5b6767e902e3859222d1e8": true,
+    "github:castlabs/electron-releases#1d4c9294730fd5fa95ec62081c549cd13c74bdbd": true,
     "electron-winstaller@5.4.0": true,
-    "esbuild@0.27.3": true
+    "esbuild@0.28.2": true
   }
 }

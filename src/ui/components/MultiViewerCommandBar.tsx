@@ -178,6 +178,7 @@ function LayoutsDropdown({
                             type="button"
                             onClick={() => requestDelete(preset.id)}
                             title={t('dashboard.deleteLayout')}
+                            aria-label={t('dashboard.deleteLayout')}
                             className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -297,6 +298,7 @@ export function MultiViewerCommandBar({
       type="button"
       onClick={onToggleHideTitles}
       title={hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
+      aria-label={hideSlotTitles ? t('dashboard.showTitles') : t('dashboard.hideTitles')}
       className={`flex items-center gap-2 rounded-lg font-heading font-bold border transition-colors shrink-0 ${
         hideSlotTitles ? 'bg-primary/20 border-primary text-primary' : 'border-border bg-accent/30 hover:bg-accent/50'
       } ${compact ? 'py-2 px-3 text-xs' : 'py-2.5 px-4 text-sm tracking-wider'}`}
@@ -315,6 +317,7 @@ export function MultiViewerCommandBar({
       type="button"
       onClick={multiviewControl.onOpen}
       title={multiviewControl.label}
+      aria-label={multiviewControl.label}
       className={`relative flex items-center gap-2 rounded-lg font-heading font-bold border border-border bg-accent/30 hover:bg-accent/50 transition-colors shrink-0 ${
         compact ? 'py-2 px-3 text-xs' : 'py-2.5 px-4 text-sm tracking-wider'
       }`}
@@ -333,13 +336,14 @@ export function MultiViewerCommandBar({
     <button
       type="button"
       onClick={liveTiming.onOpenPopout}
-      title="Open Live Timing window"
+      title={t('timing.openWindowTitle')}
+      aria-label={t('timing.openWindowTitle')}
       className={`flex items-center gap-2 rounded-lg font-heading font-bold border border-border bg-accent/30 hover:bg-accent/50 transition-colors shrink-0 ${
         compact ? 'py-2 px-3 text-xs' : 'py-2.5 px-4 text-sm tracking-wider'
       }`}
     >
       <BarChart3 className={`${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} shrink-0 text-emerald-400`} />
-      Live Timing
+      {t('timing.title')}
     </button>
   );
 
@@ -347,13 +351,14 @@ export function MultiViewerCommandBar({
     <button
       type="button"
       onClick={liveTiming.onToggleDock}
-      title="Dock live timing in this window"
+      title={t('timing.dockTitle')}
+      aria-label={t('timing.dockTitle')}
       className={`flex items-center gap-2 rounded-lg font-heading font-bold border transition-colors shrink-0 ${
         liveTiming.dockOpen ? 'bg-primary/20 border-primary text-primary' : 'border-border bg-accent/30 hover:bg-accent/50'
       } ${compact ? 'py-2 px-3 text-xs' : 'py-2.5 px-4 text-sm tracking-wider'}`}
     >
       <PanelRight className={compact ? 'w-3.5 h-3.5 shrink-0' : 'w-4 h-4 shrink-0'} />
-      Dock
+      {t('timing.dock')}
     </button>
   );
 
@@ -367,6 +372,7 @@ export function MultiViewerCommandBar({
             type="button"
             onClick={compactExtra.onAddSlot}
             title={t('dashboard.gridAddSlot')}
+            aria-label={t('dashboard.gridAddSlot')}
             className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-xs font-bold border border-border bg-accent/40 hover:bg-accent/60 transition-colors"
           >
             <Plus className="w-3.5 h-3.5 shrink-0" />
@@ -386,6 +392,7 @@ export function MultiViewerCommandBar({
             type="button"
             onClick={compactExtra.onExitFullscreen}
             title={t('dashboard.exitFullscreen')}
+            aria-label={t('dashboard.exitFullscreen')}
             className="flex items-center gap-2 py-2 px-3 rounded-lg font-heading text-sm font-bold border border-border bg-card hover:bg-accent/50 transition-colors"
           >
             <Minimize2 className="w-4 h-4 shrink-0" />
