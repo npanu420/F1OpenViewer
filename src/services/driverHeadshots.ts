@@ -1,3 +1,4 @@
+import { debug } from '../lib/log';
 /** OpenF1 headshots. On error return null; shelf falls back to initials. */
 
 const OPENF1_BASE = 'https://api.openf1.org/v1';
@@ -86,7 +87,7 @@ async function tryBulk(path: string): Promise<boolean> {
   const drivers = (await res.json()) as OpenF1Driver[];
   if (!Array.isArray(drivers) || drivers.length === 0) return false;
   ingestDrivers(drivers);
-  console.log(`[driverHeadshots] loaded ${drivers.length} drivers from ${path}`);
+  debug(`[driverHeadshots] loaded ${drivers.length} drivers from ${path}`);
   return true;
 }
 

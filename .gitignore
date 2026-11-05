@@ -36,3 +36,7 @@ pnpm-debug.log*
 *.suo
 *.user
 
+
+# Local test credentials (never commit)
+credenziali*.txt
+credentials*.txt

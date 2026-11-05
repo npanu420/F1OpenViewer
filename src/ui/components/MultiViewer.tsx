@@ -30,6 +30,8 @@ export type StandaloneMultiviewState = {
   currentTimes?: Record<string, number>;
   /** Old snapshots only: which items were playing at save time. */
   playingItemIds?: string[];
+  /** Live-timing session query of the source window (meeting/session info the popout can't derive). */
+  liveTimingQuery?: DockSessionQuery;
 };
 
 /** Saved layout slot: main, data index, or onboard by car number. Resolved at apply time. */
@@ -170,6 +172,7 @@ import type { VodSession, VodOnboard } from '../../domain/vod';
 import type { SessionStreams } from '../../services/vod';
 import type { CatalogItem } from '../../domain/catalog';
 import type { PlaybackInfo } from '../../services/entitlement';
+import { sessionMatches } from '../../domain/clockFilter';
 import type { StreamPanelHandle } from './StreamPanel';
 import {
   ResizableStreamGrid,
@@ -192,7 +195,6 @@ interface MultiViewerProps {
   loadingItemIds?: Record<string, boolean>;
   onPlayEmbedded?: (item: CatalogItem) => void;
   onPlayAllEmbedded?: (items: CatalogItem[]) => void;
-  accessToken?: string;
   onEmbedError?: (msg: string) => void;
   isFullscreen?: boolean;
   onEnterFullscreen?: () => void;
@@ -226,7 +228,6 @@ export function MultiViewer({
   loadingItemIds = {},
   onPlayEmbedded,
   onPlayAllEmbedded,
-  accessToken,
   onEmbedError,
   isFullscreen = false,
   onEnterFullscreen,
@@ -288,13 +289,25 @@ export function MultiViewer({
   const [audioFocusedItemId, setAudioFocusedItemId] = useState<string | null>(null);
   const panelRefsByItemId = useRef<Map<string, StreamPanelHandle>>(new Map());
 
-  // Relay main-feed clock to live timing windows. Ref mirror keeps the interval stable.
+  // Relay the main-feed clock to live timing windows. Ref mirror keeps the interval stable.
+  // Drift correction between streams is owned solely by useSyncEngine (a second corrector here
+  // used to fight it: it reset playbackRate while the engine was nudging it).
   const clockSrcRef = useRef({ mainId: '', slotToItemId: {} as Record<string, string>, embeddedPlayback, audioFocusedItemId: null as string | null });
   clockSrcRef.current = { mainId: mainItem.id, slotToItemId, embeddedPlayback, audioFocusedItemId };
+  const sessionContentIdRef = useRef(session.contentId);
+  sessionContentIdRef.current = session.contentId;
+  // Only relay while a timing window or dock listens (main pushes changes). Unknown = relay.
+  const clockListenersRef = useRef(true);
+  useEffect(() => {
+    const lt = window.f1?.liveTiming;
+    lt?.hasClockListeners?.().then((has) => { clockListenersRef.current = has; }).catch(() => {});
+    return lt?.onClockListeners?.((has) => { clockListenersRef.current = has; });
+  }, []);
   useEffect(() => {
     const lt = window.f1?.liveTiming;
     const id = window.setInterval(() => {
-      const { mainId, slotToItemId: s2i, embeddedPlayback: emb, audioFocusedItemId: audioId } = clockSrcRef.current;
+      if (!clockListenersRef.current) return;
+      const { mainId, slotToItemId: s2i, embeddedPlayback: emb } = clockSrcRef.current;
       if (!mainId || !emb[mainId]) return;                       // main feed not playing
       if (!Object.values(s2i).includes(mainId)) return;          // not mapped to a slot
       const panel = panelRefsByItemId.current.get(mainId);
@@ -304,26 +317,7 @@ export function MultiViewer({
       // Live timing: DASH has wall clock for auto-sync; HLS falls back to session_start.
       if (lt?.reportClock) {
         const wallClockMs = panel?.getWallClockMs?.() ?? null;
-        lt.reportClock({ timeSec: v.currentTime, paused: v.paused, wallClockMs });
-      }
-
-      // Lock other panels to main feed. Big drift -> seek; small drift -> playbackRate (not on audio panel).
-      for (const itemId of new Set(Object.values(s2i))) {
-        if (!itemId || itemId === mainId || !emb[itemId]) continue;
-        const v2 = panelRefsByItemId.current.get(itemId)?.getVideoElement?.();
-        if (!v2) continue;
-        if (v.paused !== v2.paused) { try { v.paused ? v2.pause() : v2.play(); } catch (_) {} }
-        if (v.paused || v2.seeking || v2.readyState < 2 || !Number.isFinite(v2.currentTime)) continue;
-        const drift = v2.currentTime - v.currentTime;
-        const ad = Math.abs(drift);
-        if (ad > 0.5) {
-          try { v2.currentTime = v.currentTime; } catch (_) {}
-          if (v2.playbackRate !== 1) v2.playbackRate = 1;
-        } else if (ad > 0.1 && itemId !== audioId) {
-          v2.playbackRate = drift > 0 ? 0.95 : 1.05; // converges in a few seconds
-        } else if (v2.playbackRate !== 1) {
-          v2.playbackRate = 1;
-        }
+        lt.reportClock({ timeSec: v.currentTime, paused: v.paused, wallClockMs, contentId: sessionContentIdRef.current });
       }
     }, 250);
     return () => window.clearInterval(id);
@@ -332,7 +326,8 @@ export function MultiViewer({
   useEffect(() => {
     const lt = window.f1?.liveTiming;
     if (!lt?.onSeekRequest) return;
-    return lt.onSeekRequest(({ timeSec }) => {
+    return lt.onSeekRequest(({ timeSec, contentId }) => {
+      if (!sessionMatches(sessionContentIdRef.current, contentId)) return; // another session's timing bar
       const { mainId, slotToItemId: s2i, embeddedPlayback: emb } = clockSrcRef.current;
       if (!mainId || !emb[mainId] || !Object.values(s2i).includes(mainId)) return;
       const v = panelRefsByItemId.current.get(mainId)?.getVideoElement?.();
@@ -399,11 +394,11 @@ export function MultiViewer({
       if (!itemId || !embeddedPlayback[itemId]) continue;
       const option = streamOptions.find((o) => o.item.id === itemId);
       if (!option) continue;
-      const ref = panelRefsByItemId.current.get(itemId);
       entries.push({
         id: itemId,
         label: option.label,
-        getVideo: () => ref?.getVideoElement() ?? null,
+        // Looked up on every call: a panel that remounts (slot moved, reload) registers a new handle.
+        getVideo: () => panelRefsByItemId.current.get(itemId)?.getVideoElement() ?? null,
   // Main feed is always sync reference, even if an onboard is ahead.
         isMainFeed: option.type === 'main',
       });
@@ -588,8 +583,9 @@ export function MultiViewer({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
             transition={{ duration: 0.18 }}
-            className="fixed bottom-4 right-4 z-[58] flex items-center gap-2 px-3 py-2 rounded-full border border-border/60 bg-background/90 backdrop-blur shadow-lg hover:bg-accent/40 transition-colors"
+            className="fixed bottom-4 right-4 z-[58] flex items-center gap-2 px-3 py-2 rounded-full border border-border/60 bg-background/95 shadow-lg hover:bg-accent/40 transition-colors"
             title={isWaitingForMain ? t('sync.runningBadgeBuffering') : syncStatus === 'done' ? t('sync.synced') : t('sync.runningBadge')}
+            aria-label={isWaitingForMain ? t('sync.runningBadgeBuffering') : syncStatus === 'done' ? t('sync.synced') : t('sync.runningBadge')}
           >
             <RefreshCw
               className={`w-3.5 h-3.5 ${syncStatus === 'syncing' || isWaitingForMain ? 'animate-spin text-primary' : 'text-emerald-400'}`}
@@ -653,7 +649,10 @@ export function MultiViewer({
                           streams,
                           seasonYear,
                           embeddedPlayback:
+                            // Only per-play data here (manifest URLs, per-play drm tokens): account tokens never reach the
+                            // renderer. main.tsx drops leftover hand-offs on the next start.
                             transferredIds.length > 0 ? { ...embeddedPlayback } : undefined,
+                          liveTimingQuery,
                           currentTimes: Object.keys(currentTimes).length > 0 ? currentTimes : undefined,
                           playingItemIds: transferredIds.length > 0 ? transferredIds : undefined,
                         });
@@ -695,8 +694,9 @@ export function MultiViewer({
                 type="button"
                 onClick={() => setFullscreenToolbarOpen((v) => !v)}
                 title={fullscreenToolbarOpen ? t('dashboard.fullscreenToolbarHide') : t('dashboard.fullscreenToolbarShow')}
+                aria-label={fullscreenToolbarOpen ? t('dashboard.fullscreenToolbarHide') : t('dashboard.fullscreenToolbarShow')}
                 aria-expanded={fullscreenToolbarOpen}
-                className="fixed top-2 right-2 z-[60] flex h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-black/75 text-foreground shadow-lg backdrop-blur-sm transition-colors hover:bg-black/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="fixed top-2 right-2 z-[60] flex h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-black/85 text-foreground shadow-lg transition-colors hover:bg-black/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 {fullscreenToolbarOpen ? (
                   <X className="h-5 w-5" aria-hidden />
@@ -708,7 +708,7 @@ export function MultiViewer({
               {fullscreenToolbarOpen && (
                 <div
                   ref={fullscreenToolbarRef}
-                  className="fixed top-14 right-2 z-[59] flex max-w-[min(100vw-1rem,26rem)] max-h-[min(100vh-4rem,32rem)] flex-col gap-2 overflow-y-auto overflow-x-hidden rounded-xl border border-border/80 bg-background/95 p-3 shadow-xl backdrop-blur-md"
+                  className="fixed top-14 right-2 z-[59] flex max-w-[min(100vw-1rem,26rem)] max-h-[min(100vh-4rem,32rem)] flex-col gap-2 overflow-y-auto overflow-x-hidden rounded-xl border border-border/80 bg-background/95 p-3 shadow-xl"
                 >
                   <div className="shrink-0 border-b border-border/60 pb-2 mb-1">
                     {multiviewInstanceId != null ? (
@@ -797,7 +797,6 @@ export function MultiViewer({
               loadingItemIds={loadingItemIds}
               onPlayEmbedded={onPlayEmbedded}
               onEmbedError={onEmbedError}
-              accessToken={accessToken}
               onOpen={onOpen}
               onRegisterPanelRef={handleRegisterPanelRef}
               onAddSlot={handleAddSlot}

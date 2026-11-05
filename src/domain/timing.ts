@@ -186,7 +186,8 @@ export function selectDrivers(store: TimingStore): DriverRow[] {
       number: num,
       tla: String(d.Tla || ''),
       name: String(d.BroadcastName || d.FullName || ''),
-      teamColour: d.TeamColour ? `#${String(d.TeamColour).replace(/^#/, '')}` : '#666',
+      // Network data ending up in a style attribute: accept a plain 6-digit hex colour only.
+      teamColour: /^#?[0-9a-f]{6}$/i.test(String(d.TeamColour ?? '')) ? `#${String(d.TeamColour).replace(/^#/, '')}` : '#666',
       line: Number(tl.Line ?? d.Line ?? 999),
       position: String(tl.Position ?? d.Line ?? ''),
       gapToLeader: String(tl.GapToLeader ?? ''),
@@ -207,6 +208,31 @@ export function selectDrivers(store: TimingStore): DriverRow[] {
   }
   rows.sort((a, b) => a.line - b.line);
   return rows;
+}
+
+function rowEquals(a: DriverRow, b: DriverRow): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Structural sharing for driver rows: rows whose content did not change keep their previous object
+ * identity (and the whole array is returned as-is when nothing changed), so memoized React rows skip
+ * re-rendering on the 5-10 updates per second that only touch one or two drivers.
+ */
+export function stabilizeRows(prev: DriverRow[], next: DriverRow[]): DriverRow[] {
+  if (!prev.length) return next;
+  const byNumber = new Map(prev.map((r) => [r.number, r]));
+  let identical = prev.length === next.length;
+  const out = next.map((row, i) => {
+    const old = byNumber.get(row.number);
+    if (old && rowEquals(old, row)) {
+      if (prev[i] !== old) identical = false;
+      return old;
+    }
+    identical = false;
+    return row;
+  });
+  return identical ? prev : out;
 }
 
 export interface WeatherView {

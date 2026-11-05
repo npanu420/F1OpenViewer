@@ -1,34 +1,17 @@
-export type NetRequest = {
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-  url: string;
-  headers?: Record<string, string>;
-  query?: Record<string, string | number | boolean | undefined | null>;
-  body?: unknown;
-  timeoutMs?: number;
-};
-
-export type NetResponse<T = unknown> = {
-  ok: boolean;
-  status: number;
-  headers: Record<string, string>;
-  data: T;
-};
-
+/** The renderer only learns whether a session exists; the account token stays in the main process. */
 export type SessionInfo = {
-  accessToken?: string;
+  signedIn: boolean;
 };
 
 export type PreloadApi = {
-  request<T = unknown>(req: NetRequest): Promise<NetResponse<T>>;
-  setSession(session: SessionInfo): Promise<void>;
   getSession(): Promise<SessionInfo>;
   clearSession(): Promise<void>;
-  login?(email: string, password: string): Promise<{ accessToken: string }>;
-  loginWithToken?(tokenOrJson: string): Promise<{ accessToken: string }>;
-  loginWithBrowser?(): Promise<{ accessToken: string }>;
+  login?(email: string, password: string): Promise<SessionInfo>;
+  loginWithToken?(tokenOrJson: string): Promise<SessionInfo>;
+  loginWithBrowser?(): Promise<SessionInfo>;
+  onLoginValidationError?(callback: (message: string) => void): () => void;
   getLiveNow?(): Promise<unknown[]>;
   searchVod?(params?: Record<string, string>): Promise<unknown[]>;
-  getVodCatalog?(): Promise<{ seasons: Array<{ year: number; events: unknown[] }> }>;
   getVodSeasons?(): Promise<Array<{ year: number; pageId: number }>>;
   getVodEvents?(seasonPageId: number): Promise<Array<{ meetingKey: string; meetingName: string; meetingNumber: number; pageId: number; isTest?: boolean }>>;
   getVodSessions?(gpPageId: number): Promise<Array<{ contentId: number; title: string; type: string; series?: string }>>;
@@ -36,10 +19,8 @@ export type PreloadApi = {
   contentPlay?(contentId: number, channelId?: number): Promise<{
     manifestUrl: string;
     licenseUrl?: string;
+    /** Only present when the license request does not go through the local proxy. */
     drmToken?: string;
-    playToken?: string;
-    licenseAscendonToken?: string;
-    licenseEntitlementToken?: string;
     streamType?: string;
     /** F1 pipeline version from API (e.g. 5 for 2026+ VOD). */
     pipelineVersion?: number;
@@ -55,12 +36,15 @@ export type PreloadApi = {
   /** Open content in the F1 TV web player (new window, same origin = DRM ok). */
   openInF1TVWeb?(contentId: number, title?: string, channelId?: number): Promise<void>;
   isF1Ready?(): Promise<boolean>;
-  restoreSession?(): Promise<{ accessToken: string | null; restored: boolean }>;
+  /** `offline`: F1 TV unreachable; the saved session is kept, so a retry can still restore it. */
+  restoreSession?(): Promise<{ restored: boolean; offline?: boolean }>;
   /** Full reset: session, cookies, cache and all saved data. App will reload. */
   fullReset?(): Promise<{ ok: boolean }>;
   /** Opens a GitHub release URL in the OS default browser. */
   openExternal?(url: string): Promise<void>;
   /** Main window only: fires once at startup if a newer GitHub release exists. Returns an unsubscribe function. */
+  /** Fired when main drops an expired/rejected session; returns an unsubscribe function. */
+  onSessionExpired?(callback: () => void): () => void;
   onUpdateAvailable?(callback: (payload: { version: string; url: string }) => void): () => void;
   /** Durable (userData-backed) mirror of a fixed allowlist of localStorage settings keys.
    *  Survives a manual reinstall to a different folder, unlike localStorage itself. */
@@ -93,17 +77,20 @@ export type PreloadApi = {
     getAudio(sessionPath: string, clipPath: string): Promise<string>;
     /** Open a standalone live-timing window; it resolves the path + sync itself so the click is instant.
      *  `live: true` opens it in live (SignalR) mode instead of replay for a session still in progress. */
-    openWindow(opts: { path?: string; title?: string; year?: number; sessionKey?: string | number; meetingKey?: string | number; meetingNumber?: number; meetingName?: string; sessionName?: string; sessionType?: string; live?: boolean }): Promise<{ ok: boolean }>;
+    openWindow(opts: { contentId?: number; path?: string; title?: string; year?: number; sessionKey?: string | number; meetingKey?: string | number; meetingNumber?: number; meetingName?: string; sessionName?: string; sessionType?: string; live?: boolean }): Promise<{ ok: boolean }>;
     /** In-window dock: live-timing IPC (liveUpdate/liveStatus/clock), no popout. */
     dockRegister(): Promise<{ ok: boolean }>;
     dockUnregister(): Promise<{ ok: boolean }>;
     /** Source window: publish the main-feed video clock for live-timing sync. wallClockMs is the
      *  frame's real broadcast UTC (DASH only) enabling exact auto-sync; null falls back to manual. */
-    reportClock(payload: { timeSec: number; paused: boolean; wallClockMs: number | null }): void;
+    reportClock(payload: { timeSec: number; paused: boolean; wallClockMs: number | null; contentId?: number }): void;
+    /** Whether any timing window/dock currently listens to the video clock. */
+    hasClockListeners?(): Promise<boolean>;
+    onClockListeners?(callback: (has: boolean) => void): () => void;
     /** Timing window: subscribe to the relayed video clock. Returns an unsubscribe fn. */
-    onClock(callback: (payload: { timeSec: number; paused: boolean; wallClockMs: number | null }) => void): () => void;
-    requestSeek(payload: { timeSec: number }): void;
-    onSeekRequest(callback: (payload: { timeSec: number }) => void): () => void;
+    onClock(callback: (payload: { timeSec: number; paused: boolean; wallClockMs: number | null; contentId?: number }) => void): () => void;
+    requestSeek(payload: { timeSec: number; contentId?: number }): void;
+    onSeekRequest(callback: (payload: { timeSec: number; contentId?: number }) => void): () => void;
     /** Starts (or attaches to) the shared live SignalR connection. Returns the archive path once
      *  resolvable (for team-radio audio URLs) and whether an account token was available. */
     liveStart(opts: { year?: number; sessionKey?: string | number; meetingName?: string; sessionName?: string }): Promise<{ path: string | null }>;

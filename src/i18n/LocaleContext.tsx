@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   getStoredLocale,
   setStoredLocale as persistLocale,
@@ -23,6 +23,11 @@ function getTranslation(locale: Locale, key: string): string {
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(getStoredLocale);
+
+  // Keep <html lang> in sync (screen readers, spellcheck, hyphenation).
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next);

@@ -1,11 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { LoginView } from './views/LoginView';
-import { DashboardView } from './views/DashboardView';
-import { StandaloneMultiviewView } from './views/StandaloneMultiviewView';
-import { StandalonePlayerView } from './views/StandalonePlayerView';
-import { LiveTimingView } from './views/LiveTimingView';
-import { PlayerView } from './views/PlayerView';
-import { LiveEventView } from './views/LiveEventView';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import type { CatalogItem } from '../domain/catalog';
 import { getCatalog } from '../services/catalog';
 import { getVodSeasons } from '../services/vod';
@@ -13,30 +6,62 @@ import { session } from '../services/session';
 import { useLocale } from '../i18n/LocaleContext';
 import { Header } from './components/Header';
 import { SettingsPanel, type ThemeMode } from './components/SettingsPanel';
-import { X } from 'lucide-react';
+import { X, WifiOff } from 'lucide-react';
+
+// Each window type only downloads/parses what it renders: the live-timing popout no longer
+// carries Shaka + react-grid-layout, the main window no longer the standalone views.
+const LoginView = lazy(() => import('./views/LoginView').then((m) => ({ default: m.LoginView })));
+const DashboardView = lazy(() => import('./views/DashboardView').then((m) => ({ default: m.DashboardView })));
+const StandaloneMultiviewView = lazy(() => import('./views/StandaloneMultiviewView').then((m) => ({ default: m.StandaloneMultiviewView })));
+const StandalonePlayerView = lazy(() => import('./views/StandalonePlayerView').then((m) => ({ default: m.StandalonePlayerView })));
+const LiveTimingView = lazy(() => import('./views/LiveTimingView').then((m) => ({ default: m.LiveTimingView })));
+const LiveEventView = lazy(() => import('./views/LiveEventView').then((m) => ({ default: m.LiveEventView })));
+
+/** Full-window placeholder while the session restores or a view chunk loads. */
+function BootScreen({ label }: { label?: string }) {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto mb-3" />
+        {label && <p className="text-xs text-muted-foreground font-heading tracking-wider">{label}</p>}
+      </div>
+    </div>
+  );
+}
 
 const DISMISSED_UPDATE_KEY = 'f1-dismissed-update-version';
 
 type Route =
+  | { name: 'boot' }
+  | { name: 'offline' }
   | { name: 'login' }
   | { name: 'dashboard' }
-  | { name: 'player'; item: CatalogItem }
   | { name: 'live'; item: CatalogItem };
 
 export function App() {
   const { t } = useLocale();
-  const [route, setRoute] = useState<Route>({ name: 'login' });
+  // 'boot' until the saved session is checked: starting on 'login' flashed the sign-in form on
+  // every launch (and let the user start a sign-in) before the dashboard replaced it.
+  const [route, setRoute] = useState<Route>({ name: 'boot' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [vodSeasons, setVodSeasons] = useState<Array<{ year: number; pageId: number }>>([]);
-  const [token, setToken] = useState<string | undefined>(undefined);
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const [signedIn, setSignedIn] = useState(false);
+  const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
+  /** True once the user picked a season; until then the newest available season is auto-selected. */
+  const yearPickedRef = useRef(false);
+  const handleSelectYear = (year: number) => {
+    yearPickedRef.current = true;
+    setSelectedYear(year);
+  };
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     return (typeof localStorage !== 'undefined' && (localStorage.getItem('f1-theme') as ThemeMode)) || 'dark';
   });
   const bootOnceRef = useRef(false);
+  /** Bumped on every catalog load and on sign-out: a load that finishes later is discarded. */
+  const catalogReqRef = useRef(0);
   const [updateInfo, setUpdateInfo] = useState<{ version: string; url: string } | null>(null);
 
   // Main process checks GitHub releases once at startup and only tells the main window.
@@ -64,38 +89,43 @@ export function App() {
     } else {
       root.classList.remove('light');
     }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('f1-theme', theme);
-      window.f1?.setSetting?.('f1-theme', theme);
-    }
+    try { localStorage.setItem('f1-theme', theme); } catch (_) {}
+    window.f1?.setSetting?.('f1-theme', theme);
   }, [theme]);
+
+  async function restore() {
+    setRoute({ name: 'boot' });
+    if (window.f1?.restoreSession) {
+      const result: { restored: boolean; offline?: boolean } = await window.f1
+        .restoreSession()
+        .catch(() => ({ restored: false }));
+      if (result.restored) {
+        setSignedIn(true);
+        setRoute({ name: 'dashboard' });
+        loadCatalog();
+        return;
+      }
+      if (result.offline) {
+        // Saved session kept in main: offer a retry instead of a silent drop to the login form.
+        setRoute({ name: 'offline' });
+        return;
+      }
+    } else if ((await session.get()).signedIn) {
+      setSignedIn(true);
+      setRoute({ name: 'dashboard' });
+      return;
+    }
+    setRoute({ name: 'login' });
+  }
 
   useEffect(() => {
     if (bootOnceRef.current) return;
     bootOnceRef.current = true;
-    (async () => {
-      if (window.f1?.restoreSession) {
-        const result = await window.f1.restoreSession().catch(() => ({ accessToken: null, restored: false }));
-        if (result.restored && result.accessToken) {
-          await session.set({ accessToken: result.accessToken });
-          setToken(result.accessToken);
-          setRoute({ name: 'dashboard' });
-          loadCatalog();
-          return;
-        }
-      } else {
-        const s = await session.get();
-        if (s.accessToken) {
-          setToken(s.accessToken);
-          setRoute({ name: 'dashboard' });
-          return;
-        }
-      }
-      setRoute({ name: 'login' });
-    })().catch(() => setRoute({ name: 'login' }));
+    restore().catch(() => setRoute({ name: 'login' }));
   }, []);
 
   async function loadCatalog() {
+    const req = ++catalogReqRef.current;
     setBusy(true);
     setError(null);
     try {
@@ -103,26 +133,52 @@ export function App() {
         getCatalog(),
         getVodSeasons(),
       ]);
+      if (req !== catalogReqRef.current) return; // signed out (or reloaded) meanwhile
       setCatalog(items);
       setVodSeasons(seasons);
-      if (seasons.length > 0 && selectedYear === 2026) {
+      if (seasons.length > 0 && !yearPickedRef.current) {
         setSelectedYear(seasons[0].year);
       }
     } catch (e) {
+      if (req !== catalogReqRef.current) return;
       setError(e instanceof Error ? e.message : t('error.catalogLoad'));
     } finally {
-      setBusy(false);
+      if (req === catalogReqRef.current) setBusy(false);
     }
   }
 
-  async function logout() {
-    await session.clear();
-    setToken(undefined);
+  /** Back to the sign-in screen with empty state (shared by sign-out and session expiry). */
+  function resetToLogin(message: string | null) {
+    catalogReqRef.current += 1;
+    setBusy(false);
+    setSignedIn(false);
     setCatalog([]);
     setVodSeasons([]);
-    setSelectedYear(2026);
+    yearPickedRef.current = false;
+    setSelectedYear(new Date().getFullYear());
+    setShowSettings(false);
+    setError(message);
     setRoute({ name: 'login' });
   }
+
+  async function logout() {
+    try {
+      await session.clear();
+    } catch (e) {
+      console.warn('[App] sign-out failed in main:', e);
+    } finally {
+      resetToLogin(null);
+    }
+  }
+
+  // Main dropped the session (F1 rejected the token mid-use): go to sign-in with an explanation.
+  const signedInRef = useRef(false);
+  signedInRef.current = signedIn;
+  useEffect(() => {
+    return window.f1?.onSessionExpired?.(() => {
+      if (signedInRef.current) resetToLogin(t('error.sessionExpired'));
+    });
+  }, [t]);
 
   if (typeof window !== 'undefined') {
     const raw = window.location.hash.replace(/^#/, '');
@@ -134,10 +190,18 @@ export function App() {
         const n = parseInt(mv, 10);
         if (Number.isFinite(n) && n > 0) multiviewInstanceId = n;
       }
-      return <StandaloneMultiviewView multiviewInstanceId={multiviewInstanceId} />;
+      return (
+        <Suspense fallback={<BootScreen />}>
+          <StandaloneMultiviewView multiviewInstanceId={multiviewInstanceId} />
+        </Suspense>
+      );
     }
     if (raw === 'standalone-livetiming' || raw.startsWith('standalone-livetiming?')) {
-      return <LiveTimingView />;
+      return (
+        <Suspense fallback={<BootScreen />}>
+          <LiveTimingView />
+        </Suspense>
+      );
     }
     if (raw.startsWith('standalone-player?')) {
       const params = new URLSearchParams(raw.split('?')[1]);
@@ -147,42 +211,64 @@ export function App() {
       const title = params.get('title') ?? undefined;
       if (Number.isFinite(contentId) && contentId > 0) {
         return (
-          <StandalonePlayerView
-            contentId={contentId}
-            channelId={Number.isFinite(channelId as number) ? channelId : undefined}
-            title={title}
-          />
+          <Suspense fallback={<BootScreen />}>
+            <StandalonePlayerView
+              contentId={contentId}
+              channelId={Number.isFinite(channelId as number) ? channelId : undefined}
+              title={title}
+            />
+          </Suspense>
         );
       }
     }
   }
 
-  if (route.name === 'login') {
+  if (route.name === 'boot') {
+    return <BootScreen label={t('app.restoring')} />;
+  }
+
+  if (route.name === 'offline') {
     return (
-      <>
-        <LoginView
-          onLoggedIn={async () => {
-            const s = await session.get();
-            setToken(s.accessToken);
-            setRoute({ name: 'dashboard' });
-            await loadCatalog();
-          }}
-          setError={setError}
-          setBusy={setBusy}
-        />
-      </>
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <div className="text-center max-w-sm">
+          <WifiOff className="w-10 h-10 text-muted-foreground mx-auto mb-3" aria-hidden="true" />
+          <h1 className="font-heading font-bold text-lg tracking-wider mb-1">{t('app.offlineTitle')}</h1>
+          <p className="text-sm text-muted-foreground mb-5">{t('app.offlineBody')}</p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => { restore().catch(() => setRoute({ name: 'login' })); }}
+              className="px-4 py-2 rounded bg-primary text-primary-foreground font-heading font-bold text-sm hover:opacity-90"
+            >
+              {t('app.retry')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoute({ name: 'login' })}
+              className="px-4 py-2 rounded border border-border text-sm font-heading hover:bg-accent/40"
+            >
+              {t('app.goToLogin')}
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
-  if (route.name === 'player') {
+  if (route.name === 'login') {
     return (
-      <div className="min-h-screen bg-background">
-        <PlayerView
-          item={route.item}
-          accessToken={token}
-          onBack={() => setRoute({ name: 'dashboard' })}
+      <Suspense fallback={<BootScreen />}>
+        <LoginView
+          onLoggedIn={async () => {
+            setSignedIn((await session.get()).signedIn);
+            setRoute({ name: 'dashboard' });
+            await loadCatalog();
+          }}
+          error={error}
+          setError={setError}
+          setBusy={setBusy}
         />
-      </div>
+      </Suspense>
     );
   }
 
@@ -191,7 +277,7 @@ export function App() {
       <div className="min-h-screen bg-background">
         <Header
           selectedYear={selectedYear}
-          onSelectYear={setSelectedYear}
+          onSelectYear={handleSelectYear}
           onSettingsClick={() => setShowSettings(true)}
           brandLabel={t('app.brand')}
           subtitle={t('app.subtitle')}
@@ -203,12 +289,12 @@ export function App() {
           onClose={() => setShowSettings(false)}
           theme={theme}
           onThemeChange={setTheme}
-          isSignedIn={!!token}
+          isSignedIn={signedIn}
           onLogout={logout}
         />
+        <Suspense fallback={<BootScreen />}>
         <LiveEventView
           item={route.item}
-          accessToken={token}
           onBack={() => setRoute({ name: 'dashboard' })}
           onOpenExternal={async (item) => {
             try {
@@ -219,6 +305,7 @@ export function App() {
           }}
           onEmbedError={setError}
         />
+        </Suspense>
       </div>
     );
   }
@@ -247,7 +334,7 @@ export function App() {
       )}
       <Header
         selectedYear={selectedYear}
-        onSelectYear={setSelectedYear}
+        onSelectYear={handleSelectYear}
         onSettingsClick={() => setShowSettings(true)}
         brandLabel={t('app.brand')}
         subtitle={t('app.subtitle')}
@@ -259,9 +346,10 @@ export function App() {
         onClose={() => setShowSettings(false)}
         theme={theme}
         onThemeChange={setTheme}
-        isSignedIn={!!token}
+        isSignedIn={signedIn}
         onLogout={logout}
       />
+      <Suspense fallback={<BootScreen />}>
       <DashboardView
         items={catalog}
         vodSeasons={vodSeasons}
@@ -269,8 +357,7 @@ export function App() {
         error={error}
         onRefresh={loadCatalog}
         selectedYear={selectedYear}
-        onSelectYear={setSelectedYear}
-        accessToken={token}
+        onSelectYear={handleSelectYear}
         onEmbedError={setError}
         onOpen={async (item) => {
           if (item.kind === 'live') {
@@ -284,6 +371,7 @@ export function App() {
           }
         }}
       />
+      </Suspense>
     </div>
   );
 }

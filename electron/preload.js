@@ -1,16 +1,18 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('f1', {
-  request: (req) => ipcRenderer.invoke('net:request', req),
-  setSession: (s) => ipcRenderer.invoke('session:set', s),
   getSession: () => ipcRenderer.invoke('session:get'),
   clearSession: () => ipcRenderer.invoke('session:clear'),
   login: (email, password) => ipcRenderer.invoke('f1:login', email, password),
   loginWithToken: (tokenOrJson) => ipcRenderer.invoke('f1:loginWithToken', tokenOrJson),
   loginWithBrowser: () => ipcRenderer.invoke('f1:loginWithBrowser'),
+  onLoginValidationError: (callback) => {
+    const handler = (_event, message) => { try { callback(message); } catch (_) {} };
+    ipcRenderer.on('f1:loginValidationError', handler);
+    return () => ipcRenderer.removeListener('f1:loginValidationError', handler);
+  },
   getLiveNow: () => ipcRenderer.invoke('f1:getLiveNow'),
   searchVod: (params) => ipcRenderer.invoke('f1:searchVod', params),
-  getVodCatalog: () => ipcRenderer.invoke('f1:getVodCatalog'),
   getVodSeasons: () => ipcRenderer.invoke('f1:getVodSeasons'),
   getVodEvents: (seasonPageId) => ipcRenderer.invoke('f1:getVodEvents', seasonPageId),
   getVodSessions: (gpPageId) => ipcRenderer.invoke('f1:getVodSessions', gpPageId),
@@ -23,6 +25,12 @@ contextBridge.exposeInMainWorld('f1', {
   /** Opens a GitHub release URL in the OS default browser. */
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   /** Main window only: fires once at startup if a newer GitHub release exists. */
+  /** Main dropped the session (F1 rejected it); returns an unsubscribe function. */
+  onSessionExpired: (callback) => {
+    const handler = () => { try { callback(); } catch (_) {} };
+    ipcRenderer.on('session:expired', handler);
+    return () => ipcRenderer.removeListener('session:expired', handler);
+  },
   onUpdateAvailable: (callback) => {
     const handler = (_event, payload) => { try { callback(payload); } catch (_) {} };
     ipcRenderer.on('app:updateAvailable', handler);
@@ -80,6 +88,12 @@ contextBridge.exposeInMainWorld('f1', {
     },
     /** Source window: publish the main-feed video clock for live-timing sync. */
     reportClock: (payload) => ipcRenderer.send('livetiming:reportClock', payload),
+    hasClockListeners: () => ipcRenderer.invoke('livetiming:hasClockListeners'),
+    onClockListeners: (callback) => {
+      const handler = (_event, has) => { try { callback(!!has); } catch (_) {} };
+      ipcRenderer.on('livetiming:clockListeners', handler);
+      return () => ipcRenderer.removeListener('livetiming:clockListeners', handler);
+    },
     /** Timing window: subscribe to the relayed video clock. Returns an unsubscribe fn. */
     onClock: (callback) => {
       const handler = (_event, payload) => { try { callback(payload); } catch (_) {} };

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
@@ -9,9 +9,9 @@ import {
   getContentVideoStreams,
   type SessionStreams,
 } from '../../services/vod';
-import { resolvePlayback, type PlaybackInfo } from '../../services/entitlement';
+import { useEmbeddedPlayback } from '../hooks/useEmbeddedPlayback';
 import { useLocale } from '../../i18n/LocaleContext';
-import { getFlag, getCountryCodeFromMeetingKey } from '../../lib/flags';
+import { getFlag, getEventCountryCode } from '../../lib/flags';
 import { LiveSection } from '../components/LiveSection';
 import { DashboardHero } from '../components/DashboardHero';
 import { RaceCard } from '../components/RaceCard';
@@ -28,7 +28,6 @@ type Props = {
   onOpen: (item: CatalogItem) => void;
   selectedYear: number;
   onSelectYear: (year: number) => void;
-  accessToken?: string;
   onEmbedError?: (msg: string) => void;
 };
 
@@ -62,15 +61,20 @@ export function DashboardView({
   onOpen,
   selectedYear,
   onSelectYear,
-  accessToken,
   onEmbedError,
 }: Props) {
   const { t } = useLocale();
   const [selectedEvent, setSelectedEvent] = useState<VodEvent | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string>('');
 
-  const [embeddedPlayback, setEmbeddedPlayback] = useState<Record<string, PlaybackInfo>>({});
-  const [loadingItemIds, setLoadingItemIds] = useState<Record<string, boolean>>({});
+  const {
+    embeddedPlayback,
+    loadingItemIds,
+    onPlayEmbedded,
+    onPlayAllEmbedded,
+    removePlayback,
+    resetPlayback,
+  } = useEmbeddedPlayback(onEmbedError);
 
   const [eventsBySeasonPageId, setEventsBySeasonPageId] = useState<
     Record<number, VodEvent[]>
@@ -116,9 +120,8 @@ export function DashboardView({
   }, [selectedYear]);
 
   useEffect(() => {
-    setEmbeddedPlayback({});
-    setLoadingItemIds({});
-  }, [activeSessionId]);
+    resetPlayback();
+  }, [activeSessionId, resetPlayback]);
 
   const eventKey =
     selectedEvent && selectedYear !== -1
@@ -135,38 +138,16 @@ export function DashboardView({
     });
   }, [eventKey]);
 
-  const onPlayEmbedded = useCallback(async (item: CatalogItem) => {
-    setLoadingItemIds((prev) => ({ ...prev, [item.id]: true }));
-    try {
-      const info = await resolvePlayback(item);
-      setEmbeddedPlayback((prev) => ({ ...prev, [item.id]: info }));
-    } catch (_) {
-      // Error shown per-panel via onEmbedError if needed
-    } finally {
-      setLoadingItemIds((prev) => ({ ...prev, [item.id]: false }));
-    }
-  }, []);
-
-  const onPlayAllEmbedded = useCallback(async (itemsToPlay: CatalogItem[]) => {
-    if (itemsToPlay.length === 0) return;
-    const loading = itemsToPlay.reduce<Record<string, boolean>>((acc, item) => ({ ...acc, [item.id]: true }), {});
-    setLoadingItemIds((prev) => ({ ...prev, ...loading }));
-    const results = await Promise.allSettled(
-      itemsToPlay.map((item) => resolvePlayback(item))
-    );
-    const nextPlayback: Record<string, PlaybackInfo> = {};
-    results.forEach((result, index) => {
-      const item = itemsToPlay[index];
-      if (result.status === 'fulfilled') nextPlayback[item.id] = result.value;
-    });
-    setEmbeddedPlayback((prev) => ({ ...prev, ...nextPlayback }));
-    const done = itemsToPlay.reduce<Record<string, boolean>>((acc, item) => ({ ...acc, [item.id]: false }), {});
-    setLoadingItemIds((prev) => ({ ...prev, ...done }));
-  }, []);
+  // In-flight guards: the effects re-run when their cache objects change (e.g. the trim below),
+  // which sent the same request twice.
+  const eventsInFlight = useRef(new Set<number>());
+  const sessionsInFlight = useRef(new Set<string>());
 
   useEffect(() => {
     if (selectedYear === -1 || currentSeasonPageId == null) return;
     if (eventsBySeasonPageId[currentSeasonPageId] !== undefined) return;
+    if (eventsInFlight.current.has(currentSeasonPageId)) return;
+    eventsInFlight.current.add(currentSeasonPageId);
     setLoadingEvents((prev) => ({ ...prev, [currentSeasonPageId]: true }));
     getVodEvents(currentSeasonPageId)
       .then((evs) => {
@@ -175,7 +156,9 @@ export function DashboardView({
           [currentSeasonPageId]: evs,
         }));
       })
+      .catch((e) => onEmbedError?.(e instanceof Error && e.message ? e.message : t('error.eventsLoad')))
       .finally(() => {
+        eventsInFlight.current.delete(currentSeasonPageId);
         setLoadingEvents((prev) => ({ ...prev, [currentSeasonPageId]: false }));
       });
   }, [selectedYear, currentSeasonPageId, eventsBySeasonPageId]);
@@ -186,18 +169,23 @@ export function DashboardView({
   useEffect(() => {
     if (!eventKey || !selectedEvent?.pageId) return;
     if (sessionsByEvent[eventKey] !== undefined) return;
+    if (sessionsInFlight.current.has(eventKey)) return;
+    sessionsInFlight.current.add(eventKey);
     setLoadingSessions((prev) => ({ ...prev, [eventKey]: true }));
     getVodSessions(selectedEvent.pageId)
       .then((sessions) => {
+        // Drop sessions whose title only names OTHER years (a title mentioning several years, one
+        // of them the selected one, is kept; titles without a year are kept).
         const filtered = sessions.filter((s) => {
           if (selectedYear === -1) return true;
-          const m = s.title.match(/\b(19|20)\d{2}\b/);
-          if (!m) return true;
-          return m[0] === String(selectedYear);
+          const years = s.title.match(/\b(19|20)\d{2}\b/g);
+          return !years || years.includes(String(selectedYear));
         });
         setSessionsByEvent((prev) => ({ ...prev, [eventKey]: filtered }));
       })
+      .catch((e) => onEmbedError?.(e instanceof Error && e.message ? e.message : t('error.sessionsLoad')))
       .finally(() => {
+        sessionsInFlight.current.delete(eventKey);
         setLoadingSessions((prev) => ({ ...prev, [eventKey]: false }));
       });
   }, [eventKey, selectedEvent?.pageId, sessionsByEvent, selectedYear]);
@@ -232,6 +220,7 @@ export function DashboardView({
           [activeSession.contentId]: streams,
         }));
       })
+      .catch((e) => onEmbedError?.(e instanceof Error && e.message ? e.message : t('error.streamsLoad')))
       .finally(() => {
         setLoadingStreams((prev) => ({
           ...prev,
@@ -247,6 +236,14 @@ export function DashboardView({
     }
   }, [currentSessions, activeSessionId]);
 
+  /** Refresh reloads the catalog and drops the per-season/event/stream caches so failed loads retry. */
+  const handleRefresh = useCallback(() => {
+    setEventsBySeasonPageId({});
+    setSessionsByEvent({});
+    setStreamsByContentId({});
+    return onRefresh();
+  }, [onRefresh]);
+
   const handleSelectEvent = (ev: VodEvent) => {
     setSelectedEvent(ev);
     setActiveSessionId('');
@@ -259,7 +256,7 @@ export function DashboardView({
 
   const seasonLabel =
     selectedYear === -1
-      ? t('dashboard.pastChampionships') + ' — Archive'
+      ? t('dashboard.pastChampionships') + ' — ' + t('dashboard.archiveLabel')
       : `${t('dashboard.season')} ${selectedYear}`;
 
   const sessionTabItems = useMemo(() => {
@@ -325,7 +322,7 @@ export function DashboardView({
                     {selectedYear === -1
                       ? t('ui.previousSeasons')
                       : currentEvents
-                        ? `${currentEvents.length} Grand Prix`
+                        ? t('dashboard.gpCount').replace('{count}', String(currentEvents.length))
                         : loadingEvs
                           ? t('dashboard.loadingGps')
                           : ''}
@@ -333,7 +330,7 @@ export function DashboardView({
                 </div>
                 <button
                   type="button"
-                  onClick={() => onRefresh()}
+                  onClick={() => { handleRefresh().catch(() => {}); }}
                   disabled={busy}
                   className="py-2 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 disabled:opacity-50"
                 >
@@ -346,7 +343,7 @@ export function DashboardView({
               {selectedYear === -1 ? (
                 <div className="glass-panel rounded-lg p-8 text-center">
                   <p className="text-muted-foreground font-heading tracking-wider">
-                    The archive of previous seasons will be available soon.
+                    {t('dashboard.archiveSoon')}
                   </p>
                 </div>
               ) : loadingEvs ? (
@@ -390,15 +387,13 @@ export function DashboardView({
                 >
                   <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
                   <span className="font-heading tracking-wider">
-                    {t('dashboard.pastChampionships')} — Back to calendar
+                    {t('dashboard.pastChampionships')} — {t('dashboard.backToCalendar')}
                   </span>
                 </button>
 
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">
-                    {getFlag(
-                      getCountryCodeFromMeetingKey(selectedEvent.meetingKey)
-                    )}
+                    {getFlag(getEventCountryCode(selectedEvent))}
                   </span>
                   <span className="text-primary font-heading font-bold text-lg tracking-widest">
                     R{String(selectedEvent.meetingNumber ?? 0).padStart(2, '0')}
@@ -446,9 +441,9 @@ export function DashboardView({
                       loadingItemIds={loadingItemIds}
                       onPlayEmbedded={onPlayEmbedded}
                       onPlayAllEmbedded={onPlayAllEmbedded}
-                      accessToken={accessToken}
                       onEmbedError={onEmbedError}
                       liveTimingQuery={{
+                        contentId: sessionForViewer.contentId,
                         year: selectedYear,
                         meetingName: selectedEvent.meetingName,
                         meetingNumber: selectedEvent.meetingNumber,
@@ -456,15 +451,8 @@ export function DashboardView({
                         sessionType: sessionForViewer.type,
                         title: `${selectedEvent.meetingName} — ${sessionForViewer.title}`,
                       }}
-                      onPortStreamsToWindow={(ids) => {
-                        // Drop transferred streams here; they keep playing in the popout only.
-                        if (!ids.length) return;
-                        setEmbeddedPlayback((prev) => {
-                          const next = { ...prev };
-                          for (const id of ids) delete next[id];
-                          return next;
-                        });
-                      }}
+                      // Drop transferred streams here; they keep playing in the popout only.
+                      onPortStreamsToWindow={removePlayback}
                     />
                   )}
                 </>

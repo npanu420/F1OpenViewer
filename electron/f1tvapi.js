@@ -9,6 +9,35 @@
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { fetch: undiciFetch } = require('undici');
+const { isTransientNetworkError } = require('./util');
+
+/** Overridable in tests. */
+let fetchImpl = undiciFetch;
+function _setFetch(fn) {
+  fetchImpl = fn || undiciFetch;
+}
+
+/**
+ * GET with retries for transient network failures only. The first request on a cold connection to
+ * F1's edge is frequently reset (ECONNRESET, more so behind a VPN) while the next one succeeds, so a
+ * single-shot fetch turned that into a failed sign-in / empty catalog. HTTP error statuses are NOT
+ * retried (they resolve normally); only thrown network errors are. Callers must pass idempotent GETs.
+ */
+async function fetchWithRetry(url, init, { tries = 3, baseDelayMs = 300, timeoutMs = 20000 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      // Each attempt gets its own deadline: undici's defaults (5 min) would let one stalled request
+      // block the serialized playback queue for everyone.
+      return await fetchImpl(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(timeoutMs) });
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientNetworkError(e) || attempt === tries - 1) throw e;
+      await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
 
 const BASE_URL = 'https://f1tv.formula1.com';
 const JWKS_URL = 'https://api.formula1.com/static/jwks.json';
@@ -47,7 +76,7 @@ const JWKS_TTL_MS = 60 * 60 * 1000;
 async function getSigningKey(kid) {
   const stale = !jwksCache || Date.now() - jwksCache.fetchedAt > JWKS_TTL_MS;
   if (stale || !jwksCache.keys.has(kid)) {
-    const res = await undiciFetch(JWKS_URL, { headers: { 'User-Agent': USER_AGENT } });
+    const res = await fetchWithRetry(JWKS_URL, { headers: { 'User-Agent': USER_AGENT } });
     if (!res.ok) throw new Error(`JWKS fetch failed: HTTP ${res.status}`);
     const body = await res.json();
     const keys = new Map();
@@ -158,7 +187,7 @@ class F1TVClient extends EventEmitter {
   }
 
   async _requestJson(url, headers) {
-    const res = await undiciFetch(url, { headers: { 'User-Agent': USER_AGENT, ...headers } });
+    const res = await fetchWithRetry(url, { headers: { 'User-Agent': USER_AGENT, ...headers } });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`HTTP ${res.status}: ${body}`);
@@ -244,6 +273,8 @@ class F1TVClient extends EventEmitter {
 }
 
 module.exports = {
+  fetchWithRetry,
+  _setFetch,
   F1TVClient,
   F1TV: { Platform, Language },
   verifySubscriptionToken,

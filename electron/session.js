@@ -5,9 +5,19 @@
 
 const path = require('path');
 const fs = require('fs');
-const { app, session, BrowserWindow } = require('electron');
+const { EventEmitter } = require('events');
+const { app, session, BrowserWindow, safeStorage } = require('electron');
 const f1tv = require('./f1tv-bridge');
-const { parseJwtPayload } = require('./util');
+const { parseJwtPayload, isTransientNetworkError, isOfflineError } = require('./util');
+const { createSettingsStore } = require('./durableSettings');
+const { createSecureStore } = require('./secureStore');
+const { hardenRemoteWebContents } = require('./navigationPolicy');
+
+/**
+ * 'expired': the saved session was dropped because F1 rejected it (not a user sign-out). ipc.js
+ * relays it to the windows so the UI returns to the sign-in screen instead of failing per stream.
+ */
+const sessionEvents = new EventEmitter();
 
 /** Mutated in place; other modules read `memSession.accessToken` off this same object. */
 const memSession = { accessToken: undefined };
@@ -27,51 +37,41 @@ function getSettingsFilePath() {
   return path.join(app.getPath('userData'), 'f1openviewer-settings.json');
 }
 
-// Renderer settings worth surviving a manual reinstall to a new folder. localStorage is
-// scoped to the file:// origin, which for a packaged app is tied to its install path, so a
-// "delete old folder, unzip new one elsewhere" update would otherwise silently reset these.
-// Session/cookies already live here in userData; this just extends the same durability to
-// the renderer-side settings that matter (layouts, sync prefs, theme, locale).
-const DURABLE_SETTINGS_KEYS = new Set([
-  'f1openviewer-locale',
-  'f1-theme',
-  'f1-dismissed-update-version',
-  'f1openviewer-saved-grids',
-  'f1openviewer-sync-offset-threshold',
-  'f1openviewer-sync-done-delay-ms',
-  'f1openviewer-sync-keep-locked',
-  'f1openviewer-sync-reference-mode',
-]);
+// Renderer settings worth surviving a manual reinstall to a new folder. localStorage is scoped to
+// the file:// origin, which for a packaged app is tied to its install path, so a "delete old
+// folder, unzip new one elsewhere" update would otherwise silently reset these. The allowlist and
+// the atomic JSON store live in durableSettings.js.
+let settingsStore = null;
+function getSettingsStore() {
+  if (!settingsStore) settingsStore = createSettingsStore(getSettingsFilePath());
+  return settingsStore;
+}
 
 function loadPersistedSettings() {
-  try {
-    const p = getSettingsFilePath();
-    if (!fs.existsSync(p)) return {};
-    const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (_) {
-    return {};
-  }
+  return getSettingsStore().getAll();
 }
 
 function persistSettingsKey(key, value) {
-  if (!DURABLE_SETTINGS_KEYS.has(key)) return;
-  try {
-    const all = loadPersistedSettings();
-    all[key] = value;
-    fs.writeFileSync(getSettingsFilePath(), JSON.stringify(all));
-  } catch (e) {
-    console.warn('[settings] persist failed:', e?.message);
-  }
+  return getSettingsStore().set(key, value);
 }
+
+/** Part of "reset all data": otherwise the renderer would re-seed layouts/preferences from this file on reload. */
+function clearPersistedSettings() {
+  getSettingsStore().clear();
+}
+
+// The token and the F1 cookies are account credentials: they are encrypted at rest with the OS
+// keystore (safeStorage). Plain files from older versions are read once and re-written encrypted.
+const secure = createSecureStore(safeStorage);
 
 function loadPersistedSession() {
   try {
     const p = getSessionFilePath();
-    if (!fs.existsSync(p)) return null;
-    const raw = fs.readFileSync(p, 'utf-8');
-    const obj = JSON.parse(raw);
+    const stored = secure.readText(p);
+    if (!stored) return null;
+    const obj = JSON.parse(stored.text);
     if (obj && typeof obj.accessToken === 'string' && obj.accessToken.length > 50) {
+      if (!stored.encrypted && secure.isEncryptionAvailable()) persistSession(obj.accessToken); // upgrade legacy file
       return obj.accessToken;
     }
   } catch (_) {}
@@ -82,19 +82,21 @@ function persistSession(token) {
   try {
     const p = getSessionFilePath();
     if (token) {
-      fs.writeFileSync(p, JSON.stringify({ accessToken: token }), 'utf-8');
+      secure.writeText(p, JSON.stringify({ accessToken: token }));
     } else {
       if (fs.existsSync(p)) fs.unlinkSync(p);
     }
-  } catch (_) {}
+  } catch (e) {
+    // Not fatal now, but the user would silently be signed out on the next launch.
+    console.warn('[session] could not save the session:', e?.message);
+  }
 }
 
 /** Saves cookies to disk so they can be restored on next launch (F1 TV window already logged in). */
 function persistCookies(cookieList) {
   if (!Array.isArray(cookieList) || !cookieList.length) return;
   try {
-    const p = getCookiesFilePath();
-    fs.writeFileSync(p, JSON.stringify(cookieList), 'utf-8');
+    secure.writeText(getCookiesFilePath(), JSON.stringify(cookieList));
     console.log('[session] saved', cookieList.length, 'cookies to disk');
   } catch (e) {
     console.warn('[session] persist cookies:', e?.message);
@@ -104,11 +106,11 @@ function persistCookies(cookieList) {
 /** Restores saved cookies into defaultSession (so the F1 TV window is already logged in). */
 async function restorePersistedCookies() {
   try {
-    const p = getCookiesFilePath();
-    if (!fs.existsSync(p)) return;
-    const raw = fs.readFileSync(p, 'utf-8');
-    const list = JSON.parse(raw);
+    const stored = secure.readText(getCookiesFilePath());
+    if (!stored) return;
+    const list = JSON.parse(stored.text);
     if (!Array.isArray(list) || !list.length) return;
+    if (!stored.encrypted && secure.isEncryptionAvailable()) persistCookies(list); // upgrade legacy file
     const defaultCookies = session.defaultSession.cookies;
     for (const c of list) {
       if (!c.url || !c.name) continue;
@@ -197,6 +199,9 @@ async function readLoginSessionCookieToken() {
   return null;
 }
 
+/** Bumped on sign-out: a silent refresh that started before must not write the session back. */
+let sessionGen = 0;
+
 /** Single-flight guard so concurrent callers share one silent refresh attempt. */
 let silentRefreshInFlight = null;
 
@@ -211,12 +216,16 @@ let silentRefreshInFlight = null;
 function silentTokenRefresh() {
   if (silentRefreshInFlight) return silentRefreshInFlight;
   silentRefreshInFlight = (async () => {
+    const gen = sessionGen;
+    const signedOut = () => gen !== sessionGen;
     const current = memSession.accessToken;
     // 1. Cookie may already carry a fresher token.
     let candidate = await readLoginSessionCookieToken();
+    if (signedOut()) return null;
     if (candidate && candidate !== current && !isTokenExpired(candidate)) {
       try {
         await f1tv.initClient(candidate);
+        if (signedOut()) return null;
         memSession.accessToken = candidate;
         persistSession(candidate);
         await snapshotAndPersistCookies();
@@ -236,14 +245,18 @@ function silentTokenRefresh() {
         height: 600,
         webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
       });
+      // Nobody sees this window: no popups at all, https-only navigation.
+      hardenRemoteWebContents(hiddenWin.webContents, { allowPopups: false });
       hiddenWin.loadURL(F1_LOGIN_URL).catch(() => {});
       const deadline = Date.now() + 20000;
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 700));
+        if (signedOut()) return null;
         const token = await readLoginSessionCookieToken();
         if (token && token !== candidate && token !== current && !isTokenExpired(token)) {
           try {
             await f1tv.initClient(token);
+            if (signedOut()) return null;
             memSession.accessToken = token;
             persistSession(token);
             await snapshotAndPersistCookies();
@@ -283,17 +296,20 @@ async function refreshSessionBeforePlayback() {
     if (fresh) return;
     persistSession(null);
     memSession.accessToken = undefined;
+    sessionEvents.emit('expired');
     throw new Error('Session expired or invalid. Please sign in again (e.g. "Sign in with browser") and retry.');
   }
   try {
-    await f1tv.initClient(token);
+    await initClientWithRetry(token);
     console.log('[session] refreshed token before playback');
   } catch (e) {
     console.warn('[session] refresh before playback failed, trying silent refresh:', e?.message);
-    const fresh = await silentTokenRefresh();
-    if (fresh) return;
-    persistSession(null);
-    memSession.accessToken = undefined;
+    const fresh = isOfflineError(e) ? null : await silentTokenRefresh();
+    if (fresh || f1tv.isClientReady) return;
+    // A network problem keeps the saved session (only real auth failures drop it).
+    if (!dropSessionUnlessRecoverable(e)) {
+      throw new Error('Could not reach F1 TV (network problem). Check the connection and retry.');
+    }
     const msg = e?.message || String(e);
     throw new Error(
       msg.includes('expired') || msg.includes('timeout') || msg.includes('verification')
@@ -305,6 +321,7 @@ async function refreshSessionBeforePlayback() {
 
 /** Lighter reset: drop the token + cookies, keep cache/storage. Used by the "sign out" IPC path. */
 async function clearSessionAndCookies() {
+  sessionGen += 1;
   memSession.accessToken = undefined;
   persistSession(null);
   try {
@@ -329,7 +346,40 @@ async function resetSessionAndStorage() {
   } catch (e) {
     console.warn('[reset] clearStorageData/clearCache:', e?.message);
   }
-  console.log('[reset] Full reset completed (session, cookies, cache, storage).');
+  clearPersistedSettings();
+  console.log('[reset] Full reset completed (session, cookies, cache, storage, saved settings).');
+}
+
+/**
+ * initClient with one quick retry for transient network errors, so a hiccup at launch does not
+ * escalate into the slow hidden-window refresh (and never into forgetting the session).
+ */
+async function initClientWithRetry(token) {
+  try {
+    return await f1tv.initClient(token);
+  } catch (e) {
+    if (!isTransientNetworkError(e)) throw e;
+    console.warn('[session] transient network error during init, retrying once:', e?.message);
+    await new Promise((r) => setTimeout(r, 1200));
+    return f1tv.initClient(token);
+  }
+}
+
+/**
+ * After every recovery path failed: forget the saved session only for real auth failures. A network
+ * problem (or a client that became ready through another path in the meantime) keeps it.
+ * @returns {boolean} true when the session was dropped.
+ */
+function dropSessionUnlessRecoverable(err) {
+  if (f1tv.isClientReady) return false;
+  if (isTransientNetworkError(err)) {
+    console.warn('[session] network problem, keeping the saved session for the next launch');
+    return false;
+  }
+  persistSession(null);
+  memSession.accessToken = undefined;
+  sessionEvents.emit('expired');
+  return true;
 }
 
 /** Restores the persisted token on startup: try it directly, else fall back to silent refresh. */
@@ -341,16 +391,19 @@ async function restoreSessionOnStartup() {
   console.log('[session] token found on disk, restoring F1 TV client…');
   const restoreChain = isTokenExpired(savedToken)
     ? Promise.reject(new Error('persisted token expired (jwt exp)'))
-    : f1tv.initClient(savedToken);
+    : initClientWithRetry(savedToken);
   restoreChain.then(() => {
     console.log('[session] F1 TV client restored successfully');
   }).catch(async (e) => {
+    if (f1tv.isClientReady) return; // another path (renderer restore) already succeeded
+    if (isOfflineError(e)) {
+      dropSessionUnlessRecoverable(e);
+      return;
+    }
     console.warn('[session] restore failed, trying silent refresh:', e?.message);
     const fresh = await silentTokenRefresh();
-    if (!fresh) {
+    if (!fresh && dropSessionUnlessRecoverable(e)) {
       console.warn('[session] silent refresh failed, new login required');
-      persistSession(null);
-      memSession.accessToken = undefined;
     }
   });
 }
@@ -372,12 +425,14 @@ function startProactiveRefreshLoop() {
 }
 
 module.exports = {
+  sessionEvents,
   memSession,
   F1_LOGIN_URL,
   FORMULA1_URLS,
   getCookiesFilePath,
   loadPersistedSettings,
   persistSettingsKey,
+  clearPersistedSettings,
   loadPersistedSession,
   persistSession,
   persistCookies,
@@ -389,5 +444,7 @@ module.exports = {
   clearSessionAndCookies,
   resetSessionAndStorage,
   restoreSessionOnStartup,
+  initClientWithRetry,
+  dropSessionUnlessRecoverable,
   startProactiveRefreshLoop,
 };

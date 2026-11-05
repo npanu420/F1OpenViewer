@@ -11,7 +11,7 @@ For **detailed build and signing instructions** (certificates, Widevine VMP, Cas
 - **Node.js** (LTS recommended) — [nodejs.org](https://nodejs.org)
 - **Git** — [git-scm.com](https://git-scm.com)
 - **F1 TV subscription** — you will log in with your own account inside the app
-- **Windows** — this guide focuses on Windows; the app may work on other OS with minor changes
+- **Windows** (this guide) or **macOS** (same steps with `npm run build`; see [BUILD_SIGNING.md](BUILD_SIGNING.md) for the per-OS Widevine/signing details)
 
 ---
 
@@ -34,7 +34,9 @@ In the same folder (`F1OpenViewer`), run:
 npm install
 ```
 
-This installs Node packages and downloads the Electron build used by the project. It may take a few minutes.
+This installs Node packages and downloads the Electron build used by the project (castlabs Electron with Widevine, fetched from GitHub). It may take a few minutes.
+
+> **npm 11 / 12**: newer npm versions refuse dependencies hosted on git by default. If `npm install` fails with `EALLOWGIT`, run `npm install --allow-git=all` instead.
 
 ---
 
@@ -94,6 +96,21 @@ The app window will open and load the UI from the local dev server. You can log 
 
 ---
 
+### Checks before you build or send a PR
+
+```bash
+npm run check    # typecheck + unit tests (same as CI)
+```
+
+The unit tests do not cover DRM playback: run the app for anything that touches playback.
+
+Two switches that help when debugging:
+
+- `localStorage.setItem('f1-debug', '1')` in the DevTools console (F12), then reload: turns on the verbose Shaka / license traces (always on in `npm run dev`).
+- `LIVETIMING_NO_CURL=1` (Windows): fetch the timing archive in-process instead of through `curl.exe` (see README, VPN note).
+
+---
+
 ## Step 5 — Build for test (no signing)
 
 To build the app **without** code signing or DRM (VMP) signing:
@@ -103,7 +120,7 @@ npm run build
 ```
 
 - The build finishes and creates:
-  - **Installer:** `release\F1 OpenViewer Setup 1.1.0.exe`
+  - **Installer:** `release\F1 OpenViewer Setup <version>.exe`
   - **Portable app:** `release\win-unpacked\F1 OpenViewer.exe`
 
 - You can run the installer or the `.exe` directly. The app will work for browsing and login.
@@ -188,7 +205,7 @@ Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) 
   This is the one that has been VMP-signed and can play DRM content.
 
 - **Installer:**  
-  `release\F1 OpenViewer Setup 1.1.0.exe`  
+  `release\F1 OpenViewer Setup <version>.exe`  
   This installer was created before the VMP signing step, so the exe inside it is not VMP-signed. For DRM playback, use the exe in `release\win-unpacked` directly, or run the build script again and then create a new installer if your build process supports that.
 
 ---
@@ -215,6 +232,15 @@ Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) 
 
 - **“Access denied” when creating the certificate**  
   Use `Cert:\CurrentUser\My` as in Step 6. Do not use a normal disk path for `CertStoreLocation`.
+
+- **Back at the login screen after a launch, but you were signed in**
+  Older builds dropped the saved session on a network hiccup at startup; update. The session is stored encrypted (Windows DPAPI / macOS Keychain) in the app's user-data folder, so it does not carry over if you copy that folder to another user or machine: sign in again.
+
+- **`npm run dev` opens nothing / exits immediately**
+  The installed app is running: both use the same profile and only one instance per profile is allowed (the running one gets focused). Close it first.
+
+- **Live Timing stays empty or stuck on "Loading"**
+  The timing archive host blocks many VPN exit IPs. See the VPN note in the README (split-tunnel `curl.exe`) or disconnect the VPN for timing only.
 
 - **Gray or blank window in the built app**  
   Make sure you did a fresh build after the project was updated (the build uses `base: './'` so that assets load correctly from the packaged app).

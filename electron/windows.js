@@ -6,7 +6,11 @@
 
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 const { BrowserWindow, screen } = require('electron');
+const { devEnv, devToolsAllowed } = require('./devFlags');
+const { isAppNavigation } = require('./navigationPolicy');
+const { redactUrl } = require('./util');
 
 /** The single main dashboard window, not the multiview/livetiming/player popouts. Update notices target this one. */
 let mainWindow = null;
@@ -25,9 +29,42 @@ function getAppIcon() {
 
 /** URL of the main app (same one createWindow loads) used to build every standalone popout's URL. */
 function getMainAppUrl() {
-  const startUrl = process.env.ELECTRON_START_URL;
+  const startUrl = devEnv('ELECTRON_START_URL');
   if (startUrl) return startUrl;
-  return 'file://' + path.join(__dirname, '..', 'dist', 'index.html').replace(/\\/g, '/');
+  // Escaped like Chromium does, so it compares equal to the URLs the windows report (paths may
+  // contain spaces, '%', '#' or non-ASCII characters).
+  return pathToFileURL(path.join(__dirname, '..', 'dist', 'index.html')).href;
+}
+
+const MAX_CRASH_RELOADS = 3;
+const CRASH_WINDOW_MS = 60 * 1000;
+
+/**
+ * App windows run with relaxed web security (F1 CDN/DRM), so they may only ever show the app itself:
+ * foreign navigations are blocked and window.open() is denied.
+ */
+function hardenWebContents(webContents) {
+  webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // A crashed renderer used to leave a blank window. Reload it, but give up on a crash loop.
+  const crashes = [];
+  webContents.on('render-process-gone', (_evt, details) => {
+    const reason = details?.reason;
+    if (reason === 'clean-exit' || webContents.isDestroyed()) return;
+    const now = Date.now();
+    while (crashes.length && now - crashes[0] > CRASH_WINDOW_MS) crashes.shift();
+    crashes.push(now);
+    if (crashes.length > MAX_CRASH_RELOADS) {
+      console.warn('[window] renderer keeps crashing (' + reason + '), not reloading again');
+      return;
+    }
+    console.warn('[window] renderer gone (' + reason + '), reloading');
+    setTimeout(() => { if (!webContents.isDestroyed()) webContents.reload(); }, 1000);
+  });
+  webContents.on('will-navigate', (event, url) => {
+    if (isAppNavigation(url, getMainAppUrl())) return;
+    event.preventDefault();
+    console.warn('[security] blocked navigation to', redactUrl(url));
+  });
 }
 
 function createWindow() {
@@ -41,12 +78,14 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      backgroundThrottling: false, // keep clocks and video at full rate while covered/minimised
       plugins: true, // required for CDM/DRM in some configurations
       webSecurity: false, // avoid CORS blocks on manifest/segment/license F1 TV CDN
     },
   });
 
-  const startUrl = process.env.ELECTRON_START_URL;
+  hardenWebContents(win.webContents);
+  const startUrl = devEnv('ELECTRON_START_URL');
   // Pipe renderer errors/warnings to main logs (black-screen diagnostics).
   win.webContents.on('did-fail-load', (_evt, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame) return;
@@ -63,7 +102,7 @@ function createWindow() {
     if (lvl < 1) return;
     const msg = evt.message ?? message ?? '';
     const tag = lvl === 2 ? 'error' : lvl === 1 ? 'warn' : 'log';
-    if (process.env.ELECTRON_START_URL && typeof msg === 'string' && msg.includes('Electron Security Warning')) return;
+    if (devEnv('ELECTRON_START_URL') && typeof msg === 'string' && msg.includes('Electron Security Warning')) return;
     const sid = evt.sourceId ?? sourceId;
     const ln = evt.line ?? line;
     const loc = sid && ln != null ? ` (${sid}:${ln})` : '';
@@ -76,12 +115,12 @@ function createWindow() {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
 
-  if (process.env.ELECTRON_OPEN_DEVTOOLS === 'true') {
+  if (devEnv('ELECTRON_OPEN_DEVTOOLS') === 'true') {
     win.webContents.openDevTools({ mode: 'detach' });
   }
 
   win.webContents.on('before-input-event', (_evt, input) => {
-    if (input.type === 'keyDown' && input.key === 'F12') {
+    if (input.type === 'keyDown' && input.key === 'F12' && devToolsAllowed()) {
       win.webContents.isDevToolsOpened() ? win.webContents.closeDevTools() : win.webContents.openDevTools({ mode: 'detach' });
     }
   });
@@ -131,11 +170,13 @@ function createMultiviewWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      backgroundThrottling: false, // keep clocks and video at full rate while covered/minimised
       plugins: true,
       webSecurity: false, // avoid CORS blocks on manifest/segment/license F1 TV CDN
     },
   });
 
+  hardenWebContents(win.webContents);
   multiviewWindows.set(id, win);
   win.on('closed', () => {
     multiviewWindows.delete(id);
@@ -193,10 +234,26 @@ function broadcastVideoSeekRequest(payload) {
 function registerLiveTimingBroadcastTarget(win) {
   if (!win || win.isDestroyed() || liveTimingWindows.has(win)) return;
   liveTimingWindows.add(win);
-  win.once('closed', () => liveTimingWindows.delete(win));
+  win.once('closed', () => { liveTimingWindows.delete(win); notifyClockListeners(); });
+  notifyClockListeners();
 }
 function unregisterLiveTimingBroadcastTarget(win) {
   if (win) liveTimingWindows.delete(win);
+  notifyClockListeners();
+}
+
+function liveTimingListenerCount() {
+  let n = 0;
+  for (const w of liveTimingWindows) if (!w.isDestroyed()) n += 1;
+  return n;
+}
+
+/** Players only relay their clock (4 Hz IPC) while some timing window/dock listens. */
+function notifyClockListeners() {
+  const has = liveTimingListenerCount() > 0;
+  for (const w of BrowserWindow.getAllWindows()) {
+    try { if (!w.isDestroyed()) w.webContents.send('livetiming:clockListeners', has); } catch (_) {}
+  }
 }
 
 /** Opens a standalone Live Timing window for an archived session Path (or `live: true` for a running one). */
@@ -227,6 +284,8 @@ function createLiveTimingWindow(opts = {}) {
     if (opts.sessionKey != null) params.set('sessionKey', String(opts.sessionKey));
   }
   if (title) params.set('title', String(title));
+  // Session tag so this window only follows the clock of the multiview showing the same session.
+  if (opts.contentId != null) params.set('cid', String(opts.contentId));
   const fragment = `standalone-livetiming?${params.toString()}`;
   const url = baseUrl.includes('#')
     ? baseUrl.replace(/#.*$/, '') + '#' + fragment
@@ -243,13 +302,16 @@ function createLiveTimingWindow(opts = {}) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      backgroundThrottling: false, // keep clocks and video at full rate while covered/minimised
     },
   });
+  hardenWebContents(win.webContents);
   liveTimingWindows.add(win);
-  win.on('closed', () => liveTimingWindows.delete(win));
+  win.on('closed', () => { liveTimingWindows.delete(win); notifyClockListeners(); });
+  notifyClockListeners();
   win.loadURL(url).catch((e) => console.warn('[livetiming] window load failed:', e?.message));
   win.webContents.on('before-input-event', (_evt, input) => {
-    if (input.type === 'keyDown' && input.key === 'F12') {
+    if (input.type === 'keyDown' && input.key === 'F12' && devToolsAllowed()) {
       win.webContents.isDevToolsOpened() ? win.webContents.closeDevTools() : win.webContents.openDevTools({ mode: 'detach' });
     }
   });
@@ -328,11 +390,12 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      partition: 'default',
+      backgroundThrottling: false, // keep clocks and video at full rate while covered/minimised
       plugins: true,
       webSecurity: false,
     },
   });
+  hardenWebContents(win.webContents);
   win.loadURL(url).catch((e) => {
     console.warn('[player] loadURL failed:', e?.message);
   });
@@ -351,13 +414,31 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
     setTimeout(() => { if (!win.isDestroyed()) win.destroy(); }, 350);
   });
   win.webContents.on('before-input-event', (_evt, input) => {
-    if (input.type === 'keyDown' && input.key === 'F12') {
+    if (input.type === 'keyDown' && input.key === 'F12' && devToolsAllowed()) {
       win.webContents.isDevToolsOpened() ? win.webContents.closeDevTools() : win.webContents.openDevTools({ mode: 'detach' });
     }
   });
 }
 
+/**
+ * Close the secondary app windows (multiview, live timing, standalone player) on sign-out or when
+ * the session expires: they would keep playing with a session that no longer exists. The main
+ * window and non-app windows (the F1 sign-in window) are left alone.
+ */
+function closeSecondaryWindows() {
+  const appUrl = getMainAppUrl();
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (w.isDestroyed() || w === mainWindow) continue;
+    let url = '';
+    try { url = w.webContents.getURL(); } catch (_) {}
+    if (!isAppNavigation(url, appUrl)) continue;
+    try { w.close(); } catch (_) {}
+  }
+}
+
 module.exports = {
+  liveTimingListenerCount,
+  closeSecondaryWindows,
   getMainWindow,
   getAppIcon,
   getMainAppUrl,

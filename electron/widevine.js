@@ -2,7 +2,12 @@
 
 const path = require('path');
 const fs = require('fs');
-const { app, components } = require('electron');
+// Required lazily: loading the electron package throws outside Electron without its binary (CI tests).
+const electron = () => require('electron');
+const { withTimeout } = require('./util');
+
+/** First launch offline (or a stuck download) must not keep the app from opening at all. */
+const CDM_READY_TIMEOUT_MS = 45000;
 
 /**
  * Finds Chrome Widevine CDM folder on Windows (for use with Electron).
@@ -52,6 +57,7 @@ function findChromeWidevineWindows() {
 }
 
 function configureWidevineFromEnv() {
+  const { app, components } = electron();
   if (components && typeof components.whenReady === 'function') {
     app.commandLine.appendSwitch('enable-widevine-cdm');
     return;
@@ -72,12 +78,34 @@ function configureWidevineFromEnv() {
 }
 
 /** castLabs' bundled-CDM path (components.whenReady) waits for the CDM download/install to finish. */
-async function waitForWidevineReady() {
-  if (components && typeof components.whenReady === 'function') {
-    console.log('[Widevine] waiting for castLabs CDM…');
-    await components.whenReady();
-    console.log('[Widevine] castLabs CDM ready.');
+/**
+ * Resolves true when the CDM is ready, false when it timed out or failed to install. Never rejects:
+ * the CDM download does fail now and then ("Failed to install required components"), and a rejection
+ * here used to abort startup, leaving a running app with no window at all.
+ */
+async function waitForWidevineReady(comps = electron().components, timeoutMs = CDM_READY_TIMEOUT_MS) {
+  if (!comps || typeof comps.whenReady !== 'function') return true;
+  console.log('[Widevine] waiting for castLabs CDM…');
+  let ready = false;
+  try {
+    ready = await withTimeout(comps.whenReady().then(() => true), timeoutMs, false);
+  } catch (e) {
+    console.warn('[Widevine] CDM install failed:', e?.message, '- starting anyway (protected streams fail until it installs on a later launch)');
+    return false;
   }
+  if (ready) console.log('[Widevine] castLabs CDM ready.');
+  else console.warn('[Widevine] CDM not ready after', timeoutMs / 1000, 's, starting anyway (protected streams will fail until it is installed)');
+  return ready;
 }
 
-module.exports = { configureWidevineFromEnv, waitForWidevineReady };
+/**
+ * Shared, started-once wait for the CDM. main.js kicks it off at launch without blocking the window;
+ * playback (contentPlay) awaits it, so the first stream still never starts before the CDM is there.
+ */
+let cdmReadyPromise = null;
+function whenCdmReady() {
+  if (!cdmReadyPromise) cdmReadyPromise = waitForWidevineReady();
+  return cdmReadyPromise;
+}
+
+module.exports = { configureWidevineFromEnv, waitForWidevineReady, whenCdmReady };

@@ -1,16 +1,19 @@
-import type { VodCatalog, VodSeason, VodEvent, VodSession, VodOnboard } from '../domain/vod';
+import type { VodEvent, VodSession, VodOnboard } from '../domain/vod';
+
+// These reject on failure on purpose: callers show the message (see DashboardView / LiveEventView).
+// Outside Electron (no preload bridge) they resolve to empty results.
 
 /** Loads only the list of seasons (fast, 1 HTTP request) */
 export async function getVodSeasons(): Promise<Array<{ year: number; pageId: number }>> {
   if (!window.f1?.getVodSeasons) return [];
-  return window.f1.getVodSeasons().catch(() => []);
+  return window.f1.getVodSeasons();
 }
 
 /** Loads the GPs of a season given the pageId (1 HTTP request) */
 export async function getVodEvents(seasonPageId: number): Promise<VodEvent[]> {
   if (!window.f1?.getVodEvents) return [];
-  const items = await window.f1.getVodEvents(seasonPageId).catch(() => []);
-  return items.map(ev => ({
+  const items = await window.f1.getVodEvents(seasonPageId);
+  return items.map((ev) => ({
     meetingKey: ev.meetingKey,
     meetingName: ev.meetingName,
     meetingNumber: ev.meetingNumber,
@@ -24,27 +27,13 @@ export async function getVodEvents(seasonPageId: number): Promise<VodEvent[]> {
 /** Loads the sessions of a GP given the pageId (1 HTTP request) */
 export async function getVodSessions(gpPageId: number): Promise<VodSession[]> {
   if (!window.f1?.getVodSessions) return [];
-  const items = await window.f1.getVodSessions(gpPageId).catch(() => []);
-  return items.map(s => ({
+  const items = await window.f1.getVodSessions(gpPageId);
+  return items.map((s) => ({
     contentId: s.contentId,
     title: s.title,
     type: s.type as VodSession['type'],
     series: s.series,
   }));
-}
-
-/** @deprecated Use getVodSeasons + getVodEvents + getVodSessions for lazy loading */
-export async function getVodCatalog(): Promise<VodCatalog> {
-  if (!window.f1?.getVodCatalog) return { seasons: [] };
-  const data = await window.f1.getVodCatalog().catch(() => ({ seasons: [] }));
-  const seasons = (data?.seasons || []) as Array<{ year: number; events: VodEvent[] }>;
-  return { seasons };
-}
-
-export async function getContentVideoOnboard(contentId: number): Promise<VodOnboard[]> {
-  if (!window.f1?.getContentVideo) return [];
-  const data = await window.f1.getContentVideo(contentId).catch(() => ({ onboard: [] }));
-  return (data?.onboard || []) as VodOnboard[];
 }
 
 /** All streams for a session: main feed (session), data channel, onboard. */
@@ -57,7 +46,7 @@ export type SessionStreams = {
 
 export async function getContentVideoStreams(contentId: number): Promise<SessionStreams> {
   if (!window.f1?.getContentVideo) return { onboard: [], dataChannel: [] };
-  const data = await window.f1.getContentVideo(contentId).catch(() => ({ onboard: [], dataChannel: [], mainChannel: undefined }));
+  const data = await window.f1.getContentVideo(contentId);
   return {
     onboard: (data?.onboard || []) as VodOnboard[],
     dataChannel: (data?.dataChannel || []) as VodOnboard[],

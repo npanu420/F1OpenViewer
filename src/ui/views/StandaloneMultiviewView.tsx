@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodSession, VodOnboard } from '../../domain/vod';
-import { resolvePlayback, type PlaybackInfo } from '../../services/entitlement';
-import { session } from '../../services/session';
+import { resolvePlayback } from '../../services/entitlement';
+import { useEmbeddedPlayback, playbackErrorMessage } from '../hooks/useEmbeddedPlayback';
 import { useLocale } from '../../i18n/LocaleContext';
 import {
   MultiViewer,
@@ -39,17 +39,17 @@ type StandaloneMultiviewViewProps = {
 export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMultiviewViewProps) {
   const { t } = useLocale();
   const [state, setState] = useState(() => loadStandaloneMultiviewState(multiviewInstanceId));
-  const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
-  const [embeddedPlayback, setEmbeddedPlayback] = useState<Record<string, PlaybackInfo>>(
-    () => state?.embeddedPlayback ?? {}
-  );
-  const [loadingItemIds, setLoadingItemIds] = useState<Record<string, boolean>>({});
   const [embedError, setEmbedError] = useState<string | null>(null);
+  const reportEmbedError = useCallback((msg: string) => setEmbedError(msg || null), []);
+  const {
+    embeddedPlayback,
+    setEmbeddedPlayback,
+    loadingItemIds,
+    setLoading,
+    onPlayEmbedded,
+    onPlayAllEmbedded,
+  } = useEmbeddedPlayback(reportEmbedError, state?.embeddedPlayback ?? {});
   const hasResolvedPlayingRef = useRef(false);
-
-  useEffect(() => {
-    session.get().then((s) => setAccessToken(s.accessToken));
-  }, []);
 
   useEffect(() => {
     const base = 'F1 OpenViewer';
@@ -88,7 +88,7 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
 
     if (itemsToResolve.length === 0) return;
 
-    itemsToResolve.forEach((item) => setLoadingItemIds((prev) => ({ ...prev, [item.id]: true })));
+    setLoading(itemsToResolve, true);
     Promise.allSettled(itemsToResolve.map((item) => resolvePlayback(item))).then((results) => {
       setEmbeddedPlayback((prev) => {
         const next = { ...prev };
@@ -97,40 +97,11 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
         });
         return next;
       });
-      itemsToResolve.forEach((item) => setLoadingItemIds((prev) => ({ ...prev, [item.id]: false })));
+      setLoading(itemsToResolve, false);
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed) setEmbedError(playbackErrorMessage(failed.reason) || null);
     });
-  }, [state]);
-
-  const onPlayEmbedded = useCallback(async (item: CatalogItem) => {
-    setLoadingItemIds((prev) => ({ ...prev, [item.id]: true }));
-    setEmbedError(null);
-    try {
-      const info = await resolvePlayback(item);
-      setEmbeddedPlayback((prev) => ({ ...prev, [item.id]: info }));
-    } catch (e) {
-      setEmbedError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoadingItemIds((prev) => ({ ...prev, [item.id]: false }));
-    }
-  }, []);
-
-  const onPlayAllEmbedded = useCallback(async (itemsToPlay: CatalogItem[]) => {
-    if (itemsToPlay.length === 0) return;
-    setEmbedError(null);
-    const loading = itemsToPlay.reduce<Record<string, boolean>>((acc, item) => ({ ...acc, [item.id]: true }), {});
-    setLoadingItemIds((prev) => ({ ...prev, ...loading }));
-    const results = await Promise.allSettled(
-      itemsToPlay.map((item) => resolvePlayback(item))
-    );
-    const nextPlayback: Record<string, PlaybackInfo> = {};
-    results.forEach((result, index) => {
-      const item = itemsToPlay[index];
-      if (result.status === 'fulfilled') nextPlayback[item.id] = result.value;
-    });
-    setEmbeddedPlayback((prev) => ({ ...prev, ...nextPlayback }));
-    const done = itemsToPlay.reduce<Record<string, boolean>>((acc, item) => ({ ...acc, [item.id]: false }), {});
-    setLoadingItemIds((prev) => ({ ...prev, ...done }));
-  }, []);
+  }, [state, setEmbeddedPlayback, setLoading]);
 
   const handleExit = useCallback(() => {
     if (typeof window !== 'undefined' && (window as unknown as { f1?: { closeMultiviewWindow?: () => void } }).f1?.closeMultiviewWindow) {
@@ -185,7 +156,8 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
           session={savedSession}
           streams={streams}
           seasonYear={seasonYear}
-          liveTimingQuery={{
+          liveTimingQuery={state.liveTimingQuery ?? {
+            contentId: savedSession.contentId,
             year: seasonYear,
             sessionName: savedSession.title,
             sessionType: savedSession.type,
@@ -198,7 +170,6 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
           loadingItemIds={loadingItemIds}
           onPlayEmbedded={onPlayEmbedded}
           onPlayAllEmbedded={onPlayAllEmbedded}
-          accessToken={accessToken}
           onEmbedError={setEmbedError}
           isFullscreen
           onExitFullscreen={handleExit}

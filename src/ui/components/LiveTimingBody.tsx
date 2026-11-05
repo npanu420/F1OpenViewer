@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Pause, Wind, Thermometer, Droplets, Gauge, CloudRain, Radio, Link2, Unlink } from 'lucide-react';
 import { useReplayTiming } from '../hooks/useReplayTiming';
 import { useLiveTiming, type LiveTimingQuery } from '../hooks/useLiveTiming';
+import { useLocale } from '../../i18n/LocaleContext';
 import type {
   DriverRow,
   SectorView,
@@ -42,6 +43,7 @@ function SyncControls({
   onUnsync: () => void;
   onCalibrate: (lap: number) => boolean;
 }) {
+  const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [val, setVal] = useState('');
   const [bad, setBad] = useState(false);
@@ -67,15 +69,15 @@ function SyncControls({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 px-2 py-1 rounded border border-emerald-400/30 hover:bg-emerald-400/10"
-        title={auto ? 'Locked to the broadcast wall clock, exact. Click for fine-tune / unsync.' : 'Synced to video time. Click to align / adjust.'}
+        title={auto ? t('timing.syncAutoHint') : t('timing.syncManualHint')}
       >
-        <Link2 className="w-3.5 h-3.5" /> {auto ? 'AUTO-SYNCED' : 'SYNCED'}
+        <Link2 className="w-3.5 h-3.5" /> {auto ? t('timing.autoSynced') : t('timing.synced')}
       </button>
       {open && (
         <div className="absolute bottom-full right-0 mb-2 w-64 rounded-md border border-border bg-card shadow-xl p-2.5 flex flex-col gap-2 z-20">
           {!auto && (
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Video lap</span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{t('timing.videoLap')}</span>
               <input
                 value={val}
                 onChange={(e) => { setVal(e.target.value.replace(/\D/g, '')); setBad(false); }}
@@ -83,20 +85,20 @@ function SyncControls({
                 placeholder={lap ? String(lap.current) : '—'}
                 className={`w-12 bg-secondary text-foreground text-xs rounded px-1 py-0.5 border ${bad ? 'border-destructive' : 'border-border'} text-center`}
               />
-              <button type="button" onClick={apply} className="text-[10px] px-1.5 py-0.5 rounded bg-primary text-primary-foreground hover:opacity-90">Align</button>
+              <button type="button" onClick={apply} className="text-[10px] px-1.5 py-0.5 rounded bg-primary text-primary-foreground hover:opacity-90">{t('timing.align')}</button>
             </div>
           )}
           <div className="flex items-center justify-between gap-0.5">
-            <button type="button" className={btn} onClick={() => onNudge(-60000)} title="Timing 1 min earlier">−1m</button>
+            <button type="button" className={btn} onClick={() => onNudge(-60000)} title={t('timing.earlier')}>−1m</button>
             <button type="button" className={btn} onClick={() => onNudge(-10000)}>−10s</button>
             <button type="button" className={btn} onClick={() => onNudge(-1000)}>−1s</button>
-            <span className="w-12 text-center text-[10px] tabular-nums text-muted-foreground" title="Sync offset (video → timing)">{fmtOffsetSigned(syncOffsetMs)}</span>
+            <span className="w-12 text-center text-[10px] tabular-nums text-muted-foreground" title={t('timing.syncOffset')}>{fmtOffsetSigned(syncOffsetMs)}</span>
             <button type="button" className={btn} onClick={() => onNudge(1000)}>+1s</button>
             <button type="button" className={btn} onClick={() => onNudge(10000)}>+10s</button>
-            <button type="button" className={btn} onClick={() => onNudge(60000)} title="Timing 1 min later">+1m</button>
+            <button type="button" className={btn} onClick={() => onNudge(60000)} title={t('timing.later')}>+1m</button>
           </div>
-          <button type="button" onClick={onUnsync} className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent flex items-center justify-center gap-1" title="Detach from video">
-            <Unlink className="w-3.5 h-3.5" /> Unsync
+          <button type="button" onClick={onUnsync} className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent flex items-center justify-center gap-1" title={t('timing.detach')}>
+            <Unlink className="w-3.5 h-3.5" /> {t('timing.unsync')}
           </button>
         </div>
       )}
@@ -157,11 +159,12 @@ function Sector({ s }: { s: SectorView }) {
 }
 
 /** Stint list in a native title tooltip. */
-function stintTooltip(row: DriverRow): string {
+function stintTooltip(row: DriverRow, t: (key: string) => string): string {
   if (!row.stints.length) return '';
   const stops = Math.max(0, row.stints.length - 1);
-  const lines = row.stints.map((s, i) => `${i + 1}. ${s.compound || '?'}${s.laps != null ? ` — ${s.laps} laps` : ''}${s.isNew ? ' (new)' : ''}`);
-  return `${stops} pit stop${stops === 1 ? '' : 's'}\n${lines.join('\n')}`;
+  const lines = row.stints.map((s, i) => `${i + 1}. ${s.compound || '?'}${s.laps != null ? ` — ${t('timing.stintLaps').replace('{laps}', String(s.laps))}` : ''}${s.isNew ? ` (${t('timing.newTyre')})` : ''}`);
+  const head = t(stops === 1 ? 'timing.pitStop' : 'timing.pitStops').replace('{count}', String(stops));
+  return `${head}\n${lines.join('\n')}`;
 }
 
 /** Numeric timing cells: fixed width, no bleed into the next column. */
@@ -188,26 +191,30 @@ function TimingCell({
   );
 }
 
-function DriverRowItem({
+const DriverRowItem = React.memo(function DriverRowItem({
   row,
   index,
   compact,
   docked,
   dockWide,
+  hasTelemetry,
 }: {
   row: DriverRow;
   index: number;
   compact?: boolean;
   docked?: boolean;
   dockWide?: boolean;
+  /** Telemetry (CarData) present for this session; hides the empty speed column otherwise. */
+  hasTelemetry?: boolean;
 }) {
+  const { t } = useLocale();
   const tyre = TYRE_COLOR[row.tyre] || '#888';
   const pitStops = Math.max(0, row.stints.length - 1);
   const showInterval = dockWide || (!compact && !docked);
   const showLastLap = dockWide || (!compact && !docked);
   const showBestLap = !compact && !docked;
   const showSectors = !compact && !docked;
-  const showSpeed = !compact && !docked;
+  const showSpeed = !compact && !docked && !!hasTelemetry;
   const full = !compact && !docked;
   const tlaWidth = compact ? 'w-14' : full ? 'w-32' : 'w-24';
   return (
@@ -233,7 +240,7 @@ function DriverRowItem({
       {showInterval && <TimingCell value={row.interval} width={full ? 'w-20' : 'w-[3.75rem]'} muted large={full} />}
       {showLastLap && <TimingCell value={row.lastLap} width={full ? 'w-24' : 'w-[4.25rem]'} large={full} />}
       {showBestLap && <TimingCell value={row.bestLap} width={full ? 'w-24' : 'w-[4.25rem]'} muted large={full} />}
-      <div className={`${full ? 'w-20' : 'w-[2.75rem]'} shrink-0 flex items-center justify-start gap-1.5 cursor-default`} title={stintTooltip(row)}>
+      <div className={`${full ? 'w-20' : 'w-[2.75rem]'} shrink-0 flex items-center justify-start gap-1.5 cursor-default`} title={stintTooltip(row, t)}>
         {row.tyre ? (
           <>
             <span
@@ -263,7 +270,7 @@ function DriverRowItem({
       )}
     </div>
   );
-}
+});
 
 const FLAG_COLOR: Record<string, string> = {
   BLUE: '#3b8cff',
@@ -299,6 +306,7 @@ function fmtSec(s: number): string {
  * directly with <audio src>.
  */
 function RadioClip({ clip, tla, sessionPath }: { clip: TeamRadioClip; tla: string; sessionPath: string }) {
+  const { t } = useLocale();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -342,7 +350,8 @@ function RadioClip({ clip, tla, sessionPath }: { clip: TeamRadioClip; tla: strin
           onClick={toggle}
           disabled={loading}
           className="w-6 h-6 shrink-0 flex items-center justify-center rounded-full bg-secondary hover:bg-accent disabled:opacity-50"
-          title={err ? 'Failed to load, click to retry' : playing ? 'Pause' : 'Play'}
+          title={err ? t('timing.radioFailed') : playing ? t('timing.pause') : t('timing.play')}
+          aria-label={err ? t('timing.radioFailed') : playing ? t('timing.pause') : t('timing.play')}
         >
           {loading ? (
             <div className="w-3 h-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -362,7 +371,7 @@ function RadioClip({ clip, tla, sessionPath }: { clip: TeamRadioClip; tla: strin
           className="flex-1 accent-primary h-1 disabled:opacity-40"
         />
         <span className="text-[10px] tabular-nums text-muted-foreground w-16 text-right shrink-0">
-          {err ? 'error' : `${fmtSec(cur)} / ${fmtSec(dur)}`}
+          {err ? t('timing.radioError') : `${fmtSec(cur)} / ${fmtSec(dur)}`}
         </span>
       </div>
       <audio
@@ -411,6 +420,47 @@ interface TimingBodyProps {
 }
 
 /**
+ * The side feeds can hold hundreds of rows. Their arrays keep their identity until the store
+ * actually changes, so memoizing them skips the per-tick (clock/scrub bar) re-renders.
+ */
+const RaceControlList = React.memo(function RaceControlList({ raceControl, emptyLabel }: { raceControl: RaceControlMessage[]; emptyLabel: string }) {
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
+      {raceControl.map((m, i) => (
+        <div key={`${m.utc}|${m.message}|${i}`} className="px-4 py-2.5 border-b border-border/40 text-sm">
+          {m.flag && <span className="font-bold mr-1" style={{ color: flagColor(m.flag) }}>{m.flag}</span>}
+          <span className="text-foreground">{m.message}</span>
+          {m.lap != null && <span className="text-muted-foreground ml-1">(L{m.lap})</span>}
+        </div>
+      ))}
+      {!raceControl.length && <div className="p-4 text-sm text-muted-foreground">{emptyLabel}</div>}
+    </div>
+  );
+});
+
+const TeamRadioList = React.memo(function TeamRadioList({
+  teamRadio,
+  tlaByNum,
+  sessionPath,
+  emptyLabel,
+}: {
+  teamRadio: TeamRadioClip[];
+  tlaByNum: Record<string, string>;
+  sessionPath: string;
+  emptyLabel: string;
+}) {
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
+      {teamRadio.map((clip) => (
+        // Newest-first list: an index key would attach a loaded/playing audio element to the wrong clip.
+        <RadioClip key={`${clip.utc}|${clip.path}`} clip={clip} tla={tlaByNum[clip.number] || ''} sessionPath={sessionPath} />
+      ))}
+      {!teamRadio.length && <div className="p-4 text-sm text-muted-foreground">{emptyLabel}</div>}
+    </div>
+  );
+});
+
+/**
  * Shared replay/live body: header, timing table, race control/radio.
  * Mode-specific footer (scrub bar or LIVE pill) comes from the parent.
  */
@@ -430,10 +480,15 @@ function TimingBody({
   docked,
   dockWide,
 }: TimingBodyProps) {
-  const tlaByNum: Record<string, string> = {};
-  for (const d of drivers) tlaByNum[d.number] = d.tla;
+  const { t } = useLocale();
+  const tlaByNum = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const d of drivers) m[d.number] = d.tla;
+    return m;
+  }, [drivers]);
   const full = !compact && !docked;
   const tlaHeadWidth = compact ? 'w-14' : full ? 'w-32' : 'w-24';
+  const hasTelemetry = drivers.some((d) => d.speedKmh != null);
 
   return (
     <div className={`${compact ? 'h-full' : 'h-screen'} overflow-hidden bg-background text-foreground flex flex-col`}>
@@ -441,7 +496,7 @@ function TimingBody({
       <div className={`flex items-center gap-4 border-b border-border bg-card/60 flex-wrap ${full ? 'px-6 py-3' : compact ? 'px-2 py-1.5' : 'px-4 py-2'}`}>
         <div className="flex items-center gap-2 min-w-0">
           {headerBadge}
-          <span className={`font-heading font-bold tracking-wider truncate ${full ? 'text-lg' : ''}`}>{title || 'Live Timing'}</span>
+          <span className={`font-heading font-bold tracking-wider truncate ${full ? 'text-lg' : ''}`}>{title || t('timing.title')}</span>
           {lapCount && (
             <span className={`tabular-nums font-bold rounded bg-secondary shrink-0 ${full ? 'text-sm px-2.5 py-1' : 'text-xs px-2 py-0.5'}`}>
               LAP {lapCount.current}/{lapCount.total}
@@ -460,12 +515,12 @@ function TimingBody({
         )}
         {w && !compact && (
           <div className={`flex items-center ml-auto ${full ? 'gap-6' : 'gap-4'}`}>
-            <WeatherStat icon={Wind} label="Wind" value={`${w.windSpeed} m/s`} large={full} />
-            <WeatherStat icon={Thermometer} label="Track" value={`${w.trackTemp}°`} large={full} />
-            <WeatherStat icon={Thermometer} label="Air" value={`${w.airTemp}°`} large={full} />
-            <WeatherStat icon={Droplets} label="Hum" value={`${w.humidity}%`} large={full} />
-            <WeatherStat icon={Gauge} label="Press" value={`${w.pressure}`} large={full} />
-            <WeatherStat icon={CloudRain} label="Rain" value={w.rainfall ? 'Yes' : 'No'} large={full} />
+            <WeatherStat icon={Wind} label={t('timing.wind')} value={`${w.windSpeed} m/s`} large={full} />
+            <WeatherStat icon={Thermometer} label={t('timing.track')} value={`${w.trackTemp}°`} large={full} />
+            <WeatherStat icon={Thermometer} label={t('timing.air')} value={`${w.airTemp}°`} large={full} />
+            <WeatherStat icon={Droplets} label={t('timing.humidity')} value={`${w.humidity}%`} large={full} />
+            <WeatherStat icon={Gauge} label={t('timing.pressure')} value={`${w.pressure}`} large={full} />
+            <WeatherStat icon={CloudRain} label={t('timing.rain')} value={w.rainfall ? t('timing.yes') : t('timing.no')} large={full} />
           </div>
         )}
       </div>
@@ -477,14 +532,14 @@ function TimingBody({
             <div className={`flex items-center px-0 uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 bg-background min-w-max ${full ? 'h-9 text-xs' : 'h-7 text-[10px]'}`}>
               <div className={`${full ? 'w-9' : 'w-7'} shrink-0 text-center`}>P</div>
               <div className="w-3 mr-2 shrink-0" />
-              <div className={`${tlaHeadWidth} shrink-0`}>Drv</div>
-              <div className={`${full ? 'w-20' : 'w-[3.25rem]'} shrink-0`}>Gap</div>
-              {(dockWide || !docked) && <div className={`${full ? 'w-20' : 'w-[3.75rem]'} shrink-0`}>Int</div>}
-              {(dockWide || !docked) && <div className={`${full ? 'w-24' : 'w-[4.25rem]'} shrink-0`}>Last</div>}
-              {!docked && <div className={`${full ? 'w-24' : 'w-[4.25rem]'} shrink-0`}>Best</div>}
-              <div className={`${full ? 'w-20' : 'w-[2.75rem]'} shrink-0`}>Tyre</div>
-              {!docked && <div className="flex-1">Sectors</div>}
-              {!docked && <div className={`${full ? 'w-24' : 'w-16'} text-right pr-3 shrink-0`}>Spd</div>}
+              <div className={`${tlaHeadWidth} shrink-0`}>{t('timing.colDriver')}</div>
+              <div className={`${full ? 'w-20' : 'w-[3.25rem]'} shrink-0`}>{t('timing.colGap')}</div>
+              {(dockWide || !docked) && <div className={`${full ? 'w-20' : 'w-[3.75rem]'} shrink-0`}>{t('timing.colInt')}</div>}
+              {(dockWide || !docked) && <div className={`${full ? 'w-24' : 'w-[4.25rem]'} shrink-0`}>{t('timing.colLast')}</div>}
+              {!docked && <div className={`${full ? 'w-24' : 'w-[4.25rem]'} shrink-0`}>{t('timing.colBest')}</div>}
+              <div className={`${full ? 'w-20' : 'w-[2.75rem]'} shrink-0`}>{t('timing.colTyre')}</div>
+              {!docked && <div className="flex-1">{t('timing.colSectors')}</div>}
+              {!docked && hasTelemetry && <div className={`${full ? 'w-24' : 'w-16'} text-right pr-3 shrink-0`}>{t('timing.colSpeed')}</div>}
             </div>
           )}
           {drivers.map((row, i) => (
@@ -495,10 +550,11 @@ function TimingBody({
               compact={compact}
               docked={docked}
               dockWide={dockWide}
+              hasTelemetry={hasTelemetry}
             />
           ))}
           {!drivers.length && (
-            <div className="p-8 text-center text-muted-foreground">No driver data at this point.</div>
+            <div className="p-8 text-center text-muted-foreground">{t('timing.noDrivers')}</div>
           )}
         </div>
 
@@ -508,30 +564,16 @@ function TimingBody({
           <div className="w-96 border-l border-border bg-card/30 flex flex-col min-h-0">
             <div className="flex-1 min-h-0 flex flex-col basis-0">
               <div className="px-4 py-2.5 text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-card/60 shrink-0">
-                Race Control
+                {t('timing.raceControl')}
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
-                {raceControl.map((m, i) => (
-                  <div key={i} className="px-4 py-2.5 border-b border-border/40 text-sm">
-                    {m.flag && <span className="font-bold mr-1" style={{ color: flagColor(m.flag) }}>{m.flag}</span>}
-                    <span className="text-foreground">{m.message}</span>
-                    {m.lap != null && <span className="text-muted-foreground ml-1">(L{m.lap})</span>}
-                  </div>
-                ))}
-                {!raceControl.length && <div className="p-4 text-sm text-muted-foreground">No messages yet.</div>}
-              </div>
+              <RaceControlList raceControl={raceControl} emptyLabel={t('timing.noMessages')} />
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col basis-0 border-t border-border">
               <div className="px-4 py-2.5 text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-card/60 shrink-0">
-                Team Radio
+                {t('timing.teamRadio')}
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
-                {teamRadio.map((clip, i) => (
-                  <RadioClip key={i} clip={clip} tla={tlaByNum[clip.number] || ''} sessionPath={sessionPath} />
-                ))}
-                {!teamRadio.length && <div className="p-4 text-sm text-muted-foreground">No clips yet.</div>}
-              </div>
+              <TeamRadioList teamRadio={teamRadio} tlaByNum={tlaByNum} sessionPath={sessionPath} emptyLabel={t('timing.noClips')} />
             </div>
           </div>
         )}
@@ -566,6 +608,7 @@ export function ReplayTimingPanel({
   path,
   title,
   syncStart,
+  contentId,
   compact,
   docked,
   dockWide,
@@ -573,13 +616,27 @@ export function ReplayTimingPanel({
   path: string;
   title: string;
   syncStart: number | null;
+  contentId?: number;
   compact?: boolean;
   docked?: boolean;
   dockWide?: boolean;
 }) {
-  const t = useReplayTiming(path, syncStart);
-  if (t.loading) return <LoadingScreen label="Loading live timing…" compact={compact} />;
+  const { t: tr } = useLocale();
+  const t = useReplayTiming(path, syncStart, contentId);
+  if (t.loading) return <LoadingScreen label={tr('timing.loading')} compact={compact} />;
   if (t.error) return <ErrorScreen message={t.error} compact={compact} />;
+
+  const resyncButton = t.detached && t.videoAvailable ? (
+    <button
+      type="button"
+      onClick={t.resync}
+      title={tr('timing.resync')}
+      aria-label={tr('timing.resync')}
+      className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 px-2 py-1 rounded border border-emerald-400/30 hover:bg-emerald-400/10 shrink-0"
+    >
+      <Link2 className="w-3.5 h-3.5" /> {compact ? null : tr('timing.resync')}
+    </button>
+  ) : null;
 
   const footer = (
     <div className={`flex items-center gap-3 border-t border-border bg-card/60 ${compact ? 'px-2 py-1.5' : 'px-4 py-2'}`}>
@@ -587,7 +644,8 @@ export function ReplayTimingPanel({
         type="button"
         onClick={t.playing ? t.pause : t.play}
         className="w-8 h-8 flex items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 shrink-0"
-        title={t.synced ? 'Detach from video and play manually' : t.playing ? 'Pause' : 'Play'}
+        title={t.synced ? tr('timing.detachPlay') : t.playing ? tr('timing.pause') : tr('timing.play')}
+        aria-label={t.synced ? tr('timing.detachPlay') : t.playing ? tr('timing.pause') : tr('timing.play')}
       >
         {t.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
       </button>
@@ -615,15 +673,18 @@ export function ReplayTimingPanel({
           />
         )
       ) : !compact ? (
+        <>
+        {resyncButton}
         <select
           value={t.speed}
           onChange={(e) => t.setSpeed(Number(e.target.value))}
           className="bg-secondary text-foreground text-xs rounded px-2 py-1 border border-border shrink-0"
-          title="Playback speed (manual mode). Sync starts automatically when a video stream plays."
+          title={tr('timing.speedHint')}
         >
           {[1, 2, 5, 10, 30, 60].map((s) => <option key={s} value={s}>{s}×</option>)}
         </select>
-      ) : null}
+        </>
+      ) : resyncButton}
     </div>
   );
 
@@ -651,6 +712,7 @@ export function ReplayResolvingPanel({
   path,
   title,
   syncStart,
+  contentId,
   query,
   compact,
   docked,
@@ -659,6 +721,7 @@ export function ReplayResolvingPanel({
   path?: string;
   title: string;
   syncStart?: number | null;
+  contentId?: number;
   query?: ResolveQuery | null;
   compact?: boolean;
   docked?: boolean;
@@ -672,6 +735,7 @@ export function ReplayResolvingPanel({
     path ? { path, title, syncStart: syncStart ?? null } : null,
   );
   const [resolveErr, setResolveErr] = useState<string | null>(null);
+  const { t: tr } = useLocale();
 
   useEffect(() => {
     if (resolved || !query) return;
@@ -679,9 +743,9 @@ export function ReplayResolvingPanel({
     (async () => {
       try {
         const lt = window.f1?.liveTiming;
-        if (!lt?.resolveSession) throw new Error('Live timing unavailable.');
+        if (!lt?.resolveSession) throw new Error(tr('timing.unavailable'));
         const found = await lt.resolveSession(query.year as number, query);
-        if (!found) throw new Error('Live timing session not found in archive.');
+        if (!found) throw new Error(tr('timing.sessionNotFound'));
         const sd = lt.getSyncData ? await lt.getSyncData(found.meeting?.Key as any, found.session?.Key as any).catch(() => null) : null;
         if (cancel) return;
         setResolved({
@@ -690,7 +754,7 @@ export function ReplayResolvingPanel({
           syncStart: sd?.sessionStartSec ?? null,
         });
       } catch (e: any) {
-        if (!cancel) setResolveErr(e?.message || 'Live timing unavailable.');
+        if (!cancel) setResolveErr(e?.message || tr('timing.unavailable'));
       }
     })();
     return () => { cancel = true; };
@@ -698,18 +762,31 @@ export function ReplayResolvingPanel({
   }, []);
 
   if (resolveErr) return <ErrorScreen message={resolveErr} compact={compact} />;
-  if (!resolved) return <LoadingScreen label="Loading live timing…" compact={compact} />;
-  return <ReplayTimingPanel path={resolved.path} title={resolved.title} syncStart={resolved.syncStart} compact={compact} docked={docked} dockWide={dockWide} />;
+  if (!resolved) return <LoadingScreen label={tr('timing.loading')} compact={compact} />;
+  return <ReplayTimingPanel path={resolved.path} title={resolved.title} syncStart={resolved.syncStart} contentId={contentId} compact={compact} docked={docked} dockWide={dockWide} />;
 }
 
-export function LivePill({ connected }: { connected: boolean }) {
+export function LivePill({
+  connected,
+  reconnecting,
+  detail,
+}: {
+  connected: boolean;
+  reconnecting?: boolean;
+  detail?: string | null;
+}) {
+  const { t } = useLocale();
+  const label = connected ? t('timing.live') : reconnecting ? t('timing.reconnecting') : t('timing.connectingPill');
   return (
-    <span className={`flex items-center gap-1.5 text-xs font-heading font-bold tracking-widest ${connected ? 'text-red-500' : 'text-muted-foreground'}`}>
+    <span
+      className={`flex items-center gap-1.5 text-xs font-heading font-bold tracking-widest ${connected ? 'text-red-500' : reconnecting ? 'text-amber-400' : 'text-muted-foreground'}`}
+      title={!connected && detail ? detail : undefined}
+    >
       <span className="relative flex h-2.5 w-2.5">
         {connected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />}
         <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${connected ? 'bg-red-500' : 'bg-muted-foreground'}`} />
       </span>
-      {connected ? 'LIVE' : 'CONNECTING…'}
+      {label}
     </span>
   );
 }
@@ -728,13 +805,18 @@ export function LiveTimingPanel({
   docked?: boolean;
   dockWide?: boolean;
 }) {
+  const { t: tr } = useLocale();
   const t = useLiveTiming(query);
-  if (t.loading) return <LoadingScreen label="Connecting to live timing…" compact={compact} />;
+  if (t.loading) return <LoadingScreen label={tr('timing.connecting')} compact={compact} />;
   if (t.error) return <ErrorScreen message={t.error} compact={compact} />;
 
+  const reconnecting = t.status === 'reconnecting';
   const footer = (
     <div className={`flex items-center gap-3 border-t border-border bg-card/60 ${compact ? 'px-2 py-1.5' : 'px-4 py-2'}`}>
-      <LivePill connected={t.connected} />
+      <LivePill connected={t.connected} reconnecting={reconnecting} detail={t.statusDetail} />
+      {reconnecting && t.statusDetail && !compact && (
+        <span className="text-[11px] text-muted-foreground truncate">{t.statusDetail}</span>
+      )}
     </div>
   );
 
@@ -749,7 +831,7 @@ export function LiveTimingPanel({
       lapCount={t.lapCount}
       teamRadio={t.teamRadio}
       sessionPath={t.sessionPath || ''}
-      headerBadge={<LivePill connected={t.connected} />}
+      headerBadge={<LivePill connected={t.connected} reconnecting={reconnecting} detail={t.statusDetail} />}
       footer={footer}
       compact={compact}
       docked={docked}

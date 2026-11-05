@@ -71,6 +71,14 @@ export function SettingsPanel({
     setSyncRefModeState(getSyncReferenceMode());
   }, [isOpen]);
 
+  // Esc closes the panel (keyboard users had no way out besides tabbing to the X).
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
   async function handleFullReset() {
     if (!window.f1?.fullReset) return;
     const confirmed = window.confirm(t('settings.resetConfirm'));
@@ -96,7 +104,7 @@ export function SettingsPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-background/60 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-background/70 z-50"
             onClick={onClose}
           />
 
@@ -112,7 +120,10 @@ export function SettingsPanel({
                 {t('settings.title').toUpperCase()}
               </h2>
               <motion.button
+                type="button"
                 onClick={onClose}
+                aria-label={t('ui.close')}
+                title={t('ui.close')}
                 className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-accent transition-colors"
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}

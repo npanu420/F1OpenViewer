@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play, Volume2, VolumeX, Maximize, Minimize, Settings } from 'lucide-react';
-import type shaka from 'shaka-player/dist/shaka-player.ui';
+import type shaka from 'shaka-player/dist/shaka-player.compiled-es2021';
+import { useLocale } from '../../i18n/LocaleContext';
 
 /**
  * Custom playback control bar shared by every player surface (embedded panels, single player,
@@ -41,6 +42,7 @@ function fmt(seconds: number): string {
 }
 
 export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUnmute }: Props) {
+  const { t: tr } = useLocale();
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(1);
@@ -52,6 +54,9 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
   const [behindLive, setBehindLive] = useState(0); // seconds behind the live edge
   const [isFs, setIsFs] = useState(false);
   const [visible, setVisible] = useState(true);
+  /** Hidden bar: skip the per-timeupdate time/progress state (4 Hz re-render per stream). */
+  const visibleRef = useRef(true);
+  visibleRef.current = visible;
   const [menuOpen, setMenuOpen] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [tracks, setTracks] = useState<QualityTrack[]>([]);
@@ -80,6 +85,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
     const dur = v.duration;
     if (!Number.isFinite(dur) || dur > 60 * 60 * 24) live = true;
     setIsLive(live);
+    if (!visibleRef.current) return; // refreshed by the effect below when the bar shows again
 
     if (live) {
       const end = range ? range.end : (v.seekable.length ? v.seekable.end(v.seekable.length - 1) : v.currentTime);
@@ -106,6 +112,10 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
       clearInterval(poll);
     };
   }, [getVideo, sync]);
+
+  useEffect(() => {
+    if (visible) sync();
+  }, [visible, sync]);
 
   useEffect(() => {
     const onFs = () => setIsFs(document.fullscreenElement === getContainer());
@@ -279,7 +289,8 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
             type="button"
             onClick={togglePlay}
             className="shrink-0 text-white/90 hover:text-white transition-colors"
-            title={playing ? 'Pause' : 'Play'}
+            title={playing ? tr('player.ctl.pause') : tr('player.ctl.play')}
+            aria-label={playing ? tr('player.ctl.pause') : tr('player.ctl.play')}
           >
             {playing ? <Pause className={iconSize} /> : <Play className={iconSize} />}
           </button>
@@ -289,7 +300,8 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
               <button
                 type="button"
                 onClick={atEdge ? undefined : goLive}
-                title={atEdge ? 'Live' : 'Go to live'}
+                title={atEdge ? tr('player.ctl.live') : tr('player.ctl.goLive')}
+                aria-label={atEdge ? tr('player.ctl.live') : tr('player.ctl.goLive')}
                 className={`shrink-0 flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase transition-colors ${
                   atEdge
                     ? 'text-white cursor-default'
@@ -299,13 +311,13 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
                 <span
                   className={`w-2 h-2 rounded-full ${atEdge ? 'bg-red-600 animate-pulse' : 'bg-white/40'}`}
                 />
-                Live
+                {tr('player.ctl.live')}
               </button>
               {/* DVR scrubber: click to seek back within the live window; clicking near the end snaps to live. */}
               <div
                 className="flex-1 h-1.5 rounded-full bg-white/20 cursor-pointer group"
                 onClick={seekLive}
-                title="Seek within the live window"
+                title={tr('player.ctl.seekLive')}
               >
                 <div
                   className="h-full bg-red-600 rounded-full relative transition-[width] duration-500"
@@ -315,7 +327,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
                 </div>
               </div>
               {!atEdge && (
-                <span className="shrink-0 text-[11px] tabular-nums text-white/80" title="Behind live">
+                <span className="shrink-0 text-[11px] tabular-nums text-white/80" title={tr('player.ctl.behindLive')}>
                   -{fmt(behindLive)}
                 </span>
               )}
@@ -347,7 +359,8 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
               type="button"
               onClick={toggleMute}
               className="text-white/90 hover:text-white transition-colors"
-              title={muted ? 'Unmute' : 'Mute'}
+              title={muted ? tr('player.ctl.unmute') : tr('player.ctl.mute')}
+              aria-label={muted ? tr('player.ctl.unmute') : tr('player.ctl.mute')}
             >
               {muted || volume === 0 ? <VolumeX className={iconSize} /> : <Volume2 className={iconSize} />}
             </button>
@@ -359,7 +372,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
               value={muted ? 0 : volume}
               onChange={(e) => setVol(Number(e.target.value))}
               className={`${compact ? 'w-0 opacity-0 group-hover:w-14 group-hover:opacity-100' : 'w-16'} transition-[width,opacity] duration-200 accent-red-600 cursor-pointer`}
-              title="Volume"
+              title={tr('player.ctl.volume')}
             />
           </div>
 
@@ -369,13 +382,14 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
               type="button"
               onClick={toggleMenu}
               className={`text-white/90 hover:text-white transition-colors ${menuOpen ? 'text-white' : ''}`}
-              title="Settings"
+              title={tr('player.ctl.settings')}
+              aria-label={tr('player.ctl.settings')}
             >
               <Settings className={iconSize} />
             </button>
             {menuOpen && (
               <div className="absolute bottom-8 right-0 w-44 max-h-72 overflow-y-auto rounded-md bg-black/95 border border-white/10 shadow-xl p-2 text-[12px] text-white/90">
-                <div className="px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40">Speed</div>
+                <div className="px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40">{tr('player.ctl.speed')}</div>
                 <div className="grid grid-cols-3 gap-1 mb-2">
                   {SPEEDS.map((s) => (
                     <button
@@ -390,7 +404,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
                     </button>
                   ))}
                 </div>
-                <div className="px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40">Quality</div>
+                <div className="px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40">{tr('player.ctl.quality')}</div>
                 <button
                   type="button"
                   onClick={() => setQuality(null)}
@@ -398,7 +412,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
                     autoQuality ? 'bg-red-600 text-white' : 'hover:bg-white/15'
                   }`}
                 >
-                  Auto
+                  {tr('player.ctl.qualityAuto')}
                 </button>
                 {tracks.map((t) => (
                   <button
@@ -413,7 +427,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
                   </button>
                 ))}
                 {tracks.length === 0 && (
-                  <div className="px-2 py-1 text-white/40">No quality options</div>
+                  <div className="px-2 py-1 text-white/40">{tr('player.ctl.noQuality')}</div>
                 )}
               </div>
             )}
@@ -423,7 +437,8 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
             type="button"
             onClick={toggleFs}
             className="shrink-0 text-white/90 hover:text-white transition-colors"
-            title={isFs ? 'Exit fullscreen' : 'Fullscreen'}
+            title={isFs ? tr('player.ctl.exitFullscreen') : tr('player.ctl.fullscreen')}
+            aria-label={isFs ? tr('player.ctl.exitFullscreen') : tr('player.ctl.fullscreen')}
           >
             {isFs ? <Minimize className={iconSize} /> : <Maximize className={iconSize} />}
           </button>

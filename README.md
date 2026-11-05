@@ -49,7 +49,18 @@ It runs on a public F1 archive that has nothing to do with F1 TV or DRM, so it d
 
 **VPN note (Windows):** Live Timing isn't georestricted, but its host blocks many VPN exit IPs at the WAF level. On Windows, the app fetches the archive via the system `curl.exe` instead of in-process, specifically so that a full-tunnel VPN (e.g. NordVPN) can split-tunnel by excluding just `curl.exe` — Live Timing then leaves on your real IP while everything else stays on the VPN. If your VPN client only supports app-based split-tunneling, add an exclusion rule for `C:\Windows\System32\curl.exe`.
 
+Live sessions are supported too (the feed reconnects by itself if the connection drops). Note that F1 TV live video lags the timing feed by tens of seconds, so the timing screen can show things the video has not reached yet.
+
 Manual alignment used to be difficult because the archive and video clocks weren't synchronized. Now, the app automatically fetches the correct offset  when you start a session. If this lookup fails or a session is unsupported, you can still align them manually via the sync menu by selecting the lap shown on screen or nudging the offset.
+
+---
+
+## Privacy & security
+
+- No telemetry, no analytics, no ads. Your F1 TV token and cookies stay on your machine, encrypted with the OS keystore.
+- The only third-party services the app talks to, besides F1's own: a public video-to-timing sync offset service, `api.openf1.org` (driver headshots) and GitHub (once per launch, to look for a newer release).
+- The packaged app ships a Content-Security-Policy, only ever shows its own document, and its local license proxy needs a per-launch secret. The playback windows still run with relaxed web security because F1's CDN/DRM requests need it; details in [docs/KNOWN_BUGS.md](docs/KNOWN_BUGS.md).
+- Found a vulnerability? See [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -60,6 +71,8 @@ Manual alignment used to be difficult because the archive and video clocks weren
 | Desktop shell / DRM | **Electron** (Castlabs fork for Widevine), CDM handling, IPC to avoid CORS |
 | UI | **React + Vite** |
 | Playback | **Shaka Player** — DASH/HLS and Widevine DRM |
+| Storage | Account token and cookies encrypted at rest with the OS keystore (Electron `safeStorage`); settings in a JSON file under the app data folder |
+| Fonts | Bundled locally (`@fontsource`), no requests to Google at runtime |
 | Data | Unofficial F1 TV APIs — login at `api.formula1.com`, catalog/playback via an in-house client (`electron/f1tvapi.js`, MIT) against f1tv.formula1.com |
 
 ---

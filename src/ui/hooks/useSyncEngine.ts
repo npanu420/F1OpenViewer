@@ -6,6 +6,7 @@ import {
   getSyncKeepLocked,
   getSyncReferenceMode,
 } from '../../services/syncSettings';
+import { COARSE_SEEK_THRESHOLD, liveEntries, planCorrection, type SeekRange } from '../../domain/syncPlan';
 
 /**
  * Multi-stage sync engine for VOD/live multiview.
@@ -25,10 +26,13 @@ import {
  *   reference recovers, the auto-paused streams resume. This avoids the "everyone re-buffers
  *   every time the world feed hiccups" failure mode of pure offset-driven sync.
  *
- * Per-stream correction:
- *   - Drift at or above the coarse threshold seeks to the reference time.
+ * Per-stream correction (decided by planCorrection in domain/syncPlan.ts, unit-tested):
+ *   - Drift at or above the coarse threshold seeks to the reference time. Live/DVR streams seek
+ *     too, but only inside their own seekable window and with a higher threshold.
  *   - Smaller drift adjusts playback rate until it falls within the target threshold.
  *   - Drift below the target threshold restores normal playback speed.
+ *
+ * This hook is the only drift corrector in the multiview; MultiViewer just relays the clock.
  */
 
 export interface SyncEntry {
@@ -41,15 +45,21 @@ export interface SyncEntry {
 
 const TICK_MS = 150;
 const MAX_CONVERGE_MS = 6000;
-const WATCH_MS = 1000;
-const COARSE_SEEK_THRESHOLD = 0.5;
-const RATE_FAST = 1.05;
-const RATE_SLOW = 0.95;
+const WATCH_MS = 500;
 const SEEK_STAGGER_MS = 60;
 /** HTMLMediaElement.readyState constant (avoids relying on the named constant in strict TS). */
 const HAVE_FUTURE_DATA = 3;
 
 type RuntimeEntry = SyncEntry & { video: HTMLVideoElement };
+
+/** The stream's own seekable window, or null when the element reports none yet. */
+function seekRangeOf(video: HTMLVideoElement): SeekRange | null {
+  try {
+    const s = video.seekable;
+    if (s && s.length > 0) return { start: s.start(0), end: s.end(s.length - 1) };
+  } catch (_) {}
+  return null;
+}
 
 function clampRate(r: number): number {
   if (!Number.isFinite(r) || r <= 0) return 1;
@@ -63,10 +73,52 @@ function isLikelyLiveVideo(video: HTMLVideoElement): boolean {
   return d > 60 * 60 * 24;
 }
 
+/** Same streams, reference, done flags and (2-decimal) rates: what the UI shows without the overlay. */
+export function sameSyncShape(a: SyncStreamInfo[], b: SyncStreamInfo[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id ||
+      x.label !== y.label ||
+      x.isReference !== y.isReference ||
+      x.done !== y.done ||
+      Math.round(x.rate * 100) !== Math.round(y.rate * 100)
+    ) return false;
+  }
+  return true;
+}
+
 export function useSyncEngine() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
-  const [syncStreams, setSyncStreams] = useState<SyncStreamInfo[]>([]);
-  const [showSyncOverlay, setShowSyncOverlay] = useState(false);
+  const [syncStreams, setSyncStreamsState] = useState<SyncStreamInfo[]>([]);
+  const [showSyncOverlay, setShowSyncOverlayState] = useState(false);
+  /** Latest computed infos (even when not published), so restoring the overlay shows fresh values. */
+  const latestInfosRef = useRef<SyncStreamInfo[]>([]);
+  const publishedRef = useRef<SyncStreamInfo[]>([]);
+  const overlayOpenRef = useRef(false);
+  const setShowSyncOverlay = useCallback((open: boolean) => {
+    overlayOpenRef.current = open;
+    setShowSyncOverlayState(open);
+    if (open) {
+      publishedRef.current = latestInfosRef.current;
+      setSyncStreamsState(latestInfosRef.current);
+    }
+  }, []);
+  /**
+   * Publish tick results to React. The ticker/watcher run every 100-500 ms forever (keepLocked) and
+   * every publish re-renders the whole multiview, so while the overlay is closed only publish when
+   * something the closed-overlay UI reads changes (stream set, reference, done, rate): offsets only
+   * matter to the open overlay.
+   */
+  const setSyncStreams = useCallback((infos: SyncStreamInfo[]) => {
+    latestInfosRef.current = infos;
+    if (!overlayOpenRef.current && sameSyncShape(publishedRef.current, infos)) return;
+    publishedRef.current = infos;
+    setSyncStreamsState(infos);
+  }, []);
   /**
    * True while either the convergence ticker or the drift-watch interval is active. Consumers
    * use this to decide whether to render the "minimized" floating badge (engine running but
@@ -77,7 +129,8 @@ export function useSyncEngine() {
   const tickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const convergeDeadlineRef = useRef<number>(0);
-  const entriesRef = useRef<RuntimeEntry[]>([]);
+  /** The streams being synced; their video elements are re-resolved on every tick (see liveEntries). */
+  const entriesRef = useRef<SyncEntry[]>([]);
   const refIdRef = useRef<string>('');
   const thresholdRef = useRef<number>(0.05);
   const keepLockedRef = useRef<boolean>(true);
@@ -99,7 +152,7 @@ export function useSyncEngine() {
   }, []);
 
   const resetRates = useCallback(() => {
-    for (const e of entriesRef.current) {
+    for (const e of liveEntries(entriesRef.current)) {
       try {
         if (Math.abs(e.video.playbackRate - 1) > 0.001) e.video.playbackRate = 1;
       } catch (_) {}
@@ -107,7 +160,7 @@ export function useSyncEngine() {
   }, []);
 
   const resumeEnginePausedStreams = useCallback(() => {
-    for (const e of entriesRef.current) {
+    for (const e of liveEntries(entriesRef.current)) {
       if (enginePausedRef.current.has(e.id) && e.video.paused) {
         e.video.play().catch(() => {});
       }
@@ -127,9 +180,18 @@ export function useSyncEngine() {
    */
   const computeAndCorrect = useCallback(
     (canSeek: boolean): { infos: SyncStreamInfo[]; allDone: boolean } => {
-      const entries = entriesRef.current;
-      const refEntry = entries.find((e) => e.id === refIdRef.current) ?? entries[0];
-      if (!refEntry) return { infos: [], allDone: true };
+      const entries: RuntimeEntry[] = liveEntries(entriesRef.current);
+      // Reference not attached right now (its panel is remounting or was stopped): hold nothing,
+      // correct nothing. Letting a detached, paused element act as reference froze every stream.
+      const refEntry = entries.find((e) => e.id === refIdRef.current);
+      if (!refEntry || entries.length < 2) {
+        for (const e of entries) {
+          if (enginePausedRef.current.has(e.id) && e.video.paused) e.video.play().catch(() => {});
+          enginePausedRef.current.delete(e.id);
+          if (Math.abs(e.video.playbackRate - 1) > 0.001) e.video.playbackRate = 1;
+        }
+        return { infos: [], allDone: true };
+      }
       const refVideo = refEntry.video;
       const refTime = refVideo.currentTime;
       const threshold = thresholdRef.current;
@@ -186,16 +248,27 @@ export function useSyncEngine() {
           enginePausedRef.current.delete(e.id);
         }
 
-        if (canSeek && absOffset >= COARSE_SEEK_THRESHOLD && !refIsLive && !isLikelyLiveVideo(v)) {
-          try { v.currentTime = Math.max(0, refTime); } catch (_) {}
+        const streamLive = isLikelyLiveVideo(v);
+        const plan = planCorrection({
+          offset,
+          threshold,
+          canSeek,
+          refBuffering: false, // handled above (hold)
+          refLive: refIsLive,
+          streamLive,
+          refTime,
+          seekable: streamLive || refIsLive ? seekRangeOf(v) : null,
+          streamTime: v.currentTime,
+        });
+        if (plan.kind === 'seek') {
+          try { v.currentTime = plan.to; } catch (_) {}
           if (Math.abs(rate - 1) > 0.001) v.playbackRate = 1;
           rate = 1;
           allDone = false;
-        } else if (absOffset >= threshold) {
-          const desired = offset < 0 ? RATE_FAST : RATE_SLOW;
-          if (Math.abs(rate - desired) > 0.001) {
-            v.playbackRate = clampRate(desired);
-            rate = desired;
+        } else if (plan.kind === 'rate') {
+          if (Math.abs(rate - plan.rate) > 0.001) {
+            v.playbackRate = clampRate(plan.rate);
+            rate = plan.rate;
           }
           allDone = false;
         } else {
@@ -225,9 +298,7 @@ export function useSyncEngine() {
       enginePausedRef.current.clear();
       refHasStartedRef.current = false;
 
-      const withVideos: RuntimeEntry[] = entries
-        .map((e) => ({ ...e, video: e.getVideo() }))
-        .filter((e): e is RuntimeEntry => e.video != null && Number.isFinite(e.video.currentTime));
+      const withVideos: RuntimeEntry[] = liveEntries(entries).filter((e) => Number.isFinite(e.video.currentTime));
 
       if (withVideos.length < 2) return;
 
@@ -248,7 +319,7 @@ export function useSyncEngine() {
         }
       }
 
-      entriesRef.current = withVideos;
+      entriesRef.current = entries;
       refIdRef.current = refEntry.id;
       thresholdRef.current = getSyncOffsetThreshold();
       keepLockedRef.current = getSyncKeepLocked();
@@ -309,24 +380,24 @@ export function useSyncEngine() {
         }
       }, TICK_MS);
     },
-    [stopTimers, resetRates, computeAndCorrect]
+    [stopTimers, resetRates, computeAndCorrect, setSyncStreams, setShowSyncOverlay]
   );
 
   const minimizeOverlay = useCallback(() => {
     // Hide the dialog but keep the engine running. Use restoreOverlay (or the floating badge)
     // to bring it back.
     setShowSyncOverlay(false);
-  }, []);
+  }, [setShowSyncOverlay]);
 
   const restoreOverlay = useCallback(() => {
     setShowSyncOverlay(true);
-  }, []);
+  }, [setShowSyncOverlay]);
 
   const closeOverlay = useCallback(() => {
     setShowSyncOverlay(false);
     cancelSync();
     setSyncStatus((prev) => (prev === 'syncing' ? 'idle' : prev));
-  }, [cancelSync]);
+  }, [cancelSync, setShowSyncOverlay]);
 
   useEffect(() => () => stopTimers(), [stopTimers]);
 

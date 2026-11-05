@@ -7,6 +7,7 @@ const {
   snapshotAndPersistCookies,
 } = require('./session');
 const { buildLoginUserAgent, tokenFromLoginSessionCookie } = require('./loginUtils');
+const { hardenRemoteWebContents } = require('./navigationPolicy');
 
 const LOGIN_TIMEOUT_MS = 300000;
 const COOKIE_SETTLE_MS = 500;
@@ -16,7 +17,7 @@ function isFormula1Cookie(cookie) {
   return /(^|\.)formula1\.com$/i.test(cookie?.domain || '');
 }
 
-function openLoginWindow() {
+function openLoginWindow(validateToken, reportValidationError) {
   return new Promise((resolve, reject) => {
     let settled = false;
     let acceptingToken = false;
@@ -44,6 +45,8 @@ function openLoginWindow() {
       },
     });
     loginWin.webContents.setUserAgent(LOGIN_WINDOW_UA);
+    // https-only navigation; popups (SSO/captcha) only https and locked down like this window.
+    hardenRemoteWebContents(loginWin.webContents, { allowPopups: true });
 
     timeout = setTimeout(() => {
       finish(new Error('Timeout: complete sign-in in the window within a few minutes.'));
@@ -53,13 +56,18 @@ function openLoginWindow() {
       if (settled || acceptingToken || !token || isTokenExpired(token)) return false;
       acceptingToken = true;
       try {
+        if (validateToken) await validateToken(token);
         await new Promise((r) => setTimeout(r, COOKIE_SETTLE_MS));
         await snapshotAndPersistCookies();
         console.log('[login] subscription token captured from', source);
         finish(null, token);
         return true;
       } catch (e) {
-        console.warn('[login] token persistence failed:', e?.message);
+        console.warn('[login] captured token could not initialize the F1 client:', e?.message);
+        reportValidationError?.(
+          `F1 sign-in completed, but the app could not initialize the session: ${e?.message || 'unknown error'}. You can try signing in again in the F1 window.`
+        );
+        if (!loginWin.isDestroyed()) loginWin.setTitle('F1 TV sign-in needs another attempt');
         acceptingToken = false;
         return false;
       }

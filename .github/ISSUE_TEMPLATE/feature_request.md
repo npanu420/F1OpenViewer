@@ -16,4 +16,4 @@ What you'd want the app to do instead.
 Any other way you've thought about solving this, if any.
 
 **Anything else**
-Mockups, links to similar features in other apps (e.g. MultiViewer), anything that helps explain the idea.
+Mockups, links to similar features in other apps, anything that helps explain the idea.

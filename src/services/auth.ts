@@ -1,42 +1,23 @@
-import { session } from './session';
+/** F1 TV sign-in. Each call resolves once the main process holds a working session. */
 
-/**
- * F1 TV login with email/password (may return 403 due to Imperva protection).
- */
-export async function login(email: string, password: string): Promise<{ accessToken: string }> {
-  if (!window.f1?.login) {
-    throw new Error('F1 TV login not available (run the app in Electron).');
-  }
-  const result = await window.f1.login(email, password);
-  if (!result?.accessToken) throw new Error('Login failed: token missing.');
-  await session.set({ accessToken: result.accessToken });
-  return { accessToken: result.accessToken };
+function ensureSignedIn(result: { signedIn?: boolean } | undefined, message: string): void {
+  if (!result?.signedIn) throw new Error(message);
 }
 
-/**
- * Login with in-app browser window.
- * Opens account.formula1.com; sign in there and the token is captured and saved.
- */
-export async function loginWithBrowser(): Promise<{ accessToken: string }> {
-  if (!window.f1?.loginWithBrowser) {
-    throw new Error('Browser login not available (run the app in Electron).');
-  }
-  const result = await window.f1.loginWithBrowser();
-  if (!result?.accessToken) throw new Error('Sign-in not completed.');
-  await session.set({ accessToken: result.accessToken });
-  return { accessToken: result.accessToken };
+/** Email/password (F1 often answers 403 because of its bot protection). */
+export async function login(email: string, password: string): Promise<void> {
+  if (!window.f1?.login) throw new Error('F1 TV login not available (run the app in Electron).');
+  ensureSignedIn(await window.f1.login(email, password), 'Login failed: token missing.');
 }
 
-/**
- * Login with a token copied from the by-password response in browser DevTools.
- * Useful when direct login returns 403.
- */
-export async function loginWithToken(tokenOrJson: string): Promise<{ accessToken: string }> {
-  if (!window.f1?.loginWithToken) {
-    throw new Error('Token login not available (run the app in Electron).');
-  }
-  const result = await window.f1.loginWithToken(tokenOrJson);
-  if (!result?.accessToken) throw new Error('Invalid token.');
-  await session.set({ accessToken: result.accessToken });
-  return { accessToken: result.accessToken };
+/** In-app browser window on account.formula1.com; the token is captured by the main process. */
+export async function loginWithBrowser(): Promise<void> {
+  if (!window.f1?.loginWithBrowser) throw new Error('Browser login not available (run the app in Electron).');
+  ensureSignedIn(await window.f1.loginWithBrowser(), 'Sign-in not completed.');
+}
+
+/** Token copied from the by-password response in browser DevTools (fallback when direct login 403s). */
+export async function loginWithToken(tokenOrJson: string): Promise<void> {
+  if (!window.f1?.loginWithToken) throw new Error('Token login not available (run the app in Electron).');
+  ensureSignedIn(await window.f1.loginWithToken(tokenOrJson), 'Invalid token.');
 }

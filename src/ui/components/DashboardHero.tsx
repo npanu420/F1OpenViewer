@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodEvent } from '../../domain/vod';
 import { useLocale } from '../../i18n/LocaleContext';
-import { getFlag, getCountryCodeFromMeetingKey } from '../../lib/flags';
+import { getFlag, getEventCountryCode } from '../../lib/flags';
 
 interface DashboardHeroProps {
   liveItem?: CatalogItem;
@@ -26,7 +26,7 @@ export function DashboardHero({ liveItem, latestEvent, loading, onWatchLive, onW
   const isLive = !!liveItem;
   const flag = isLive
     ? '🏁'
-    : getFlag(getCountryCodeFromMeetingKey(latestEvent!.meetingKey));
+    : getFlag(getEventCountryCode(latestEvent!));
   const title = isLive ? liveItem!.title : latestEvent!.meetingName;
   const roundLabel = !isLive && latestEvent!.meetingNumber
     ? `R${String(latestEvent!.meetingNumber).padStart(2, '0')}`

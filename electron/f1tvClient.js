@@ -5,8 +5,7 @@
  */
 
 const axios = require('axios');
-const { fetch: undiciFetch } = require('undici');
-const { F1TVClient, F1TV } = require('./f1tvapi');
+const { F1TVClient, F1TV, fetchWithRetry } = require('./f1tvapi');
 
 const F1TV_BASE = 'https://f1tv.formula1.com';
 const F1TV_PLATFORM = 'WEB_DASH';
@@ -27,6 +26,15 @@ const F1_AUTH_ORIGIN = 'https://account.formula1.com';
 
 /** @type {F1TVClient | null} */
 let f1Client = null;
+/** Monotonic id of the latest initClient() call (see initClient). */
+let initSeq = 0;
+/** Bumped by clearSession(): an init that started before a sign-out must not install its client. */
+let clearGen = 0;
+/** Overridable in tests. */
+let clientFactory = (token) => new F1TVClient(token, F1TV.Language.ENGLISH, F1TV.Platform.WEB_DASH);
+function _setClientFactory(fn) {
+  clientFactory = fn || ((token) => new F1TVClient(token, F1TV.Language.ENGLISH, F1TV.Platform.WEB_DASH));
+}
 /** @type {string | null} */
 let subscriptionToken = null;
 
@@ -125,14 +133,33 @@ function loginWithToken(tokenOrJson) {
  * @param {string} token - subscription token (ascendon)
  * @param {number} readyTimeoutMs
  */
+/** The init currently running, so concurrent callers with the same token share it. */
+let inflight = null;
+
+/**
+ * Initialises the F1 TV client for `token`. Concurrent calls with the same token (the startup
+ * restore in main and the renderer's restoreSession IPC race at launch) share ONE init instead of
+ * hammering the F1 endpoints twice and fighting over the shared client.
+ */
 function initClient(token, readyTimeoutMs = 15000) {
+  if (inflight && inflight.token === token) return inflight.promise;
+  const entry = { token, promise: null };
+  entry.promise = runInit(token, readyTimeoutMs);
+  inflight = entry;
+  const clear = () => { if (inflight === entry) inflight = null; };
+  entry.promise.then(clear, clear);
+  return entry.promise;
+}
+
+function runInit(token, readyTimeoutMs) {
+  // The new client only replaces the current one once it is fully ready. Swapping eagerly (the old
+  // behaviour) left every other in-flight stream without license headers for the whole init window.
+  // When several inits overlap, only the most recent one is allowed to install or clear the client.
+  const myId = ++initSeq;
+  const isLatest = () => myId === initSeq;
+  const myClear = clearGen;
   return new Promise((resolve, reject) => {
-    if (f1Client) {
-      f1Client.ascendon = null;
-      f1Client = null;
-    }
-    const client = new F1TVClient(token, F1TV.Language.ENGLISH, F1TV.Platform.WEB_DASH);
-    f1Client = client;
+    const client = clientFactory(token);
 
     const t = setTimeout(() => {
       cleanup();
@@ -197,7 +224,7 @@ function initClient(token, readyTimeoutMs = 15000) {
           client.once('ascendonUpdated', onOk);
           client.once('ascendonError', onErr);
         }).catch((err) => {
-          f1Client = null;
+          if (isLatest()) f1Client = null;
           reject(err);
           return;
         });
@@ -224,10 +251,16 @@ function initClient(token, readyTimeoutMs = 15000) {
         });
       }
       if (!client.entitlement) {
-        f1Client = null;
+        if (isLatest()) f1Client = null;
         reject(new Error('Invalid session: entitlement not available (account not authenticated with API).'));
         return;
       }
+      if (myClear !== clearGen) {
+        reject(new Error('Session cleared while the F1 TV client was initialising'));
+        return;
+      }
+      // A superseded init still installs its client when nothing else did (e.g. the newer one failed).
+      if (isLatest() || !f1Client) f1Client = client;
 
       console.log('[F1TV] Client ready. ascendon:', !!client.ascendon, '| entitlement:', !!client.entitlement, '| location:', !!client.location);
       if (client.location) {
@@ -239,7 +272,7 @@ function initClient(token, readyTimeoutMs = 15000) {
     client.once('ascendonError', (err) => {
       cleanup();
       console.error('[F1TV] ascendonError:', err?.message);
-      f1Client = null;
+      if (isLatest()) f1Client = null;
       reject(err);
     });
     client.once('configError', (err) => {
@@ -274,7 +307,7 @@ async function fetchPage(pageId) {
   if (f1Client?.entitlement) headers.entitlementtoken = f1Client.entitlement;
   if (f1Client?.ascendon) headers.ascendontoken = f1Client.ascendon;
   console.log('[fetchPage]', url, '| entitlement:', entitlement, '| groupId:', groupId, '| auth:', loginStatus);
-  const res = await undiciFetch(url, { headers });
+  const res = await fetchWithRetry(url, { headers });
   if (!res.ok) throw new Error(`fetchPage ${pageId} → HTTP ${res.status}`);
   const json = await res.json();
   if (json.resultCode !== 'OK') {
@@ -309,6 +342,8 @@ function getLicenseRequestHeaders() {
 }
 
 function clearSession() {
+  clearGen += 1;
+  inflight = null;
   playbackEntitlementOverride = null;
   subscriptionToken = null;
   if (f1Client) {
@@ -332,6 +367,7 @@ module.exports = {
   getLicenseRequestHeaders,
   setPlaybackEntitlementOverride,
   clearSession,
+  _setClientFactory,
   get isClientReady() {
     return !!f1Client && f1Client.isReady;
   },

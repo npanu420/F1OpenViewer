@@ -21,22 +21,13 @@ export async function resolvePlayback(item: CatalogItem): Promise<PlaybackInfo> 
   }
   const play = await window.f1.contentPlay(item.contentId, item.channelId);
   if (!play?.manifestUrl) throw new Error('Play response missing manifest URL.');
-  const licenseHeaders: Record<string, string> = {};
-  if (play.drmToken) {
-    licenseHeaders.Authorization = `Bearer ${play.drmToken}`;
-    licenseHeaders.drmtoken = play.drmToken;
-  }
-  if (play.licenseAscendonToken) licenseHeaders.ascendontoken = play.licenseAscendonToken;
-  if (play.licenseEntitlementToken) licenseHeaders.entitlementtoken = play.licenseEntitlementToken;
-  // playToken is registered per-stream in the main-process license proxy at contentPlay time.
-  // Binary tokens can be corrupted when passed through renderer headers.
-  const fallbackLicenseHeaders: Record<string, string> = {};
-  if (play.fallbackDrmToken) {
-    fallbackLicenseHeaders.Authorization = `Bearer ${play.fallbackDrmToken}`;
-    fallbackLicenseHeaders.drmtoken = play.fallbackDrmToken;
-  }
-  if (play.licenseAscendonToken) fallbackLicenseHeaders.ascendontoken = play.licenseAscendonToken;
-  if (play.licenseEntitlementToken) fallbackLicenseHeaders.entitlementtoken = play.licenseEntitlementToken;
+  // Account-level tokens (ascendon / entitlement / playToken) are never sent to the renderer: the
+  // main process attaches them (license proxy, webRequest hook). Only a per-play drmToken for a
+  // license request that bypasses the proxy can arrive here.
+  const drmHeaders = (token?: string): Record<string, string> =>
+    token ? { Authorization: `Bearer ${token}`, drmtoken: token } : {};
+  const licenseHeaders = drmHeaders(play.drmToken);
+  const fallbackLicenseHeaders = drmHeaders(play.fallbackDrmToken);
   return {
     manifestUrl: play.manifestUrl,
     licenseUrl: play.licenseUrl || '',
@@ -48,3 +39,4 @@ export async function resolvePlayback(item: CatalogItem): Promise<PlaybackInfo> 
     fallbackStreamType: play.fallbackStreamType,
   };
 }
+

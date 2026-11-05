@@ -225,3 +225,61 @@ test('applyRecords: bulk apply in order', () => {
   ]);
   assert.equal(store.TimingData.Lines['1'].Position, '3');
 });
+
+// ---- stabilizeRows -----------------------------------------------------------------------
+
+import { stabilizeRows } from './timing';
+
+function storeWithDrivers(positions: Record<string, string>) {
+  const store = createStore();
+  applyRecord(store, 'DriverList', {
+    '1': { Tla: 'VER', TeamColour: 'ffffff', Line: 1 },
+    '44': { Tla: 'HAM', TeamColour: 'ff0000', Line: 2 },
+  });
+  applyRecord(store, 'TimingData', {
+    Lines: Object.fromEntries(Object.entries(positions).map(([n, p]) => [n, { Position: p, Line: Number(p) }])),
+  });
+  return store;
+}
+
+test('stabilizeRows: unchanged rows keep identity, unchanged array is returned as-is', () => {
+  const a = selectDrivers(storeWithDrivers({ '1': '1', '44': '2' }));
+  const b = selectDrivers(storeWithDrivers({ '1': '1', '44': '2' }));
+  assert.notEqual(a[0], b[0]); // fresh objects from the selector
+  const out = stabilizeRows(a, b);
+  assert.equal(out, a);
+});
+
+test('stabilizeRows: only the changed driver gets a new object', () => {
+  const a = selectDrivers(storeWithDrivers({ '1': '1', '44': '2' }));
+  const store = storeWithDrivers({ '1': '1', '44': '2' });
+  applyRecord(store, 'TimingData', { Lines: { '44': { LastLapTime: { Value: '1:30.000' } } } });
+  const out = stabilizeRows(a, selectDrivers(store));
+  assert.notEqual(out, a);
+  assert.equal(out[0], a[0]);
+  assert.notEqual(out[1], a[1]);
+  assert.equal(out[1].lastLap, '1:30.000');
+});
+
+test('stabilizeRows: reordering produces a new array but reuses row objects', () => {
+  const a = selectDrivers(storeWithDrivers({ '1': '1', '44': '2' }));
+  const swapped = stabilizeRows(a, selectDrivers(storeWithDrivers({ '1': '2', '44': '1' })));
+  assert.equal(swapped[0].number, '44');
+  assert.equal(swapped.length, 2);
+});
+
+test('stabilizeRows: empty previous list returns the next list', () => {
+  const next = selectDrivers(storeWithDrivers({ '1': '1', '44': '2' }));
+  assert.equal(stabilizeRows([], next), next);
+});
+
+test('selectDrivers: team colour accepts 6-digit hex (with or without #) and rejects anything else', () => {
+  const colourOf = (c: unknown) => {
+    const store = createStore();
+    applyRecord(store, 'DriverList', { '1': { Tla: 'VER', TeamColour: c } });
+    return selectDrivers(store)[0].teamColour;
+  };
+  assert.equal(colourOf('3671C6'), '#3671C6');
+  assert.equal(colourOf('#e8002d'), '#e8002d');
+  for (const bad of ['red; background:url(x)', 'fff', 'GGGGGG', '', null, 42]) assert.equal(colourOf(bad), '#666', String(bad));
+});
