@@ -295,6 +295,7 @@ export function App() {
         <Suspense fallback={<BootScreen />}>
         <LiveEventView
           item={route.item}
+          error={error}
           onBack={() => setRoute({ name: 'dashboard' })}
           onOpenExternal={async (item) => {
             try {

@@ -1,7 +1,9 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Zap, CheckCircle2, AlertCircle, X, Minimize2 } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleContext';
+
+import { Dialog } from './Dialog';
 
 export type SyncStatus = 'idle' | 'syncing' | 'done' | 'error';
 
@@ -64,7 +66,7 @@ function StreamRow({ stream }: { stream: SyncStreamInfo }) {
         <p className="text-xs font-heading font-bold tracking-wider truncate text-foreground">
           {stream.label}
         </p>
-        <p className="text-[10px] text-muted-foreground mt-0.5">
+        <p className="text-xs text-muted-foreground mt-0.5">
           {stream.isReference
             ? t('sync.noAdjustment')
             : offsetAbs < 0.05
@@ -75,7 +77,7 @@ function StreamRow({ stream }: { stream: SyncStreamInfo }) {
 
       <div className="shrink-0 text-right">
         <span
-          className={`text-[10px] font-heading font-bold tracking-wider px-2 py-0.5 rounded ${
+          className={`text-xs font-heading font-bold tracking-wider px-2 py-0.5 rounded ${
             stream.isReference
               ? 'bg-primary/20 text-primary'
               : stream.rate > 1
@@ -107,26 +109,9 @@ export function SyncOverlay({
   const onBackdropClick = onMinimize ?? onClose;
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            // Lighter backdrop so the user can still see what's playing underneath while syncing.
-            // No backdrop-filter: it re-blurred every video frame underneath on each paint.
-            className="fixed inset-0 bg-background/50 z-[60]"
-            onClick={onBackdropClick}
-          />
-
-          <motion.div
-            initial={{ opacity: 0, scale: 0.92, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.92, y: 20 }}
-            transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-            className="fixed inset-0 flex items-center justify-center z-[61] pointer-events-none"
-          >
+    // Lighter backdrop so the user can still see what's playing underneath while syncing.
+    // No backdrop-filter: it re-blurred every video frame underneath on each paint.
+    <Dialog open={isOpen} onDismiss={onBackdropClick} labelledBy="sync-dialog-title" className="sync-dialog">
             <div className="pointer-events-auto w-full max-w-lg glass-panel rounded-2xl overflow-hidden shadow-2xl">
               <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-primary/5">
                 <div className="relative flex items-center justify-center w-9 h-9">
@@ -142,14 +127,14 @@ export function SyncOverlay({
                   )}
                 </div>
                 <div className="flex-1">
-                  <h2 className="font-heading text-base font-bold tracking-wider text-foreground">
+                  <h2 id="sync-dialog-title" className="font-heading text-base font-bold tracking-wider text-foreground">
                     {status === 'syncing'
                       ? t('sync.inProgress')
                       : status === 'done'
                       ? t('sync.done')
                       : t('sync.error')}
                   </h2>
-                  <p className="text-[11px] text-muted-foreground tracking-wide mt-0.5">
+                  <p className="text-xs text-muted-foreground tracking-wide mt-0.5">
                     {status === 'syncing'
                       ? t('sync.inProgressDescription')
                       : status === 'done'
@@ -183,7 +168,7 @@ export function SyncOverlay({
 
               {status === 'syncing' && streams.length > 0 && (
                 <div className="px-6 py-4 border-b border-border/30">
-                  <div className="flex justify-between text-[10px] text-muted-foreground font-heading tracking-wider mb-1.5">
+                  <div className="flex justify-between text-xs text-muted-foreground font-heading tracking-wider mb-1.5">
                     <span>{t('sync.progressLabel')}</span>
                     <span>
                       {t('sync.progressValue')
@@ -219,9 +204,6 @@ export function SyncOverlay({
                 </div>
               )}
             </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+    </Dialog>
   );
 }

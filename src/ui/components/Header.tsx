@@ -41,7 +41,7 @@ export function Header({
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="w-full h-2.5 flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-accent/40 transition-colors"
+          className="w-full h-6 flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-accent/40 transition-colors"
           title={t('header.expandTitle')}
           aria-label={t('header.expandTitle')}
         >
@@ -53,10 +53,10 @@ export function Header({
 
   return (
     <header className="border-b border-border/50 glass-panel sticky top-0 z-50">
-      <div className="max-w-[1600px] 2xl:max-w-[94vw] mx-auto px-4 sm:px-6 h-14 flex items-center gap-4">
+      <div className="w-full mx-auto px-4 sm:px-6 h-12 flex items-center gap-4">
         <motion.div
           className="flex items-center gap-2.5"
-          initial={{ opacity: 0, x: -20 }}
+          initial={false}
           animate={{ opacity: 1, x: 0 }}
         >
           <img
@@ -65,10 +65,10 @@ export function Header({
             className="w-8 h-8 rounded object-contain"
           />
           <div className="hidden sm:block">
-            <h1 className="text-base font-heading font-bold tracking-wider leading-none">
+            <h1 className="text-lg brand-wordmark leading-none">
               {brandLabel}
             </h1>
-            <p className="text-[10px] text-muted-foreground tracking-[0.2em] font-heading">
+            <p className="text-xs text-muted-foreground tracking-normal font-heading">
               {subtitle}
             </p>
           </div>
@@ -76,7 +76,7 @@ export function Header({
 
         <div className="w-px h-6 bg-border hidden sm:block" />
 
-        <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
+        <div className="flex-1 min-w-0 flex justify-end">
           <SeasonSelector
             selectedYear={selectedYear}
             onSelectYear={onSelectYear}
@@ -90,8 +90,8 @@ export function Header({
               <span className="relative flex h-3 w-3">
                 {hasLive ? (
                   <>
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-70" />
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-primary" />
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-70" />
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
                   </>
                 ) : (
                   <span className="inline-flex h-3 w-3 rounded-full bg-muted-foreground/40" />
@@ -99,11 +99,11 @@ export function Header({
               </span>
             </div>
             <span
-              className={`text-[10px] font-heading tracking-[0.25em] ${
-                hasLive ? 'text-primary' : 'text-muted-foreground'
+              className={`text-xs font-heading tracking-normal ${
+                hasLive ? 'text-red-400' : 'text-muted-foreground'
               }`}
             >
-              {hasLive ? t('header.live') : t('header.offline')}
+              {hasLive ? t('header.live') : t('experience.idle')}
             </span>
           </div>
           <motion.button
@@ -112,6 +112,7 @@ export function Header({
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             title={t('header.settingsTitle')}
+            aria-label={t('header.settingsTitle')}
           >
             <Settings className="w-4.5 h-4.5" />
           </motion.button>
@@ -121,6 +122,7 @@ export function Header({
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             title={t('header.collapseTitle')}
+            aria-label={t('header.collapseTitle')}
           >
             <ChevronUp className="w-4.5 h-4.5" />
           </motion.button>

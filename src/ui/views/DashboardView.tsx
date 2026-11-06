@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Search, X } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodEvent, VodSession, VodOnboard } from '../../domain/vod';
 import {
@@ -64,6 +64,8 @@ export function DashboardView({
   onEmbedError,
 }: Props) {
   const { t } = useLocale();
+  const [search, setSearch] = useState('');
+  const calendarScroll = useRef(0);
   const [selectedEvent, setSelectedEvent] = useState<VodEvent | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string>('');
 
@@ -104,6 +106,15 @@ export function DashboardView({
   const currentEvents = selectedYear !== -1 && currentSeasonPageId != null
     ? eventsBySeasonPageId[currentSeasonPageId]
     : undefined;
+  const filteredEvents = (currentEvents ?? []).filter((event) =>
+    `${event.meetingName} ${event.country ?? ''} ${event.meetingNumber}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
+  );
+  useEffect(() => {
+    if (!selectedEvent) {
+      const id = requestAnimationFrame(() => window.scrollTo(0, calendarScroll.current));
+      return () => cancelAnimationFrame(id);
+    }
+  }, [selectedEvent]);
   const loadingEvs = currentSeasonPageId != null
     ? loadingEvents[currentSeasonPageId]
     : false;
@@ -116,6 +127,8 @@ export function DashboardView({
 
   useEffect(() => {
     setSelectedEvent(null);
+    setSearch('');
+    calendarScroll.current = 0;
     setActiveSessionId('');
   }, [selectedYear]);
 
@@ -245,7 +258,9 @@ export function DashboardView({
   }, [onRefresh]);
 
   const handleSelectEvent = (ev: VodEvent) => {
+    calendarScroll.current = window.scrollY;
     setSelectedEvent(ev);
+    window.scrollTo(0, 0);
     setActiveSessionId('');
   };
 
@@ -279,7 +294,7 @@ export function DashboardView({
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="max-w-[1600px] 2xl:max-w-[94vw] mx-auto px-4 sm:px-6 py-6">
+      <main className={`workspace ${selectedEvent ? '' : 'catalog-workspace'}`}>
         {error && (
           <div className="mb-4 error" role="alert">
             {error}
@@ -290,7 +305,7 @@ export function DashboardView({
           {!selectedEvent ? (
             <motion.div
               key={`season-${selectedYear}`}
-              initial={{ opacity: 0 }}
+              initial={false}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0, x: -30 }}
               transition={{ duration: 0.3 }}
@@ -308,7 +323,7 @@ export function DashboardView({
               />
 
               <LiveSection
-                items={itemsForSelectedYear}
+                items={itemsForSelectedYear.filter((item) => item.kind === 'live' && item.id !== itemsForSelectedYear.find((entry) => entry.kind === 'live')?.id)}
                 onOpen={onOpen}
                 loading={busy}
               />
@@ -338,7 +353,14 @@ export function DashboardView({
                 </button>
               </div>
 
-              <div className="red-stripe mb-6" />
+              <div className="flex items-center gap-3 mb-5">
+                <label className="relative flex-1 max-w-md">
+                  <Search aria-hidden className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+                  <input type="search" className="ui-input w-full !pl-9" aria-label={t('experience.search')} placeholder={t('experience.search')} value={search} onChange={(event) => setSearch(event.target.value)} />
+                </label>
+                {search && <button className="ui-button" onClick={() => setSearch('')} aria-label={t('experience.clearSearch')}><X className="w-4 h-4" /></button>}
+              </div>
+              {currentEvents?.length && !filteredEvents.length ? <p role="status" className="py-8 text-sm text-muted-foreground">{t('experience.noResults')}</p> : null}
 
               {selectedYear === -1 ? (
                 <div className="glass-panel rounded-lg p-8 text-center">
@@ -360,7 +382,7 @@ export function DashboardView({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                  {currentEvents.map((ev, i) => (
+                  {filteredEvents.map((ev, i) => (
                     <RaceCard
                       key={`${selectedYear}-${ev.meetingKey}`}
                       event={ev}
@@ -374,20 +396,20 @@ export function DashboardView({
           ) : (
             <motion.div
               key="race-view"
-              initial={{ opacity: 0, x: 30 }}
+              initial={false}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <div className="mb-6">
+              <div className="session-heading">
                 <button
                   onClick={handleBack}
-                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 group"
+                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0 group"
                   type="button"
                 >
                   <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
                   <span className="font-heading tracking-wider">
-                    {t('dashboard.pastChampionships')} — {t('dashboard.backToCalendar')}
+                    {t('dashboard.backToCalendar')}
                   </span>
                 </button>
 
@@ -409,7 +431,7 @@ export function DashboardView({
                 )}
               </div>
 
-              <div className="red-stripe mb-6" />
+              
 
               {loadingSess ? (
                 <p className="text-sm text-muted-foreground mb-4">
@@ -417,7 +439,7 @@ export function DashboardView({
                 </p>
               ) : sessionTabItems.length > 0 ? (
                 <>
-                  <div className="mb-6 min-w-0">
+                  <div className="mb-2 min-w-0">
                     <SessionTabs
                       sessions={sessionTabItems}
                       activeSessionId={activeSessionId}

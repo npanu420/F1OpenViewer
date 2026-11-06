@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
-import { Plus, GripVertical, ChevronRight, X } from 'lucide-react';
+import { Plus, GripVertical, ChevronRight, X, MoreHorizontal } from 'lucide-react';
 import type { EventCallback, Layout, LayoutItem } from 'react-grid-layout';
 import { calcGridColWidth, calcGridItemWHPx } from 'react-grid-layout/core';
 import { ReactGridLayout, WidthProvider } from 'react-grid-layout/legacy';
@@ -12,6 +12,7 @@ import { StreamPanel, type StreamPanelHandle } from './StreamPanel';
 export const DRIVER_SHELF_DRAG_TYPE = 'application/x-f1ov-stream-id';
 
 import 'react-grid-layout/css/styles.css';
+import { movePanel } from './layoutOperations';
 
 // react-grid-layout 2.2.2 /legacy types disagree on ref callback (null vs undefined).
 // Bug is in their .d.ts, not our usage. Hand-declare the props we pass to GridLayoutWithWidth.
@@ -149,6 +150,8 @@ function snapLayoutItemToStreamAspect(
 }
 
 interface ResizableStreamGridProps {
+  editing?: boolean;
+  onRemoveSlot?: (id: string) => void;
   streamOptions: StreamOption[];
   layout: Layout;
   onLayoutChange: (layout: Layout) => void;
@@ -188,6 +191,8 @@ const DEFAULT_ROW_HEIGHT = 80;
 
 export function ResizableStreamGrid({
   streamOptions,
+  editing = false,
+  onRemoveSlot,
   layout,
   onLayoutChange,
   slotToItemId,
@@ -216,6 +221,8 @@ export function ResizableStreamGrid({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; slotId: string } | null>(null);
   const [sizesSubmenuVisible, setSizesSubmenuVisible] = useState(false);
   const [dragOverSlotId, setDragOverSlotId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   /** Video aspect ratio for each active slot. */
@@ -288,7 +295,8 @@ export function ResizableStreamGrid({
     (e: React.MouseEvent, slotId: string) => {
       e.preventDefault();
       e.stopPropagation();
-      setContextMenu({ x: e.clientX, y: e.clientY, slotId });
+      menuTriggerRef.current = e.currentTarget as HTMLElement;
+      setContextMenu({ x: Math.max(8, Math.min(e.clientX, window.innerWidth - 220)), y: Math.max(8, Math.min(e.clientY, window.innerHeight - 320)), slotId });
     },
     []
   );
@@ -350,9 +358,13 @@ export function ResizableStreamGrid({
       setContextMenu(null);
       setSizesSubmenuVisible(false);
     };
+    menuRef.current?.querySelector('button')?.focus();
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { close(); menuTriggerRef.current?.focus(); } };
+    window.addEventListener('keydown', onKey);
     window.addEventListener('click', close);
     window.addEventListener('contextmenu', close);
     return () => {
+      window.removeEventListener('keydown', onKey);
       window.removeEventListener('click', close);
       window.removeEventListener('contextmenu', close);
     };
@@ -381,10 +393,10 @@ export function ResizableStreamGrid({
         rowHeight={rowHeight}
         margin={[GRID_MARGIN[0], GRID_MARGIN[1]]}
         containerPadding={[GRID_CONTAINER_PADDING[0], GRID_CONTAINER_PADDING[1]]}
-        isDraggable={true}
-        isResizable={true}
+        isDraggable={editing}
+        isResizable={editing}
         draggableHandle=".grid-drag-handle"
-        resizeHandles={['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']}
+        resizeHandles={editing ? ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] : []}
         compactType={disableCompact ? null : 'vertical'}
         preventCollision={false}
         useCSSTransforms={true}
@@ -433,6 +445,7 @@ export function ResizableStreamGrid({
                 className={`grid-slot-header flex items-center gap-2 px-2 py-1.5 border-b border-border/50 shrink-0 bg-card transition-opacity duration-200 ${hideSlotHeadersUntilHover ? 'absolute top-0 left-0 right-0 z-10 opacity-0 group-hover:opacity-100 border-border/50' : ''}`}
               >
                 <div
+                  hidden={!editing}
                   className="grid-drag-handle cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5 touch-none"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -441,9 +454,11 @@ export function ResizableStreamGrid({
                 <span className="flex-1 min-w-0 text-xs font-heading truncate text-foreground">
                   {option ? option.label : t('dashboard.gridEmptySlot')}
                 </span>
-                {option && (
+                <button type="button" className="ui-button !p-1 !min-h-7" aria-label={`${t('experience.panelOptions')}: ${option?.label ?? slotId}`} onClick={(event) => { event.stopPropagation(); handleContextMenu(event, slotId); }}><MoreHorizontal className="w-4 h-4" /></button>
+                {editing && option && (
                   <button
                     type="button"
+                    aria-label={t('dashboard.gridClearSlot')}
                     title={t('dashboard.gridClearSlot')}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -456,6 +471,7 @@ export function ResizableStreamGrid({
                 )}
               </div>
 
+              {isPickTarget && <button type="button" className="absolute inset-0 z-30 bg-black/60 text-white text-sm" onClick={(event) => { event.stopPropagation(); onSlotToItemIdChange(slotId, pickingItemId!); onPickingConsumed?.(); }}>{t('experience.chooseSlot')}</button>}
               {/* Content: fills remaining height (or full height when header is absolute) */}
               <div className="flex-1 min-h-0 flex flex-col min-w-0 bg-black overflow-hidden">
                 {option ? (
@@ -511,7 +527,10 @@ export function ResizableStreamGrid({
         const hasStream = Boolean(itemId && onReloadStream);
         return (
           <div
-            className="fixed z-[100] min-w-[140px] py-1 rounded-lg border border-border bg-popover shadow-lg"
+            ref={menuRef}
+            data-panel-menu
+            role="region" aria-label={t('experience.panelOptions')}
+            className="fixed z-[100] w-[210px] max-h-[min(70vh,360px)] overflow-y-auto py-1 rounded-lg border border-border bg-popover shadow-lg"
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -531,18 +550,18 @@ export function ResizableStreamGrid({
                 <div className="border-t border-border/50 my-1" />
               </>
             )}
-            <div
+            {editing && <div
               className="relative"
               onMouseEnter={() => setSizesSubmenuVisible(true)}
               onMouseLeave={() => setSizesSubmenuVisible(false)}
             >
-              <div className="px-3 py-1.5 text-sm flex items-center justify-between hover:bg-accent/50 transition-colors">
+              <button type="button" aria-expanded={sizesSubmenuVisible} onClick={() => setSizesSubmenuVisible((open) => !open)} className="w-full px-3 py-1.5 text-sm flex items-center justify-between hover:bg-accent/50 transition-colors">
                 <span>{t('dashboard.sizesSubmenu')}</span>
                 <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-              </div>
+              </button>
               {sizesSubmenuVisible && (
                 <div
-                  className="absolute left-full top-0 ml-0.5 min-w-[100px] py-1 rounded-lg border border-border bg-popover shadow-lg max-h-[70vh] overflow-y-auto"
+                  className="min-w-[100px] py-1 rounded-lg border border-border bg-popover shadow-lg max-h-[70vh] overflow-y-auto"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {SIZE_RATIOS.map(({ num, den }) => (
@@ -562,7 +581,12 @@ export function ResizableStreamGrid({
                   ))}
                 </div>
               )}
-            </div>
+            </div>}
+            {editing && <>
+              <button className="w-full text-left px-3 py-2 text-sm hover:bg-accent" onClick={() => { onLayoutChange(movePanel(layout, contextMenu.slotId, -1)); setContextMenu(null); }}>{t('experience.moveUp')}</button>
+              <button className="w-full text-left px-3 py-2 text-sm hover:bg-accent" onClick={() => { onLayoutChange(movePanel(layout, contextMenu.slotId, 1)); setContextMenu(null); }}>{t('experience.moveDown')}</button>
+              <button className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-accent" disabled={layout.length <= 1} onClick={() => { onRemoveSlot?.(contextMenu.slotId); setContextMenu(null); }}>{t('experience.removeSlot')}</button>
+            </>}
           </div>
         );
       })()}

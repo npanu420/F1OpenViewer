@@ -1,4 +1,5 @@
 import React from 'react';
+import { MotionConfig } from 'framer-motion';
 import ReactDOM from 'react-dom/client';
 import { LocaleProvider } from './i18n/LocaleContext';
 import { App } from './ui/App';
@@ -27,9 +28,9 @@ try {
 
 seedDurableSettings().finally(() => {
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    <LocaleProvider>
+    <MotionConfig reducedMotion="user"><LocaleProvider>
       <App />
-    </LocaleProvider>,
+    </LocaleProvider></MotionConfig>,
   );
 });
 

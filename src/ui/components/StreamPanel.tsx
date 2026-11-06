@@ -122,7 +122,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       <motion.div
         className={`stream-placeholder flex flex-col text-left overflow-hidden ${fillHeight ? 'flex-1 min-h-0' : ''}`}
         style={borderColor ? { borderColor, borderWidth: '1px' } : undefined}
-        initial={{ opacity: 0, scale: 0.95 }}
+        initial={false}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: index * 0.04, duration: 0.3 }}
       >
@@ -136,7 +136,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
             {type === 'data' && (
               <BarChart3 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             )}
-            <span className="text-xs font-heading font-bold tracking-wider uppercase truncate">
+            <span className="text-xs font-medium truncate">
               {label}
             </span>
             {driverNumber != null && (

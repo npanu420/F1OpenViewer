@@ -167,6 +167,17 @@ function stintTooltip(row: DriverRow, t: (key: string) => string): string {
   return `${head}\n${lines.join('\n')}`;
 }
 
+/** Docked columns grow into the free width; the fixed width becomes their minimum. Literal classes for Tailwind. */
+const FLUID_MIN: Record<string, string> = {
+  'w-[2.75rem]': 'min-w-[2.75rem]',
+  'w-[3.25rem]': 'min-w-[3.25rem]',
+  'w-[3.75rem]': 'min-w-[3.75rem]',
+  'w-[4.25rem]': 'min-w-[4.25rem]',
+};
+function col(width: string, fluid?: boolean): string {
+  return fluid ? `flex-1 basis-0 ${FLUID_MIN[width] ?? ''}` : `${width} shrink-0`;
+}
+
 /** Numeric timing cells: fixed width, no bleed into the next column. */
 function TimingCell({
   value,
@@ -181,7 +192,7 @@ function TimingCell({
 }) {
   return (
     <div
-      className={`${width} shrink-0 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums leading-none ${
+      className={`${width} overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-right pr-3 leading-none ${
         large ? 'text-sm' : 'text-[11px]'
       } ${muted ? 'text-muted-foreground' : ''}`}
       title={value || undefined}
@@ -208,25 +219,30 @@ const DriverRowItem = React.memo(function DriverRowItem({
   hasTelemetry?: boolean;
 }) {
   const { t } = useLocale();
+  const [expanded, setExpanded] = useState(false);
   const tyre = TYRE_COLOR[row.tyre] || '#888';
   const pitStops = Math.max(0, row.stints.length - 1);
   const showInterval = dockWide || (!compact && !docked);
   const showLastLap = dockWide || (!compact && !docked);
   const showBestLap = !compact && !docked;
+  // Very wide docks also get best lap and sectors (hidden below 900px by a container query).
+  const showDockExtras = !!docked && !!dockWide;
   const showSectors = !compact && !docked;
   const showSpeed = !compact && !docked && !!hasTelemetry;
   const full = !compact && !docked;
   const tlaWidth = compact ? 'w-14' : full ? 'w-32' : 'w-24';
+  const fluid = !!docked;
   return (
+    <>
     <div
       className={`flex items-center border-b border-border/40 hover:bg-white/[0.05] transition-colors ${
-        full ? 'h-12 text-base' : 'h-9 text-sm'
-      } ${index % 2 === 1 ? 'bg-white/[0.015]' : ''} ${row.retired ? 'opacity-50' : ''}`}
+        full ? 'timing-driver-row h-10 text-sm' : 'h-9 text-sm'
+      }  ${row.retired ? 'opacity-50' : ''}`}
     >
       <div className={`${full ? 'w-9' : 'w-7'} shrink-0 text-center font-bold tabular-nums`}>{row.position}</div>
       <div className={`${full ? 'w-1.5 h-8' : 'w-1 h-6'} shrink-0 rounded-sm mr-2`} style={{ backgroundColor: row.teamColour }} />
       <div className={`${tlaWidth} shrink-0 font-heading font-bold tracking-wider flex items-center gap-1 min-w-0 overflow-hidden`}>
-        <span className="truncate">{row.tla}</span>
+        <button type="button" className="underline-offset-4 hover:underline min-h-8" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{row.tla}</button>
         {row.drs && <span className="text-[8px] font-bold text-emerald-400 shrink-0" title="DRS active">DRS</span>}
         {row.retired ? (
           <span className="text-[9px] font-bold text-destructive shrink-0">OUT</span>
@@ -236,11 +252,12 @@ const DriverRowItem = React.memo(function DriverRowItem({
           <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/80 text-black leading-none shrink-0">OUT</span>
         ) : null}
       </div>
-      <TimingCell value={row.gapToLeader} width={full ? 'w-20' : 'w-[3.25rem]'} muted large={full} />
-      {showInterval && <TimingCell value={row.interval} width={full ? 'w-20' : 'w-[3.75rem]'} muted large={full} />}
-      {showLastLap && <TimingCell value={row.lastLap} width={full ? 'w-24' : 'w-[4.25rem]'} large={full} />}
-      {showBestLap && <TimingCell value={row.bestLap} width={full ? 'w-24' : 'w-[4.25rem]'} muted large={full} />}
-      <div className={`${full ? 'w-20' : 'w-[2.75rem]'} shrink-0 flex items-center justify-start gap-1.5 cursor-default`} title={stintTooltip(row, t)}>
+      <TimingCell value={row.gapToLeader} width={full ? 'w-20 shrink-0' : col('w-[3.25rem]', fluid)} muted large={full} />
+      {showInterval && <TimingCell value={row.interval} width={full ? 'w-20 shrink-0' : col('w-[3.75rem]', fluid)} muted large={full} />}
+      {showLastLap && <TimingCell value={row.lastLap} width={full ? 'w-24 shrink-0' : col('w-[4.25rem]', fluid)} large={full} />}
+      {showBestLap && <TimingCell value={row.bestLap} width="timing-secondary w-24 shrink-0" muted large={full} />}
+      {showDockExtras && <TimingCell value={row.bestLap} width={`dock-xl ${col('w-[4.25rem]', true)}`} muted />}
+      <div className={`${full ? 'w-20 shrink-0' : col('w-[2.75rem]', fluid)} flex items-center justify-start gap-1.5 cursor-default`} title={stintTooltip(row, t)}>
         {row.tyre ? (
           <>
             <span
@@ -251,24 +268,35 @@ const DriverRowItem = React.memo(function DriverRowItem({
             >
               {TYRE_LETTER[row.tyre] ?? row.tyre[0]}
             </span>
-            {showBestLap && <span className={`${full ? 'text-sm' : 'text-[11px]'} text-muted-foreground tabular-nums`}>{row.stintLaps ?? ''}</span>}
-            {showBestLap && pitStops > 0 && <span className="text-[9px] text-muted-foreground/70 tabular-nums">×{pitStops}</span>}
+            {(showBestLap || showDockExtras) && <span className={`${full ? 'text-sm' : 'text-[11px]'} text-muted-foreground tabular-nums`}>{row.stintLaps ?? ''}</span>}
+            {(showBestLap || showDockExtras) && pitStops > 0 && <span className="text-[9px] text-muted-foreground/70 tabular-nums">×{pitStops}</span>}
           </>
         ) : (
           <span className="text-muted-foreground">—</span>
         )}
       </div>
       {showSectors && (
-        <div className="flex-1 flex items-center justify-between min-w-0">
+        <div className="timing-secondary flex-1 flex items-center justify-between min-w-[180px]">
+          {row.sectors.map((s, i) => <Sector key={i} s={s} />)}
+        </div>
+      )}
+      {showDockExtras && (
+        <div className="dock-xl flex-[2] basis-0 flex items-center justify-between min-w-[180px] pr-3">
           {row.sectors.map((s, i) => <Sector key={i} s={s} />)}
         </div>
       )}
       {showSpeed && (
-        <div className={`${full ? 'w-24' : 'w-16'} shrink-0 text-right pr-3`}>
+        <div className={`timing-secondary ${full ? 'w-24' : 'w-16'} shrink-0 text-right pr-3`}>
           {row.speedKmh ? <span className={`${full ? 'text-sm' : 'text-[11px]'} tabular-nums text-muted-foreground`}>{row.speedKmh} km/h</span> : null}
         </div>
       )}
     </div>
+    {expanded && <div className="px-4 py-3 border-b border-border bg-card text-xs space-y-3">
+      <div className="flex flex-wrap gap-4 tabular-nums"><span>{t('timing.colLast')}: {row.lastLap || '—'}</span><span>{t('timing.colBest')}: {row.bestLap || '—'}</span><span>{t('timing.colInt')}: {row.interval || '—'}</span></div>
+      <p>{stintTooltip(row, t)}</p>
+      <div className="flex gap-4">{row.sectors.map((sector, i) => <div key={i}><span className="text-muted-foreground">S{i + 1}</span><Sector s={sector} /></div>)}</div>
+    </div>}
+    </>
   );
 });
 
@@ -481,6 +509,8 @@ function TimingBody({
   dockWide,
 }: TimingBodyProps) {
   const { t } = useLocale();
+  const [activePanel, setActivePanel] = useState<'standings' | 'control' | 'radio'>('standings');
+  const [density, setDensity] = useState<'normal' | 'compact'>('normal');
   const tlaByNum = useMemo(() => {
     const m: Record<string, string> = {};
     for (const d of drivers) m[d.number] = d.tla;
@@ -491,10 +521,10 @@ function TimingBody({
   const hasTelemetry = drivers.some((d) => d.speedKmh != null);
 
   return (
-    <div className={`${compact ? 'h-full' : 'h-screen'} overflow-hidden bg-background text-foreground flex flex-col`}>
+    <div className={`timing-surface timing-density-${density} ${compact ? 'h-full' : 'h-screen'} overflow-hidden bg-background text-foreground flex flex-col`}>
       {/* Header: title, status, weather */}
       <div className={`flex items-center gap-4 border-b border-border bg-card/60 flex-wrap ${full ? 'px-6 py-3' : compact ? 'px-2 py-1.5' : 'px-4 py-2'}`}>
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 max-w-full">
           {headerBadge}
           <span className={`font-heading font-bold tracking-wider truncate ${full ? 'text-lg' : ''}`}>{title || t('timing.title')}</span>
           {lapCount && (
@@ -514,7 +544,7 @@ function TimingBody({
           </span>
         )}
         {w && !compact && (
-          <div className={`flex items-center ml-auto ${full ? 'gap-6' : 'gap-4'}`}>
+          <div className={`timing-weather flex items-center ml-auto ${full ? 'gap-6' : 'gap-4'}`}>
             <WeatherStat icon={Wind} label={t('timing.wind')} value={`${w.windSpeed} m/s`} large={full} />
             <WeatherStat icon={Thermometer} label={t('timing.track')} value={`${w.trackTemp}°`} large={full} />
             <WeatherStat icon={Thermometer} label={t('timing.air')} value={`${w.airTemp}°`} large={full} />
@@ -525,21 +555,33 @@ function TimingBody({
         )}
       </div>
 
+      <div className="flex flex-wrap gap-2 items-center px-3 py-2 border-b border-border">
+        <div className="timing-panel-tabs gap-1" role="group" aria-label={t('timing.title')}>
+          {(['standings', 'control', 'radio'] as const).map((panel) => <button key={panel} className="ui-button" aria-pressed={activePanel === panel} onClick={() => setActivePanel(panel)}>{t(panel === 'standings' ? 'experience.standings' : panel === 'control' ? 'timing.raceControl' : 'timing.teamRadio')}</button>)}
+        </div>
+        <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">{t('experience.density')}
+          <select className="ui-input !text-xs" value={density} onChange={(event) => setDensity(event.target.value as 'normal' | 'compact')}>
+            <option value="normal">{t('experience.normal')}</option><option value="compact">{t('experience.compact')}</option>
+          </select>
+        </label>
+      </div>
       <div className="flex-1 flex min-h-0">
         {/* Timing table */}
-        <div className={`flex-1 overflow-y-auto thin-scrollbar min-w-0 ${docked ? 'overflow-x-auto' : ''}`}>
+        <div data-active={activePanel === 'standings'} className={`timing-table flex-1 overflow-auto thin-scrollbar min-w-0 ${docked ? 'overflow-x-auto' : ''}`}>
           {(dockWide || full) && (
-            <div className={`flex items-center px-0 uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 bg-background min-w-max ${full ? 'h-9 text-xs' : 'h-7 text-[10px]'}`}>
+            <div className={`flex items-center px-0 text-muted-foreground border-b border-border sticky top-0 bg-background min-w-max ${full ? 'h-9 text-xs' : 'h-7 text-[10px]'}`}>
               <div className={`${full ? 'w-9' : 'w-7'} shrink-0 text-center`}>P</div>
-              <div className="w-3 mr-2 shrink-0" />
+              <div className={`${full ? 'w-1.5' : 'w-1'} mr-2 shrink-0`} />
               <div className={`${tlaHeadWidth} shrink-0`}>{t('timing.colDriver')}</div>
-              <div className={`${full ? 'w-20' : 'w-[3.25rem]'} shrink-0`}>{t('timing.colGap')}</div>
-              {(dockWide || !docked) && <div className={`${full ? 'w-20' : 'w-[3.75rem]'} shrink-0`}>{t('timing.colInt')}</div>}
-              {(dockWide || !docked) && <div className={`${full ? 'w-24' : 'w-[4.25rem]'} shrink-0`}>{t('timing.colLast')}</div>}
-              {!docked && <div className={`${full ? 'w-24' : 'w-[4.25rem]'} shrink-0`}>{t('timing.colBest')}</div>}
-              <div className={`${full ? 'w-20' : 'w-[2.75rem]'} shrink-0`}>{t('timing.colTyre')}</div>
-              {!docked && <div className="flex-1">{t('timing.colSectors')}</div>}
-              {!docked && hasTelemetry && <div className={`${full ? 'w-24' : 'w-16'} text-right pr-3 shrink-0`}>{t('timing.colSpeed')}</div>}
+              <div className={`${full ? 'w-20 shrink-0' : col('w-[3.25rem]', docked)} text-right pr-3`}>{t('timing.colGap')}</div>
+              {(dockWide || !docked) && <div className={`${full ? 'w-20 shrink-0' : col('w-[3.75rem]', docked)} text-right pr-3`}>{t('timing.colInt')}</div>}
+              {(dockWide || !docked) && <div className={`${full ? 'w-24 shrink-0' : col('w-[4.25rem]', docked)} text-right pr-3`}>{t('timing.colLast')}</div>}
+              {!docked && <div className="timing-secondary w-24 shrink-0 text-right pr-3">{t('timing.colBest')}</div>}
+              {docked && dockWide && <div className={`dock-xl ${col('w-[4.25rem]', true)} text-right pr-3`}>{t('timing.colBest')}</div>}
+              <div className={full ? 'w-20 shrink-0' : col('w-[2.75rem]', docked)}>{t('timing.colTyre')}</div>
+              {!docked && <div className="timing-secondary flex-1 min-w-[180px]">{t('timing.colSectors')}</div>}
+              {docked && dockWide && <div className="dock-xl flex-[2] basis-0 min-w-[180px] pr-3">{t('timing.colSectors')}</div>}
+              {!docked && hasTelemetry && <div className={`timing-secondary ${full ? 'w-24' : 'w-16'} text-right pr-3 shrink-0`}>{t('timing.colSpeed')}</div>}
             </div>
           )}
           {drivers.map((row, i) => (
@@ -559,18 +601,18 @@ function TimingBody({
         </div>
 
         {/* Race control + team radio feed, each panel scrolls on its own and never grows past its share.
-            Dropped in compact mode: the dock is a glance surface, full detail stays in the popout. */}
-        {full && (
-          <div className="w-96 border-l border-border bg-card/30 flex flex-col min-h-0">
-            <div className="flex-1 min-h-0 flex flex-col basis-0">
-              <div className="px-4 py-2.5 text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-card/60 shrink-0">
+            Compact views expose the feeds through the panel selector. */}
+        {(full || activePanel !== 'standings') && (
+          <div data-active={activePanel !== 'standings'} className="timing-feed border-l border-border bg-card/30 flex flex-col min-h-0">
+            <div data-active={activePanel === 'control'} className="flex-1 min-h-0 flex flex-col basis-0">
+              <div className="px-4 py-2.5 text-xs text-muted-foreground border-b border-border bg-card/60 shrink-0">
                 {t('timing.raceControl')}
               </div>
               <RaceControlList raceControl={raceControl} emptyLabel={t('timing.noMessages')} />
             </div>
 
-            <div className="flex-1 min-h-0 flex flex-col basis-0 border-t border-border">
-              <div className="px-4 py-2.5 text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-card/60 shrink-0">
+            <div data-active={activePanel === 'radio'} className="flex-1 min-h-0 flex flex-col basis-0 border-t border-border">
+              <div className="px-4 py-2.5 text-xs text-muted-foreground border-b border-border bg-card/60 shrink-0">
                 {t('timing.teamRadio')}
               </div>
               <TeamRadioList teamRadio={teamRadio} tlaByNum={tlaByNum} sessionPath={sessionPath} emptyLabel={t('timing.noClips')} />
@@ -814,6 +856,7 @@ export function LiveTimingPanel({
   const footer = (
     <div className={`flex items-center gap-3 border-t border-border bg-card/60 ${compact ? 'px-2 py-1.5' : 'px-4 py-2'}`}>
       <LivePill connected={t.connected} reconnecting={reconnecting} detail={t.statusDetail} />
+      <span className="text-xs text-muted-foreground">{tr('experience.liveWarning')}</span>
       {reconnecting && t.statusDetail && !compact && (
         <span className="text-[11px] text-muted-foreground truncate">{t.statusDetail}</span>
       )}

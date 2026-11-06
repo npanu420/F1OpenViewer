@@ -78,18 +78,26 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
 
   return (
     <div
-      className={`relative shrink-0 glass-panel border-l border-border flex flex-col ${
+      className={`timing-dock relative shrink-0 glass-panel border-l border-border flex flex-col ${
         fullscreen ? 'h-full' : 'sticky top-14 h-[calc(100vh-3.5rem)]'
       }`}
       style={{ width }}
     >
       <div
+        role="separator" tabIndex={0} aria-orientation="vertical" aria-label={t('timing.dragResize')}
+        aria-valuenow={Math.round(width)} aria-valuemin={MIN_DOCK_WIDTH} aria-valuemax={effectiveMaxWidth()}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+          event.preventDefault();
+          const next = Math.max(MIN_DOCK_WIDTH, Math.min(effectiveMaxWidth(), width + (event.key === 'ArrowLeft' ? 32 : -32)));
+          setWidth(next); setDockWidth(next);
+        }}
         onMouseDown={onDragStart}
         title={t('timing.dragResize')}
-        className="absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-ew-resize hover:bg-primary/40 transition-colors z-10"
+        className="timing-dock-resizer absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-ew-resize hover:bg-primary/40 transition-colors z-10"
       />
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
-        <span className="font-heading text-xs font-bold tracking-widest text-muted-foreground uppercase">
+        <span className="font-heading text-xs font-semibold text-muted-foreground">
           {t('timing.title')}
         </span>
         <button
@@ -102,6 +110,7 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
+      {query.live && <p className="px-3 py-2 text-xs text-muted-foreground">{t('experience.liveWarning')}</p>}
       <div className="flex-1 min-h-0">
         {query.live ? (
           <LiveTimingPanel

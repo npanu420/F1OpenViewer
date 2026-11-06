@@ -20,6 +20,7 @@ function toCatalogItemOnboard(ob: VodOnboard): CatalogItem {
 
 interface LiveEventViewProps {
   item: CatalogItem;
+  error?: string | null;
   onBack: () => void;
   onOpenExternal?: (item: CatalogItem) => void;
   onEmbedError?: (msg: string) => void;
@@ -37,6 +38,7 @@ function liveItemToSession(item: CatalogItem): VodSession {
 
 export function LiveEventView({
   item,
+  error,
   onBack,
   onOpenExternal,
   onEmbedError,
@@ -86,25 +88,26 @@ export function LiveEventView({
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="max-w-[1600px] 2xl:max-w-[94vw] mx-auto px-4 sm:px-6 py-6">
-        <div className="mb-6">
+      <main className="workspace">
+        {error && <p role="alert" className="error mb-3">{error}</p>}
+        <div className="session-heading">
           <button
             onClick={onBack}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3 group"
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0 group"
             type="button"
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
             <span className="font-heading tracking-wider">
-              {t('dashboard.pastChampionships')} — {t('player.back')}
+              {t('player.back')}
             </span>
           </button>
 
           <div className="flex items-center gap-3">
             <span className="relative flex h-4 w-4">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-              <span className="relative inline-flex rounded-full h-4 w-4 bg-primary" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+              <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500" />
             </span>
-            <span className="font-heading font-bold text-primary tracking-widest text-sm">
+            <span className="font-heading font-bold text-red-400 tracking-widest text-sm">
               {t('header.live')}
             </span>
             <h2 className="font-heading text-2xl font-bold tracking-wider">
@@ -113,7 +116,7 @@ export function LiveEventView({
           </div>
         </div>
 
-        <div className="red-stripe mb-6" />
+        
 
         {loadingStreams ? (
           <div className="glass-panel rounded-lg p-8 text-center">
@@ -123,7 +126,7 @@ export function LiveEventView({
           </div>
         ) : (
           <motion.div
-            initial={{ opacity: 0 }}
+            initial={false}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
           >

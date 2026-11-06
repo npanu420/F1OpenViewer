@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { useLocale } from '../../i18n/LocaleContext';
 
 const ARCHIVE_YEAR = -1;
@@ -25,35 +24,11 @@ export function SeasonSelector({
   const allOptions = [...years, ARCHIVE_YEAR];
 
   return (
-    <div className="flex items-center gap-1">
-      {allOptions.map((year) => {
-        const isArchive = year === ARCHIVE_YEAR;
-        const label = isArchive ? t('ui.archive') : String(year);
-        const isSelected = selectedYear === year;
-
-        return (
-          <motion.button
-            key={year}
-            onClick={() => onSelectYear(year)}
-            className={`relative px-3 py-1.5 font-heading text-xs font-bold tracking-wider transition-colors rounded whitespace-nowrap ${
-              isSelected
-                ? 'text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            } ${isArchive ? 'italic' : ''}`}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            {isSelected && (
-              <motion.div
-                layoutId="season-indicator"
-                className="absolute inset-0 bg-primary rounded glow-red"
-                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              />
-            )}
-            <span className="relative z-10">{label}</span>
-          </motion.button>
-        );
-      })}
-    </div>
+    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="hidden sm:inline">{t('experience.season')}</span>
+      <select className="ui-input" value={selectedYear} onChange={(event) => onSelectYear(Number(event.target.value))} aria-label={t('experience.season')}>
+        {allOptions.map((year) => <option key={year} value={year}>{year === ARCHIVE_YEAR ? t('ui.archive') : year}</option>)}
+      </select>
+    </label>
   );
 }

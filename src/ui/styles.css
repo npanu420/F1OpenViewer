@@ -9,37 +9,40 @@ button:focus-visible,
 [role='button']:focus-visible,
 a:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
   outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 
 @layer base {
   :root {
-    --background: 220 20% 6%;
+    --background: 0 0% 4%;
     --foreground: 0 0% 95%;
-    --card: 220 18% 10%;
+    --card: 0 0% 8%;
     --card-foreground: 0 0% 95%;
-    --popover: 220 18% 10%;
+    --popover: 0 0% 12%;
     --popover-foreground: 0 0% 95%;
-    --primary: 0 85% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 15% 16%;
+    --primary: 0 0% 95%;
+    --primary-foreground: 0 0% 8%;
+    --secondary: 0 0% 16%;
     --secondary-foreground: 0 0% 90%;
-    --muted: 220 15% 14%;
-    --muted-foreground: 220 10% 55%;
-    --accent: 220 15% 18%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 70%;
+    --accent: 0 0% 18%;
     --accent-foreground: 0 0% 95%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 15% 18%;
-    --input: 220 15% 18%;
-    --ring: 0 85% 50%;
+    --border: 0 0% 20%;
+    --input: 0 0% 28%;
+    --ring: 0 0% 85%;
     --radius: 0.5rem;
-    --surface-elevated: 220 18% 12%;
-    --surface-glass: 220 20% 8%;
+    --surface-elevated: 0 0% 12%;
+    --surface-glass: 0 0% 8%;
     --glow-primary: 0 85% 50%;
-    --text-dim: 220 10% 40%;
+    --text-dim: 0 0% 60%;
     --sidebar-background: 220 20% 8%;
     --sidebar-foreground: 0 0% 90%;
     --sidebar-primary: 0 85% 50%;
@@ -48,7 +51,8 @@ select:focus-visible {
     --sidebar-accent-foreground: 0 0% 95%;
     --sidebar-border: 220 15% 18%;
     --sidebar-ring: 0 85% 50%;
-    --font-heading: 'Rajdhani', sans-serif;
+    --font-heading: 'Space Grotesk', sans-serif;
+    --signal: 0 85% 60%;
     --font-body: 'Space Grotesk', sans-serif;
   }
 
@@ -59,7 +63,7 @@ select:focus-visible {
     --card-foreground: 220 20% 12%;
     --popover: 0 0% 100%;
     --popover-foreground: 220 20% 12%;
-    --primary: 0 85% 50%;
+    --primary: 0 0% 12%;
     --primary-foreground: 0 0% 100%;
     --secondary: 220 10% 92%;
     --secondary-foreground: 220 20% 20%;
@@ -71,7 +75,7 @@ select:focus-visible {
     --destructive-foreground: 0 0% 100%;
     --border: 220 10% 85%;
     --input: 220 10% 85%;
-    --ring: 0 85% 50%;
+    --ring: 0 0% 25%;
     --surface-elevated: 0 0% 100%;
     --surface-glass: 0 0% 98%;
     --glow-primary: 0 85% 50%;
@@ -145,37 +149,26 @@ select:focus-visible {
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
     font-weight: 700;
-    letter-spacing: 0.05em;
+    letter-spacing: -0.02em;
   }
 }
 
 @layer utilities {
   .glass-panel {
-    @apply bg-card/80 backdrop-blur-md border border-border/50;
+    @apply bg-card border border-border/50;
   }
 
-  .glow-red {
-    box-shadow: 0 0 20px hsl(var(--primary) / 0.3), 0 0 60px hsl(var(--primary) / 0.1);
-  }
+  .glow-red { box-shadow: none; }
 
-  .carbon-texture {
-    background-image:
-      linear-gradient(45deg, hsl(var(--border) / 0.05) 25%, transparent 25%),
-      linear-gradient(-45deg, hsl(var(--border) / 0.05) 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, hsl(var(--border) / 0.05) 75%),
-      linear-gradient(-45deg, transparent 75%, hsl(var(--border) / 0.05) 75%);
-    background-size: 4px 4px;
-    background-position: 0 0, 0 2px, 2px -2px, -2px 0px;
-  }
+  .carbon-texture { background: hsl(var(--background)); }
 
   .stream-placeholder {
     @apply bg-card border border-border rounded-md overflow-hidden relative;
-    background: linear-gradient(135deg, hsl(var(--card)) 0%, hsl(220 18% 8%) 100%);
+    background: hsl(var(--card));
   }
 
   .red-stripe {
-    @apply h-1 w-full;
-    background: linear-gradient(90deg, transparent, hsl(var(--primary)), transparent);
+    @apply h-px w-full bg-border;
   }
 }
 
@@ -272,7 +265,7 @@ video {
 }
 .btn {
   border: 1px solid hsl(var(--border));
-  background: linear-gradient(180deg, hsl(var(--accent) / 0.5), hsl(var(--accent) / 0.3));
+  background: hsl(var(--accent));
   color: hsl(var(--foreground));
   padding: 0.5rem 0.75rem;
   border-radius: 0.75rem;
@@ -412,3 +405,70 @@ video {
   max-height: none !important;
   object-fit: contain !important;
 }
+
+/* Shared desktop workspace: neutral controls keep the emphasis on footage and timing. */
+html { color-scheme: dark; }
+html.light { color-scheme: light; }
+button, select, summary { touch-action: manipulation; }
+button:not(:disabled), select { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+.font-heading { letter-spacing: normal; }
+.brand-wordmark { font-family: 'Rajdhani', sans-serif; font-weight: 700; letter-spacing: .02em; }
+.ui-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 7px 12px; border: 1px solid hsl(var(--border)); border-radius: 6px; background: hsl(var(--card)); color: hsl(var(--foreground)); font-size: 13px; font-weight: 500; }
+.ui-button:hover:not(:disabled) { background: hsl(var(--accent)); }
+.ui-button[aria-pressed='true'] { background: hsl(var(--foreground)); color: hsl(var(--background)); }
+.ui-primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.ui-primary:hover:not(:disabled) { opacity: .85; background: hsl(var(--primary)); }
+.ui-input { min-height: 36px; padding: 7px 10px; border: 1px solid hsl(var(--input)); border-radius: 6px; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 14px; }
+.workspace { width: 100%; padding: 16px 24px 24px; }
+.catalog-workspace { max-width: 1440px; margin: auto; padding-top: 28px; }
+.session-heading { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; min-width: 0; }
+.session-heading h2 { font-size: 18px; }
+.workspace-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid hsl(var(--border)); }
+.workspace-toolbar button { min-height: 36px; font-size: 12px; letter-spacing: normal; padding: 7px 10px; }
+.layout-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 8px; }
+.layout-preset { display: inline-flex; align-items: center; gap: 8px; }
+.layout-preset svg { width: 40px; height: 26px; }
+.grid-slot:focus-within .grid-slot-header { opacity: 1; }
+.grid-slot-hide-header-until-hover:focus-within .grid-slot-header { opacity: 1; }
+.player-controls:focus-within { opacity: 1 !important; pointer-events: auto !important; }
+.player-scrubber { min-width: 24px; width: 100%; height: 28px; accent-color: #e5484d; cursor: pointer; }
+.settings-dialog { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(100%, 480px); height: 100dvh; max-height: 100dvh; max-width: 100%; padding: 0; border: 0; border-left: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: hsl(var(--foreground)); overflow-y: auto; overscroll-behavior: contain; }
+.settings-dialog::backdrop { background: rgb(0 0 0 / .65); }
+.timing-surface { container-type: inline-size; }
+.timing-weather { flex-wrap: wrap; }
+.timing-feed { width: 320px; flex-shrink: 0; }
+.timing-panel-tabs { display: none; }
+.timing-density-normal [class*='text-['] { font-size: 12px; }
+.timing-density-compact [class*='text-['] { font-size: 11px; }
+@container (max-width: 1250px) {
+ .timing-panel-tabs { display: flex; }
+ .timing-feed { display: none; width: 100%; border-left: 0; }
+ .timing-table[data-active='false'] { display: none; }
+ .timing-feed[data-active='true'] { display: flex; }
+ .timing-feed > [data-active='false'] { display: none; }
+
+}
+@media (max-width: 1000px) {
+ .multiview-workspace { flex-direction: column; }
+ .timing-dock { width: 100% !important; height: 60vh !important; position: relative; top: auto; }
+ .timing-dock-resizer { display: none; }
+}
+@media (max-width: 640px) {
+ .workspace { padding: 12px; }
+ .session-heading { flex-wrap: wrap; gap: 8px; }
+ .session-heading h2 { font-size: 16px; }
+ .workspace-toolbar > div { margin-left: 0; flex-wrap: wrap; }
+ .ui-button { min-height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+ *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+.sync-dialog { padding: 0; border: 0; width: min(512px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); border-radius: 12px; background: hsl(var(--card)); color: hsl(var(--foreground)); overscroll-behavior: contain; }
+.sync-dialog::backdrop { background: rgb(0 0 0 / .5); }
+.timing-density-compact .timing-driver-row { height: 32px; }
+.timing-density-normal .timing-driver-row { height: 40px; }
+
+@container (max-width: 780px) { .timing-secondary { display: none; } }
+@container (max-width: 899px) { .dock-xl { display: none; } }

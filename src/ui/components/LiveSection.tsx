@@ -21,7 +21,7 @@ export function LiveSection({ items, onOpen, loading }: LiveSectionProps) {
 
   return (
     <motion.section
-      initial={{ opacity: 0, y: -10 }}
+      initial={false}
       animate={{ opacity: 1, y: 0 }}
       className="mb-8"
     >

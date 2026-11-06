@@ -71,7 +71,8 @@ function TabPill({
     <motion.button
       type="button"
       onClick={onClick}
-      className={`relative flex items-center gap-2 px-4 py-2.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+      aria-pressed={active}
+      className={`relative flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
         active ? 'text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
       }`}
       whileHover={{ scale: 1.02 }}
@@ -85,7 +86,7 @@ function TabPill({
         />
       )}
       <Icon className="w-4 h-4 relative z-10" />
-      <span className="relative z-10 font-heading tracking-wide">{label}</span>
+      <span className="relative z-10 font-medium">{label}</span>
     </motion.button>
   );
 }
@@ -105,6 +106,7 @@ function CompactTab({
     <motion.button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={`relative px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors ${
         active
           ? 'text-primary-foreground'
@@ -113,7 +115,7 @@ function CompactTab({
       whileHover={{ scale: 1.03 }}
       whileTap={{ scale: 0.97 }}
     >
-      {active && <motion.div layoutId={layoutId} className="absolute inset-0 bg-primary/70 rounded" />}
+      {active && <motion.div layoutId={layoutId} className="absolute inset-0 bg-primary rounded" />}
       <span className="relative z-10">{label}</span>
     </motion.button>
   );

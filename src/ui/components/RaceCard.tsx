@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, ChevronRight, Wrench } from 'lucide-react';
+import { Calendar, MapPin, ChevronRight, Wrench, Flag } from 'lucide-react';
 import type { VodEvent } from '../../domain/vod';
 import { getFlag, getEventCountryCode } from '@/lib/flags';
 
@@ -13,18 +13,15 @@ interface RaceCardProps {
 
 export function RaceCard({ event, onClick, index, circuit }: RaceCardProps) {
   const countryCode = getEventCountryCode(event);
-  const flag = countryCode ? getFlag(countryCode) : '🏁';
+  const flag = countryCode ? getFlag(countryCode) : '';
 
   return (
     <motion.button
       onClick={onClick}
-      className="w-full text-left glass-panel rounded-lg p-4 group hover:border-primary/40 transition-all duration-300 relative overflow-hidden"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.03, duration: 0.4 }}
-      whileHover={{ y: -2 }}
+      className="race-card w-full text-left bg-card rounded-lg p-5 group hover:bg-accent transition-colors relative overflow-hidden"
+
     >
-      <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-primary/0 to-transparent group-hover:via-primary transition-all duration-500" />
+
 
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -32,13 +29,13 @@ export function RaceCard({ event, onClick, index, circuit }: RaceCardProps) {
             {event.isTest ? (
               <Wrench className="w-4 h-4 text-muted-foreground" />
             ) : (
-              <span className="text-lg leading-none">{flag}</span>
+              <span className="text-lg leading-none" aria-hidden>{flag || <Flag className="w-4 h-4" />}</span>
             )}
-            <span className="text-xs font-heading font-bold text-primary tracking-widest">
+            <span className="text-xs font-heading font-bold text-muted-foreground tracking-widest">
               {event.isTest ? 'TEST' : `R${String(event.meetingNumber || index + 1).padStart(2, '0')}`}
             </span>
           </div>
-          <h3 className="font-heading text-sm font-bold text-foreground truncate group-hover:text-primary transition-colors">
+          <h3 className="font-heading text-base font-medium text-foreground line-clamp-2 group-hover:text-foreground transition-colors">
             {event.meetingName}
           </h3>
           {circuit && (
@@ -56,7 +53,7 @@ export function RaceCard({ event, onClick, index, circuit }: RaceCardProps) {
             </div>
           )}
         </div>
-        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors shrink-0 mt-1" />
+        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors shrink-0 mt-1" />
       </div>
     </motion.button>
   );

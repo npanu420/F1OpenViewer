@@ -111,7 +111,7 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleExit();
+      if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open], [data-panel-menu]')) handleExit();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

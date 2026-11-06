@@ -38,7 +38,9 @@ function ShelfCard({
   }, [option.type, option.driverNumber, option.driverName, option.label]);
 
   return (
-    <div
+    <button
+      type="button"
+      aria-pressed={picking}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData(DRIVER_SHELF_DRAG_TYPE, option.item.id);
@@ -75,8 +77,8 @@ function ShelfCard({
             getDriverInitials(option.label, option.driverNumber)
           )}
         </div>
-        <span className="mt-1 text-[10px] font-heading font-bold truncate max-w-full">
-          {option.driverNumber != null ? `#${option.driverNumber}` : option.label}
+        <span className="mt-1 text-xs font-heading font-bold truncate max-w-full">
+          {option.driverNumber != null ? `#${option.driverNumber} ${option.label.split(' ').at(-1)}` : option.label}
         </span>
       </div>
 
@@ -88,11 +90,12 @@ function ShelfCard({
           <Check className="w-2.5 h-2.5 text-white" />
         </span>
       )}
-    </div>
+    </button>
   );
 }
 
 function ShelfScrollRow({ children }: { children: ReactNode }) {
+  const { t } = useLocale();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
 
@@ -136,7 +139,7 @@ function ShelfScrollRow({ children }: { children: ReactNode }) {
   };
 
   const edgeBtn =
-    'pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-border/70 bg-background/90 text-muted-foreground shadow-md backdrop-blur-sm transition-all hover:border-primary/40 hover:bg-accent/80 hover:text-foreground hover:scale-105 active:scale-95';
+    'pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-border/70 bg-background/90 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent/80 hover:text-foreground hover:scale-105 active:scale-95';
 
   return (
     <div className="relative min-w-0 w-full group/shelf">
@@ -155,11 +158,11 @@ function ShelfScrollRow({ children }: { children: ReactNode }) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="pointer-events-none absolute inset-y-0 left-0 z-10 flex w-12 items-center justify-start bg-gradient-to-r from-background via-background/85 to-transparent pl-0.5"
+            className="pointer-events-none absolute inset-y-0 left-0 z-10 flex w-12 items-center justify-start bg-background pl-0.5"
           >
             <button
               type="button"
-              aria-label="Scroll drivers left"
+              aria-label={t('ui.scrollLeft')}
               onClick={() => scrollBy('left')}
               className={`${edgeBtn} opacity-90 group-hover/shelf:opacity-100`}
             >
@@ -177,11 +180,11 @@ function ShelfScrollRow({ children }: { children: ReactNode }) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="pointer-events-none absolute inset-y-0 right-0 z-10 flex w-12 items-center justify-end bg-gradient-to-l from-background via-background/85 to-transparent pr-0.5"
+            className="pointer-events-none absolute inset-y-0 right-0 z-10 flex w-12 items-center justify-end bg-background pr-0.5"
           >
             <button
               type="button"
-              aria-label="Scroll drivers right"
+              aria-label={t('ui.scrollRight')}
               onClick={() => scrollBy('right')}
               className={`${edgeBtn} opacity-90 group-hover/shelf:opacity-100`}
             >

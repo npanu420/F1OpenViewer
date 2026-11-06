@@ -14,6 +14,7 @@ type Mode = 'browser' | 'credentials' | 'token';
 
 export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
   const { t } = useLocale();
+  const [submitting, setSubmitting] = useState(false);
   const [mode, setMode] = useState<Mode>('browser');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,6 +23,8 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
   useEffect(() => window.f1?.onLoginValidationError?.(setError), [setError]);
 
   async function onLoginWithBrowser() {
+    if (submitting) return;
+    setSubmitting(true);
     setBusy(true);
     setError(null);
     try {
@@ -31,11 +34,14 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
       setError(err instanceof Error ? err.message : t('login.errorCancelled'));
     } finally {
       setBusy(false);
+      setSubmitting(false);
     }
   }
 
   async function onSubmitCredentials(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     setBusy(true);
     setError(null);
     try {
@@ -45,11 +51,14 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
       setError(err instanceof Error ? err.message : t('login.errorSignIn'));
     } finally {
       setBusy(false);
+      setSubmitting(false);
     }
   }
 
   async function onSubmitToken(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     setBusy(true);
     setError(null);
     try {
@@ -59,6 +68,7 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
       setError(err instanceof Error ? err.message : t('login.errorInvalidToken'));
     } finally {
       setBusy(false);
+      setSubmitting(false);
     }
   }
 
@@ -66,14 +76,15 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
       <motion.div
         className="w-full max-w-md glass-panel rounded-xl p-8"
-        initial={{ opacity: 0, y: 20 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
-        <div className="mb-6">
-          <h2 className="font-heading text-2xl font-bold tracking-wider text-foreground m-0">
+        <div className="mb-8">
+          <p className="brand-wordmark text-lg mb-8">F1 OpenViewer</p>
+          <h1 className="font-heading text-2xl font-bold tracking-wider text-foreground m-0">
             {t('login.title')}
-          </h2>
+          </h1>
           <p className="text-sm text-muted-foreground mt-2 mb-0">
             {t('login.recommended')}
           </p>
@@ -88,11 +99,12 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
           <motion.button
             type="button"
             onClick={onLoginWithBrowser}
+            disabled={submitting}
             className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-lg font-heading font-bold tracking-wider bg-primary text-primary-foreground border border-primary glow-red hover:opacity-95 transition-opacity"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
-            {t('login.withBrowser')}
+            {submitting ? t('experience.pendingLogin') : t('login.withBrowser')}
           </motion.button>
         </div>
 
@@ -104,6 +116,7 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
             <div className="flex gap-2">
               <button
                 type="button"
+                disabled={submitting}
                 onClick={() => {
                   setMode('credentials');
                   setError(null);
@@ -118,6 +131,7 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
               </button>
               <button
                 type="button"
+                disabled={submitting}
                 onClick={() => {
                   setMode('token');
                   setError(null);
@@ -140,6 +154,8 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
                   </span>
                   <input
                     className="w-full bg-background/80 border border-border rounded-lg px-3 py-2.5 text-foreground outline-none focus:border-primary/50"
+                    name="email"
+                    spellCheck={false}
                     type="email"
                     autoComplete="email"
                     value={email}
@@ -154,6 +170,7 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
                   </span>
                   <input
                     className="w-full bg-background/80 border border-border rounded-lg px-3 py-2.5 text-foreground outline-none focus:border-primary/50"
+                    name="password"
                     type="password"
                     autoComplete="current-password"
                     value={password}
@@ -164,9 +181,11 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
                 </label>
                 <button
                   type="submit"
+                  aria-busy={submitting}
+                  disabled={submitting}
                   className="w-full py-2.5 rounded-lg font-heading font-bold tracking-wider bg-primary text-primary-foreground border border-primary"
                 >
-                  {t('login.signIn')}
+                  {submitting ? t('experience.pendingLogin') : t('login.signIn')}
                 </button>
               </form>
             )}
@@ -187,7 +206,8 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
                 </label>
                 <button
                   type="submit"
-                  disabled={!tokenInput.trim()}
+                  aria-busy={submitting}
+                  disabled={submitting || !tokenInput.trim()}
                   className="w-full py-2.5 rounded-lg font-heading font-bold tracking-wider bg-primary text-primary-foreground border border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {t('login.signInWithToken')}

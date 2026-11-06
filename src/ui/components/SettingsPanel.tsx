@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { X, Sun, Moon, Globe, RotateCcw } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleContext';
 import {
@@ -19,6 +19,8 @@ import {
   MIN_SYNC_DONE_DELAY_MS,
   MAX_SYNC_DONE_DELAY_MS,
 } from '../../services/syncSettings';
+
+import { Dialog } from './Dialog';
 
 export type ThemeMode = 'dark' | 'light';
 
@@ -40,7 +42,7 @@ function SettingGroup({
 }) {
   return (
     <div className="space-y-3">
-      <h3 className="font-heading text-xs font-bold tracking-widest text-muted-foreground uppercase">
+      <h3 className="text-sm font-semibold text-foreground">
         {title}
       </h3>
       <div className="space-y-2">{children}</div>
@@ -57,6 +59,7 @@ export function SettingsPanel({
   onLogout,
 }: SettingsPanelProps) {
   const { t, locale, setLocale } = useLocale();
+  const [resetError, setResetError] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetDone, setResetDone] = useState(false);
   const [syncTolerance, setSyncToleranceState] = useState(DEFAULT_SYNC_OFFSET_THRESHOLD);
@@ -72,17 +75,13 @@ export function SettingsPanel({
   }, [isOpen]);
 
   // Esc closes the panel (keyboard users had no way out besides tabbing to the X).
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  // Dialog also contains focus and restores the invoking control.
 
   async function handleFullReset() {
     if (!window.f1?.fullReset) return;
     const confirmed = window.confirm(t('settings.resetConfirm'));
     if (!confirmed) return;
+    setResetError(false);
     setResetting(true);
     setResetDone(false);
     try {
@@ -93,31 +92,15 @@ export function SettingsPanel({
     } catch (e) {
       console.warn('[Settings] fullReset failed:', e);
       setResetting(false);
+      setResetError(true);
     }
   }
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-background/70 z-50"
-            onClick={onClose}
-          />
-
-          <motion.div
-            initial={{ opacity: 0, x: 300 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 300 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="fixed right-0 top-0 bottom-0 w-full max-w-md z-50 glass-panel border-l border-border overflow-y-auto"
-          >
+    <Dialog open={isOpen} onDismiss={onClose} className="settings-dialog" labelledBy="settings-title">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
-              <h2 className="font-heading text-lg font-bold tracking-wider">
-                {t('settings.title').toUpperCase()}
+              <h2 id="settings-title" className="font-heading text-lg font-bold tracking-wider">
+                {t('settings.title')}
               </h2>
               <motion.button
                 type="button"
@@ -156,6 +139,7 @@ export function SettingsPanel({
                     ].map(({ loc, label }) => (
                     <motion.button
                       key={loc}
+                      aria-pressed={locale === loc}
                       onClick={() => setLocale(loc)}
                       className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md font-heading text-sm font-bold tracking-wider transition-colors border ${
                         locale === loc
@@ -180,6 +164,7 @@ export function SettingsPanel({
                   ].map(({ mode, icon: ModeIcon, label }) => (
                     <motion.button
                       key={mode}
+                      aria-pressed={theme === mode}
                       onClick={() => onThemeChange(mode)}
                       className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md font-heading text-sm font-bold tracking-wider transition-colors border ${
                         theme === mode
@@ -196,7 +181,7 @@ export function SettingsPanel({
                 </div>
               </SettingGroup>
 
-              <SettingGroup title={t('settings.syncSection')}>
+              <details className="border-t border-border pt-4"><summary className="cursor-pointer text-sm font-semibold mb-4">{t('experience.advanced')}</summary><SettingGroup title={t('settings.syncSection')}>
                 <p className="text-sm text-muted-foreground pb-1">
                   {t('settings.syncToleranceHint')}
                 </p>
@@ -206,6 +191,7 @@ export function SettingsPanel({
                     min={MIN_SYNC_OFFSET_THRESHOLD}
                     max={MAX_SYNC_OFFSET_THRESHOLD}
                     step={0.005}
+                    aria-label={t('settings.syncToleranceHint')}
                     value={syncTolerance}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
@@ -227,6 +213,7 @@ export function SettingsPanel({
                     min={MIN_SYNC_DONE_DELAY_MS}
                     max={MAX_SYNC_DONE_DELAY_MS}
                     step={50}
+                    aria-label={t('settings.syncDoneDelayHint')}
                     value={syncDoneDelay}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
@@ -283,6 +270,7 @@ export function SettingsPanel({
                 </label>
               </SettingGroup>
 
+              </details>
               <SettingGroup title={t('settings.dataAndCache')}>
                 <p className="text-sm text-muted-foreground pb-1">
                   {t('settings.resetDescription')}
@@ -302,6 +290,7 @@ export function SettingsPanel({
                     </>
                   )}
                 </button>
+                {resetError && <p role="alert" className="text-sm text-destructive">{t('experience.resetError')}</p>}
                 {resetDone && (
                   <p className="text-xs text-muted-foreground pt-1">{t('settings.resetDone')}</p>
                 )}
@@ -313,9 +302,6 @@ export function SettingsPanel({
                 </p>
               </div>
             </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+    </Dialog>
   );
 }

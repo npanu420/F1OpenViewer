@@ -1,11 +1,13 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MoreHorizontal, RefreshCw, X } from 'lucide-react';
+import { MoreHorizontal, RefreshCw, X, LayoutGrid, Volume2, ChevronDown } from 'lucide-react';
 import type { Layout } from 'react-grid-layout';
 import { useLocale } from '../../i18n/LocaleContext';
 import { MultiViewerCommandBar } from './MultiViewerCommandBar';
 import { DriverShelf } from './DriverShelf';
 import { LiveTimingDock, type DockSessionQuery } from './LiveTimingDock';
+
+import { applyLayoutPreset, layoutPresets, nextPanelId } from './layoutOperations';
 
 const SAVED_GRIDS_KEY = 'f1openviewer-saved-grids';
 const STANDALONE_MULTIVIEW_KEY_BASE = 'f1openviewer-standalone-multiview';
@@ -285,6 +287,19 @@ export function MultiViewer({
 
   const [layout, setLayout] = useState<Layout>(() => initialLayout ?? getDefaultGridLayout());
   const [slotToItemId, setSlotToItemId] = useState<Record<string, string>>(() => initialSlotToItemId ?? {});
+  const [layoutDraft, setLayoutDraft] = useState<{ layout: Layout; mapping: Record<string, string> } | null>(null);
+  const [shelfOpen, setShelfOpen] = useState(false);
+  const [layoutNotice, setLayoutNotice] = useState('');
+  const editingLayout = layoutDraft != null;
+  const beginLayoutEdit = () => {
+    setLayoutDraft({ layout: layout.map((item) => ({ ...item })), mapping: { ...slotToItemId } });
+    setLayoutNotice('');
+  };
+  const cancelLayoutEdit = () => {
+    if (layoutDraft) { setLayout(layoutDraft.layout); setSlotToItemId(layoutDraft.mapping); }
+    setLayoutDraft(null);
+  };
+  useEffect(() => { setLayoutDraft(null); setLayoutNotice(''); }, [session.contentId]);
   const [savedGrids, setSavedGrids] = useState<SavedGrid[]>(() => loadSavedGrids());
   const [audioFocusedItemId, setAudioFocusedItemId] = useState<string | null>(null);
   const panelRefsByItemId = useRef<Map<string, StreamPanelHandle>>(new Map());
@@ -433,8 +448,8 @@ export function MultiViewer({
     const { w, h } = getDefaultNewSlotGridSize();
     setLayout((prev) => {
       const maxY = Math.max(0, ...prev.map((item) => item.y + item.h));
-      const nextIndex = prev.length;
-      return [...prev, { i: `slot-${nextIndex}`, x: 0, y: maxY, w, h, minW: 2, minH: 2 }];
+      const nextId = nextPanelId(prev);
+      return [...prev, { i: nextId, x: 0, y: maxY, w, h, minW: 2, minH: 2 }];
     });
   }, []);
 
@@ -447,6 +462,7 @@ export function MultiViewer({
   }, []);
 
   const handleSaveCurrentLayout = useCallback((rawName: string) => {
+    setLayoutNotice(t('experience.layoutSaved'));
     const name = rawName.trim() || t('dashboard.savedLayoutDefaultName');
     const slotAssignments = buildSlotAssignments(slotToItemId, streamOptions);
     const next: SavedGrid = {
@@ -465,6 +481,7 @@ export function MultiViewer({
 
   const handleApplySavedGrid = useCallback(
     (preset: SavedGrid) => {
+      setLayoutNotice(t('experience.layoutApplied'));
       setLayout(preset.layout.map((item) => ({ ...item })));
       const resolved = resolveSlotAssignments(
         preset.layout,
@@ -485,7 +502,7 @@ export function MultiViewer({
     });
   }, []);
 
-  const [hideSlotTitles, setHideSlotTitles] = useState(false);
+  const [hideSlotTitles, setHideSlotTitles] = useState(true);
   const [pickingItemId, setPickingItemId] = useState<string | null>(null);
   const assignedItemIds = useMemo(
     () => new Set(Object.values(slotToItemId).filter(Boolean)),
@@ -597,7 +614,7 @@ export function MultiViewer({
         )}
       </AnimatePresence>
 
-      <div className={isFullscreen ? 'flex-1 min-h-0 flex items-stretch gap-3' : 'flex items-start gap-3'}>
+      <div className={`multiview-workspace ${isFullscreen ? 'flex-1 min-h-0 flex items-stretch gap-3' : 'flex items-start gap-3'}`}>
       <div className={isFullscreen ? 'flex-1 min-w-0 flex flex-col min-h-0' : 'flex-1 min-w-0'}>
       <AnimatePresence mode="wait">
         <motion.div
@@ -606,8 +623,39 @@ export function MultiViewer({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3 }}
-          className={isFullscreen ? 'flex-1 flex flex-col min-h-0' : 'space-y-6'}
+          className={isFullscreen ? 'flex-1 flex flex-col min-h-0' : 'space-y-3'}
         >
+          <div className={`flex flex-wrap items-center gap-2 ${isFullscreen ? 'px-3 py-2 pr-14' : ''}`}>
+            <button className="ui-button" aria-expanded={shelfOpen} onClick={() => setShelfOpen((open) => !open)}>
+              {t('experience.streams')} <span className="text-muted-foreground tabular-nums">{streamOptions.length}</span><ChevronDown className="w-4 h-4" aria-hidden />
+            </button>
+            {!editingLayout ? <button className="ui-button" onClick={beginLayoutEdit}><LayoutGrid className="w-4 h-4" aria-hidden />{t('experience.editLayout')}</button> : <>
+              <button className="ui-button ui-primary" onClick={() => setLayoutDraft(null)}>{t('experience.done')}</button>
+              <button className="ui-button" onClick={cancelLayoutEdit}>{t('experience.cancel')}</button>
+            </>}
+            <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+              <Volume2 className="w-4 h-4 shrink-0" aria-hidden />{t('experience.audio')}
+              <select className="ui-input max-w-[180px]" aria-label={t('experience.audio')} value={audioFocusedItemId ?? ''} onChange={(event) => {
+                const id = event.target.value;
+                for (const [itemId, panel] of panelRefsByItemId.current) {
+                  const video = panel.getVideoElement();
+                  if (video) video.muted = itemId !== id;
+                }
+                setAudioFocusedItemId(id || null);
+              }}>
+                <option value="">{t('experience.muted')}</option>
+                {streamOptions.filter((option) => embeddedPlayback[option.item.id] && Object.values(slotToItemId).includes(option.item.id)).map((option) => <option key={option.item.id} value={option.item.id}>{option.label}</option>)}
+              </select>
+            </label>
+          </div>
+          {editingLayout && <div className="layout-tools">
+            <p className="w-full text-xs text-muted-foreground">{t('experience.layoutHint')}</p>
+            {(Object.keys(layoutPresets) as Array<keyof typeof layoutPresets>).map((preset) => <button key={preset} className="ui-button layout-preset" onClick={() => setLayout((current) => applyLayoutPreset(current, preset))}>
+              <svg viewBox="0 0 120 100" aria-hidden>{layoutPresets[preset].map((cell, index) => <rect key={index} x={cell.x * 10 + 2} y={cell.y * 9 + 2} width={cell.w * 10 - 4} height={cell.h * 9 - 4} rx="3" fill="currentColor" opacity={index === 0 ? .8 : .3} />)}</svg>
+              {t(`experience.${preset}`)}
+            </button>)}
+          </div>}
+          {layoutNotice && <p role="status" className="text-xs text-muted-foreground">{layoutNotice}</p>}
           {hasEmbedSupport && allItems.length > 0 && !isFullscreen && (
             <MultiViewerCommandBar
               variant="bar"
@@ -623,6 +671,7 @@ export function MultiViewer({
               onToggleHideTitles={() => setHideSlotTitles((v) => !v)}
               savedGrids={savedGrids}
               onSaveLayout={handleSaveCurrentLayout}
+              layoutEditing={editingLayout}
               onApplyLayout={handleApplySavedGrid}
               onDeleteLayout={handleDeleteSavedGrid}
               showPlayAllLoadingHint={showPlayAllLoadingHint}
@@ -753,6 +802,7 @@ export function MultiViewer({
                     onToggleHideTitles={() => setHideSlotTitles((v) => !v)}
                     savedGrids={savedGrids}
                     onSaveLayout={handleSaveCurrentLayout}
+              layoutEditing={editingLayout}
                     onApplyLayout={handleApplySavedGrid}
                     onDeleteLayout={handleDeleteSavedGrid}
                     showPlayAllLoadingHint={showPlayAllLoadingHint}
@@ -775,7 +825,7 @@ export function MultiViewer({
             </>
           )}
 
-          {!isFullscreen && streamOptions.length > 0 && (
+          {shelfOpen && streamOptions.length > 0 && (
             <DriverShelf
               streamOptions={streamOptions}
               assignedItemIds={assignedItemIds}
@@ -800,8 +850,13 @@ export function MultiViewer({
               onOpen={onOpen}
               onRegisterPanelRef={handleRegisterPanelRef}
               onAddSlot={handleAddSlot}
-              canAddSlot={!isFullscreen}
-              hideSlotHeadersUntilHover={hideSlotTitles}
+              canAddSlot={editingLayout}
+              editing={editingLayout}
+              onRemoveSlot={(id) => {
+                setLayout((current) => current.filter((cell) => cell.i !== id));
+                setSlotToItemId((current) => { const next = { ...current }; delete next[id]; return next; });
+              }}
+              hideSlotHeadersUntilHover={!editingLayout && hideSlotTitles}
               fillHeight={isFullscreen}
               onSetSlotSize={handleSetSlotSize}
               onReloadStream={

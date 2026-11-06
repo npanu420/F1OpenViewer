@@ -62,6 +62,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
   const [tracks, setTracks] = useState<QualityTrack[]>([]);
   const [autoQuality, setAutoQuality] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Pull current state off the video/player. Cheap; called from events and a 1s poll.
@@ -128,7 +129,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
     setVisible(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     const v = getVideo();
-    if (v && !v.paused && !menuOpen) hideTimer.current = setTimeout(() => setVisible(false), 2500);
+    if (v && !v.paused && !menuOpen) hideTimer.current = setTimeout(() => { if (!controlsRef.current?.contains(document.activeElement)) setVisible(false); }, 2500);
   }, [getVideo, menuOpen]);
 
   useEffect(() => {
@@ -136,12 +137,13 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
     if (!c) return;
     const onLeave = () => {
       const v = getVideo();
-      if (v && !v.paused && !menuOpen) setVisible(false);
+      if (v && !v.paused && !menuOpen && !controlsRef.current?.contains(document.activeElement)) setVisible(false);
     };
     c.addEventListener('mousemove', poke);
     c.addEventListener('mouseleave', onLeave);
     poke();
     return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
       c.removeEventListener('mousemove', poke);
       c.removeEventListener('mouseleave', onLeave);
     };
@@ -225,15 +227,14 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
       if (v.paused) v.play().catch(() => {});
     } catch (_) {}
   };
-  const seekVod = (e: React.MouseEvent<HTMLDivElement>) => {
-    const v = getVideo();
-    if (!v || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    v.currentTime = ratio * duration;
+  const seekVod = (value: number) => {
+    const video = getVideo();
+    if (!video || !duration) return;
+    video.currentTime = Math.max(0, Math.min(duration, value));
+    sync();
   };
   /** Seek within the live DVR window (read fresh from the player, state may lag). */
-  const seekLive = (e: React.MouseEvent<HTMLDivElement>) => {
+  const seekLive = (ratio: number) => {
     const v = getVideo();
     const p = getPlayer();
     if (!v) return;
@@ -251,8 +252,6 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
     } catch (_) {}
     const span = end - start;
     if (span <= 0) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     const target = start + ratio * span;
     // Snap to the live edge when clicking near the end so playback re-attaches to live.
     if (end - target <= LIVE_EDGE_THRESHOLD) {
@@ -280,10 +279,14 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
 
   return (
     <div
-      className="absolute inset-x-0 bottom-0 z-10 transition-opacity duration-200"
+      ref={controlsRef}
+      onFocusCapture={poke}
+      onBlurCapture={poke}
+      onKeyDown={(event) => { if (event.key === 'Escape' && menuOpen) { event.stopPropagation(); setMenuOpen(false); menuRef.current?.querySelector('button')?.focus(); } }}
+      className="player-controls absolute inset-x-0 bottom-0 z-10 transition-opacity duration-200"
       style={{ opacity: visible ? 1 : 0, pointerEvents: visible ? 'auto' : 'none', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
-      <div className="bg-gradient-to-t from-black/85 via-black/50 to-transparent px-3 pt-6 pb-2">
+      <div className="bg-black/85 text-white px-3 py-2">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -314,18 +317,9 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
                 {tr('player.ctl.live')}
               </button>
               {/* DVR scrubber: click to seek back within the live window; clicking near the end snaps to live. */}
-              <div
-                className="flex-1 h-1.5 rounded-full bg-white/20 cursor-pointer group"
-                onClick={seekLive}
-                title={tr('player.ctl.seekLive')}
-              >
-                <div
-                  className="h-full bg-red-600 rounded-full relative transition-[width] duration-500"
-                  style={{ width: `${(atEdge ? 1 : liveFill) * 100}%` }}
-                >
-                  <span className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </div>
+              <input type="range" min={0} max={1} step={0.001} value={atEdge ? 1 : liveFill}
+                aria-label={tr('player.ctl.seekLive')} aria-valuetext={atEdge ? tr('player.ctl.live') : `−${fmt(behindLive)}`}
+                onChange={(event) => seekLive(Number(event.target.value))} className="player-scrubber flex-1" />
               {!atEdge && (
                 <span className="shrink-0 text-[11px] tabular-nums text-white/80" title={tr('player.ctl.behindLive')}>
                   -{fmt(behindLive)}
@@ -337,17 +331,9 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
               <span className="shrink-0 text-[11px] tabular-nums text-white/80 w-10 text-right">
                 {fmt(current)}
               </span>
-              <div
-                className="flex-1 h-1.5 rounded-full bg-white/20 cursor-pointer group"
-                onClick={seekVod}
-              >
-                <div
-                  className="h-full bg-red-600 rounded-full relative"
-                  style={{ width: `${vodPct}%` }}
-                >
-                  <span className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </div>
+              <input type="range" min={0} max={Math.max(duration, 1)} step={1} disabled={duration <= 0}
+                value={Math.min(current, duration)} aria-label={tr('experience.seek')} aria-valuetext={`${fmt(current)} / ${fmt(duration)}`}
+                onChange={(event) => seekVod(Number(event.target.value))} className="player-scrubber flex-1" />
               <span className="shrink-0 text-[11px] tabular-nums text-white/80 w-10">
                 {fmt(duration)}
               </span>
@@ -366,12 +352,13 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
             </button>
             <input
               type="range"
+              aria-label={tr('experience.volume')}
               min={0}
               max={1}
               step={0.05}
               value={muted ? 0 : volume}
               onChange={(e) => setVol(Number(e.target.value))}
-              className={`${compact ? 'w-0 opacity-0 group-hover:w-14 group-hover:opacity-100' : 'w-16'} transition-[width,opacity] duration-200 accent-red-600 cursor-pointer`}
+              className={`${compact ? 'w-12' : 'w-16'} transition-[width,opacity] duration-200 accent-red-600 cursor-pointer`}
               title={tr('player.ctl.volume')}
             />
           </div>
@@ -384,6 +371,7 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
               className={`text-white/90 hover:text-white transition-colors ${menuOpen ? 'text-white' : ''}`}
               title={tr('player.ctl.settings')}
               aria-label={tr('player.ctl.settings')}
+              aria-expanded={menuOpen}
             >
               <Settings className={iconSize} />
             </button>

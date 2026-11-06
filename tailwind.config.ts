@@ -12,7 +12,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        heading: ["Rajdhani", "sans-serif"],
+        heading: ["Space Grotesk", "sans-serif"],
         body: ["Space Grotesk", "sans-serif"],
       },
       colors: {

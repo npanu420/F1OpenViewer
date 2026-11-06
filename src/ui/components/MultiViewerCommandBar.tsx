@@ -30,6 +30,8 @@ function LayoutsDropdown({
 
   useEffect(() => {
     if (!open) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setOpen(false); rootRef.current?.querySelector('button')?.focus(); } };
+    document.addEventListener('keydown', onKey);
     const onDown = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setOpen(false);
@@ -37,7 +39,7 @@ function LayoutsDropdown({
       }
     };
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
   useEffect(() => () => {
@@ -47,7 +49,7 @@ function LayoutsDropdown({
   function requestDelete(id: string) {
     setConfirmingDeleteId(id);
     if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
-    confirmTimerRef.current = setTimeout(() => setConfirmingDeleteId(null), 3000);
+
   }
 
   function cancelDelete() {
@@ -65,6 +67,7 @@ function LayoutsDropdown({
     <div className={compact ? 'w-full' : 'relative shrink-0'} ref={rootRef}>
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className={`flex items-center gap-2 rounded-lg font-heading font-bold border transition-colors ${
           compact ? 'w-full py-2 px-3 text-xs' : 'py-2.5 px-4 text-sm tracking-wider'
@@ -102,6 +105,7 @@ function LayoutsDropdown({
                         setShowSaveInput(false);
                       }
                     }}
+                    aria-label={t('dashboard.savedLayoutNamePlaceholder')}
                     placeholder={t('dashboard.savedLayoutNamePlaceholder')}
                     className="flex-1 min-w-0 rounded-md border border-border bg-background font-heading px-2 py-1.5 text-xs"
                     autoFocus
@@ -204,6 +208,7 @@ function LayoutsDropdown({
 }
 
 interface MultiViewerCommandBarProps {
+  layoutEditing?: boolean;
   /** Horizontal sticky bar (default) vs vertical stack in fullscreen panel. */
   variant: 'bar' | 'compact';
   hasEmbedSupport: boolean;
@@ -242,6 +247,7 @@ interface MultiViewerCommandBarProps {
 
 export function MultiViewerCommandBar({
   variant,
+  layoutEditing = false,
   hasEmbedSupport,
   hasStreams,
   anyLoading,
@@ -308,7 +314,7 @@ export function MultiViewerCommandBar({
     </button>
   );
 
-  const layoutsDropdown = hasStreams && (
+  const layoutsDropdown = hasStreams && !layoutEditing && (
     <LayoutsDropdown compact={compact} savedGrids={savedGrids} onSave={onSaveLayout} onApply={onApplyLayout} onDelete={onDeleteLayout} />
   );
 
@@ -418,12 +424,12 @@ export function MultiViewerCommandBar({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="workspace-toolbar">
         {playAllBtn}
         {syncBtn}
         {hideTitlesBtn}
         {layoutsDropdown}
-        <div className="flex items-center gap-3 ml-auto">
+        <div className="flex items-center gap-2 ml-auto">
           {liveTimingPopoutBtn}
           {liveTimingDockBtn}
           {multiviewBtn}
