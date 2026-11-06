@@ -16,14 +16,16 @@ import react from '@vitejs/plugin-react';
 // (driver headshots) and the local license proxy (ports 18765-18775, see licenseProxy.js; CSP has
 // no port ranges, so they are listed).
 const LICENSE_PROXY_ORIGINS = Array.from({ length: 11 }, (_, i) => `http://127.0.0.1:${18765 + i}`).join(' ');
+// Live and some VOD manifests/segments are served from Akamai (e.g. f1prodlive.akamaized.net).
+const F1_MEDIA_HOSTS = 'https://*.formula1.com https://*.akamaized.net https://*.akamaihd.net';
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.formula1.com",
-  "media-src 'self' blob: data: https://*.formula1.com",
+  `media-src 'self' blob: data: ${F1_MEDIA_HOSTS}`,
   "font-src 'self' data:",
-  `connect-src 'self' https://*.formula1.com https://api.openf1.org ${LICENSE_PROXY_ORIGINS}`,
+  `connect-src 'self' ${F1_MEDIA_HOSTS} https://api.openf1.org ${LICENSE_PROXY_ORIGINS}`,
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
