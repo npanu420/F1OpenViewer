@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodSession, VodOnboard } from '../../domain/vod';
-import { resolvePlayback } from '../../services/entitlement';
-import { useEmbeddedPlayback, playbackErrorMessage } from '../hooks/useEmbeddedPlayback';
+import { useEmbeddedPlayback } from '../hooks/useEmbeddedPlayback';
 import { useLocale } from '../../i18n/LocaleContext';
 import {
   MultiViewer,
@@ -43,9 +42,7 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
   const reportEmbedError = useCallback((msg: string) => setEmbedError(msg || null), []);
   const {
     embeddedPlayback,
-    setEmbeddedPlayback,
     loadingItemIds,
-    setLoading,
     onPlayEmbedded,
     onPlayAllEmbedded,
   } = useEmbeddedPlayback(reportEmbedError, state?.embeddedPlayback ?? {});
@@ -88,20 +85,8 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
 
     if (itemsToResolve.length === 0) return;
 
-    setLoading(itemsToResolve, true);
-    Promise.allSettled(itemsToResolve.map((item) => resolvePlayback(item))).then((results) => {
-      setEmbeddedPlayback((prev) => {
-        const next = { ...prev };
-        results.forEach((result, i) => {
-          if (result.status === 'fulfilled' && itemsToResolve[i]) next[itemsToResolve[i].id] = result.value;
-        });
-        return next;
-      });
-      setLoading(itemsToResolve, false);
-      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
-      if (failed) setEmbedError(playbackErrorMessage(failed.reason) || null);
-    });
-  }, [state, setEmbeddedPlayback, setLoading]);
+    void onPlayAllEmbedded(itemsToResolve);
+  }, [state, onPlayAllEmbedded]);
 
   const handleExit = useCallback(() => {
     if (typeof window !== 'undefined' && (window as unknown as { f1?: { closeMultiviewWindow?: () => void } }).f1?.closeMultiviewWindow) {

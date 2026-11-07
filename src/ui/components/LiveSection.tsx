@@ -48,7 +48,7 @@ export function LiveSection({ items, onOpen, loading }: LiveSectionProps) {
               <Monitor className="w-3.5 h-3.5 text-primary" />
               {t('dashboard.liveSectionHeading').toUpperCase()}
             </h4>
-            {loading ? (
+            {loading && items.length === 0 ? (
               <div className="h-24 rounded-md bg-card border border-border animate-pulse" />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

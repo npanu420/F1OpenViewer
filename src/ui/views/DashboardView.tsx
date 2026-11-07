@@ -106,7 +106,7 @@ export function DashboardView({
   const currentEvents = selectedYear !== -1 && currentSeasonPageId != null
     ? eventsBySeasonPageId[currentSeasonPageId]
     : undefined;
-  const filteredEvents = (currentEvents ?? []).filter((event) =>
+  const filteredEvents = [...(currentEvents ?? [])].reverse().filter((event) =>
     `${event.meetingName} ${event.country ?? ''} ${event.meetingNumber}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
   );
   useEffect(() => {

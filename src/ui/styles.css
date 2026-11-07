@@ -1,8 +1,7 @@
 /* Fonts (Rajdhani, Space Grotesk) are bundled via @fontsource in main.tsx: no request to Google at runtime. */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
 
 /* Keyboard focus is always visible (mouse clicks don't show it). */
 button:focus-visible,
@@ -472,3 +471,33 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 
 @container (max-width: 780px) { .timing-secondary { display: none; } }
 @container (max-width: 899px) { .dock-xl { display: none; } }
+
+
+/* Keep grab areas inside the clipped video panels, above player controls. */
+.resizable-stream-grid .react-resizable-handle {
+  z-index: 40;
+  touch-action: none;
+  transform: none;
+  background-image: none;
+}
+.resizable-stream-grid .react-resizable-handle-e,
+.resizable-stream-grid .react-resizable-handle-w {
+  top: 20px; bottom: 20px; height: auto; width: 10px; margin: 0;
+}
+.resizable-stream-grid .react-resizable-handle-n,
+.resizable-stream-grid .react-resizable-handle-s {
+  left: 20px; right: 20px; width: auto; height: 10px; margin: 0;
+}
+.resizable-stream-grid .react-resizable-handle-e { right: 0; }
+.resizable-stream-grid .react-resizable-handle-w { left: 0; }
+.resizable-stream-grid .react-resizable-handle-n { top: 0; }
+.resizable-stream-grid .react-resizable-handle-s { bottom: 0; }
+.resizable-stream-grid .react-resizable-handle-ne { top: 0; right: 0; }
+.resizable-stream-grid .react-resizable-handle-nw { top: 0; left: 0; }
+.resizable-stream-grid .react-resizable-handle-se { bottom: 0; right: 0; }
+.resizable-stream-grid .react-resizable-handle-sw { bottom: 0; left: 0; }
+.resizable-stream-grid .react-resizable-handle::after { display: none; }
+.resizable-stream-grid .react-resizable-handle-se::after {
+  display: block; content: ''; position: absolute; right: 4px; bottom: 4px;
+  width: 7px; height: 7px; border-right: 2px solid #aaa; border-bottom: 2px solid #aaa;
+}

@@ -127,7 +127,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
         transition={{ delay: index * 0.04, duration: 0.3 }}
       >
         {!hideHeader && (
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
+        <div data-stream-header className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             {type === 'main' && <Monitor className="w-3.5 h-3.5 text-primary shrink-0" />}
             {type === 'driver' && (

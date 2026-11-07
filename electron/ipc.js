@@ -181,9 +181,9 @@ function setupIpc() {
     const spaced = (v) => new Promise((resolve) => setTimeout(() => resolve(v), CONTENT_PLAY_DELAY_MS));
     contentPlayQueue = job.then(
       (result) => spaced(result),
-      (err) => spaced(null).then(() => { throw err; })
+      () => spaced(null)
     );
-    return contentPlayQueue;
+    return job;
   });
   handle('f1:openInF1TVWeb', async (_evt, contentId, title, channelId) => {
     await windows.openCustomPlayerWindow(contentId, title, channelId);

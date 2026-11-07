@@ -129,16 +129,20 @@ export function App() {
     setBusy(true);
     setError(null);
     try {
-      const [items, seasons] = await Promise.all([
-        getCatalog(),
-        getVodSeasons(),
+      const results = await Promise.allSettled([
+        getCatalog((items) => {
+          if (req === catalogReqRef.current) setCatalog(items);
+        }),
+        getVodSeasons().then((seasons) => {
+          if (req !== catalogReqRef.current) return;
+          setVodSeasons(seasons);
+          if (seasons.length > 0 && !yearPickedRef.current) {
+            setSelectedYear(seasons[0].year);
+          }
+        }),
       ]);
-      if (req !== catalogReqRef.current) return; // signed out (or reloaded) meanwhile
-      setCatalog(items);
-      setVodSeasons(seasons);
-      if (seasons.length > 0 && !yearPickedRef.current) {
-        setSelectedYear(seasons[0].year);
-      }
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
     } catch (e) {
       if (req !== catalogReqRef.current) return;
       setError(e instanceof Error ? e.message : t('error.catalogLoad'));

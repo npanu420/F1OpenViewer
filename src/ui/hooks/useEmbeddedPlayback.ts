@@ -28,6 +28,9 @@ export function useEmbeddedPlayback(
    * session and must not be written into this one (nor clear its loading flags / show its errors).
    */
   const genRef = useRef(0);
+  const pendingRef = useRef(new Set<string>());
+  const playbackRef = useRef(embeddedPlayback);
+  playbackRef.current = embeddedPlayback;
 
   const setLoading = useCallback((items: CatalogItem[], value: boolean) => {
     setLoadingItemIds((prev) => {
@@ -39,18 +42,24 @@ export function useEmbeddedPlayback(
 
   const onPlayEmbedded = useCallback(
     async (item: CatalogItem) => {
+      if (pendingRef.current.has(item.id) || playbackRef.current[item.id]) return;
+      pendingRef.current.add(item.id);
       const gen = genRef.current;
       setLoading([item], true);
       onError?.('');
       try {
         const info = await resolvePlayback(item);
         if (gen !== genRef.current) return;
+        playbackRef.current = { ...playbackRef.current, [item.id]: info };
         setEmbeddedPlayback((prev) => ({ ...prev, [item.id]: info }));
       } catch (e) {
         if (gen !== genRef.current) return;
         onError?.(playbackErrorMessage(e) || t('error.openPlayer'));
       } finally {
-        if (gen === genRef.current) setLoading([item], false);
+        if (gen === genRef.current) {
+          pendingRef.current.delete(item.id);
+          setLoading([item], false);
+        }
       }
     },
     [onError, setLoading, t]
@@ -58,20 +67,32 @@ export function useEmbeddedPlayback(
 
   const onPlayAllEmbedded = useCallback(
     async (items: CatalogItem[]) => {
-      if (items.length === 0) return;
-      const gen = genRef.current;
-      setLoading(items, true);
-      onError?.('');
-      const results = await Promise.allSettled(items.map((item) => resolvePlayback(item)));
-      if (gen !== genRef.current) return; // session switched meanwhile
-      const next: Record<string, PlaybackInfo> = {};
-      const failures: string[] = [];
-      results.forEach((result, i) => {
-        if (result.status === 'fulfilled') next[items[i].id] = result.value;
-        else failures.push(playbackErrorMessage(result.reason));
+      const targets = items.filter((item) => {
+        if (pendingRef.current.has(item.id) || playbackRef.current[item.id]) return false;
+        pendingRef.current.add(item.id);
+        return true;
       });
-      setEmbeddedPlayback((prev) => ({ ...prev, ...next }));
-      setLoading(items, false);
+      if (!targets.length) return;
+      const gen = genRef.current;
+      setLoading(targets, true);
+      onError?.('');
+      const results = await Promise.allSettled(targets.map(async (item) => {
+        try {
+          const info = await resolvePlayback(item);
+          if (gen !== genRef.current) return;
+          playbackRef.current = { ...playbackRef.current, [item.id]: info };
+          setEmbeddedPlayback((prev) => ({ ...prev, [item.id]: info }));
+        } finally {
+          if (gen === genRef.current) {
+            pendingRef.current.delete(item.id);
+            setLoading([item], false);
+          }
+        }
+      }));
+      if (gen !== genRef.current) return; // session switched meanwhile
+      const failures = results.flatMap((result) =>
+        result.status === 'rejected' ? [playbackErrorMessage(result.reason)] : []
+      );
       if (failures.length > 0) {
         const first = failures.find(Boolean) || t('error.openPlayer');
         onError?.(
@@ -96,6 +117,8 @@ export function useEmbeddedPlayback(
 
   const resetPlayback = useCallback(() => {
     genRef.current += 1;
+    pendingRef.current.clear();
+    playbackRef.current = {};
     setEmbeddedPlayback({});
     setLoadingItemIds({});
   }, []);

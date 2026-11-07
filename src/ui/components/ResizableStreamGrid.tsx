@@ -12,6 +12,7 @@ import { StreamPanel, type StreamPanelHandle } from './StreamPanel';
 export const DRIVER_SHELF_DRAG_TYPE = 'application/x-f1ov-stream-id';
 
 import 'react-grid-layout/css/styles.css';
+import { snapLayoutItemToStreamAspect } from './gridAspect';
 import { movePanel } from './layoutOperations';
 
 // react-grid-layout 2.2.2 /legacy types disagree on ref callback (null vs undefined).
@@ -21,6 +22,9 @@ interface GridLayoutWithWidthProps {
   layout: Layout;
   onLayoutChange: (layout: Layout) => void;
   onResizeStop?: EventCallback;
+  onResizeStart?: EventCallback;
+  onDragStart?: EventCallback;
+  onDragStop?: EventCallback;
   cols: number;
   rowHeight: number;
   margin: [number, number];
@@ -98,56 +102,6 @@ const GRID_CONTAINER_PADDING: readonly [number, number] = [0, 0];
 /** Approx. chrome above the video: grid slot header + StreamPanel header when both in layout flow. */
 const SLOT_CHROME_TOP_PX = 88;
 
-function snapLayoutItemToStreamAspect(
-  item: LayoutItem,
-  oldItem: LayoutItem,
-  streamAspectRatio: number,
-  containerWidth: number,
-  rowHeight: number,
-  chromeTopPx: number,
-  cols: number
-): LayoutItem {
-  if (!Number.isFinite(streamAspectRatio) || streamAspectRatio <= 0) return item;
-
-  const colWidth = calcGridColWidth({
-    margin: GRID_MARGIN,
-    containerPadding: GRID_CONTAINER_PADDING,
-    containerWidth,
-    cols,
-    rowHeight,
-    maxRows: 1_000_000,
-  });
-
-  let w = item.w;
-  let h = item.h;
-  const x = item.x;
-  const minW = item.minW ?? 1;
-  const minH = item.minH ?? 1;
-
-  const dw = Math.abs(w - oldItem.w);
-  const dh = Math.abs(h - oldItem.h);
-
-  if (dw >= dh) {
-    const slotW = calcGridItemWHPx(w, colWidth, GRID_MARGIN[0]);
-    const contentW = Math.max(1, slotW);
-    const targetContentH = contentW / streamAspectRatio;
-    const targetSlotH = targetContentH + chromeTopPx;
-    h = Math.round((targetSlotH + GRID_MARGIN[1]) / (rowHeight + GRID_MARGIN[1]));
-  } else {
-    const slotH = calcGridItemWHPx(h, rowHeight, GRID_MARGIN[1]);
-    const contentH = Math.max(1, slotH - chromeTopPx);
-    const targetContentW = contentH * streamAspectRatio;
-    const targetSlotW = Math.max(1, targetContentW);
-    w = Math.round((targetSlotW + GRID_MARGIN[0]) / (colWidth + GRID_MARGIN[0]));
-  }
-
-  w = Math.max(minW, w);
-  h = Math.max(minH, h);
-  w = Math.min(w, cols - x);
-  w = Math.max(minW, w);
-
-  return { ...item, w, h, x };
-}
 
 interface ResizableStreamGridProps {
   editing?: boolean;
@@ -188,6 +142,17 @@ interface ResizableStreamGridProps {
 }
 
 const DEFAULT_ROW_HEIGHT = 80;
+/** Minimum on-screen height change (px) that justifies re-laying out the grid. */
+const REFIT_THRESHOLD_PX = 3;
+
+function layoutHeightDeltaPx(a: number, b: number, rowHeight: number): number {
+  return Math.abs(a - b) * (rowHeight + GRID_MARGIN[1]);
+}
+
+/** ABR renditions differ slightly (854x480 vs 1280x720): treat near-16:9 as exactly 16:9. */
+function normalizeAspect(ar: number): number {
+  return Math.abs(ar - 16 / 9) < 0.02 ? 16 / 9 : Math.round(ar * 1000) / 1000;
+}
 
 export function ResizableStreamGrid({
   streamOptions,
@@ -228,9 +193,8 @@ export function ResizableStreamGrid({
   /** Video aspect ratio for each active slot. */
   const [slotStreamAspectRatio, setSlotStreamAspectRatio] = useState<Record<string, number>>({});
   const prevSlotToItemId = useRef<Record<string, string>>({});
-  /** slotIds already auto-fitted to their stream's aspect since the current stream was picked;
-   *  reset when the slot's stream changes so a newly picked stream gets its own auto-fit. */
-  const autoFittedSlots = useRef<Set<string>>(new Set());
+  /** Aspect metadata is reset when a slot changes stream, then fitted in a single layout update. */
+
 
   useEffect(() => {
     const el = containerRef.current;
@@ -253,9 +217,6 @@ export function ResizableStreamGrid({
     }
     prevSlotToItemId.current = { ...cur };
     if (!needsClear) return;
-    for (const sid of slotIds) {
-      if (prev[sid] !== cur[sid]) autoFittedSlots.current.delete(sid);
-    }
     setSlotStreamAspectRatio((ratios) => {
       const next = { ...ratios };
       for (const sid of slotIds) {
@@ -265,31 +226,47 @@ export function ResizableStreamGrid({
     });
   }, [slotToItemId]);
 
-  const chromeTopPx = hideSlotHeadersUntilHover ? 0 : SLOT_CHROME_TOP_PX;
+  const [measuredChrome, setMeasuredChrome] = useState<Record<string, number>>({});
+  /** True while the user drags or resizes a panel: auto-fit must not fight the gesture. */
+  const resizing = useRef(false);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const next: Record<string, number> = {};
+      el.querySelectorAll<HTMLElement>('[data-slot-id]').forEach((slot) => {
+        let height = 4; // Slot and StreamPanel borders.
+        slot.querySelectorAll<HTMLElement>('[data-stream-header], .grid-slot-header').forEach((header) => {
+          // offsetHeight: integer and immune to transforms/animations, so sub-pixel noise can't retrigger a refit.
+          if (getComputedStyle(header).position !== 'absolute') height += header.offsetHeight;
+        });
+        next[slot.dataset.slotId!] = height;
+      });
+      setMeasuredChrome((prev) => JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+    };
+    const observer = new ResizeObserver(measure);
+    el.querySelectorAll('[data-stream-header], .grid-slot-header').forEach((header) => observer.observe(header));
+    measure();
+    return () => observer.disconnect();
+  }, [hideSlotHeadersUntilHover, editing, slotToItemId, layout.length]);
+  const chromeTopPx = hideSlotHeadersUntilHover ? 4 : SLOT_CHROME_TOP_PX;
 
   const rowHeight =
     disableCompact && containerWidth > 0
       ? Math.max(20, (containerWidth / 12) * 0.65)
       : DEFAULT_ROW_HEIGHT;
 
-  // Default layout h ignores slot header height, so first paint isn't true 16:9. Fix once we know width.
-  const defaultLayoutFixed = useRef(false);
+  // Fit all panels in one update, preserving widths and ordering. Refit when window
+  // width, header visibility or video metadata changes, including fullscreen.
   useEffect(() => {
-    if (defaultLayoutFixed.current || containerWidth <= 0) return;
-    defaultLayoutFixed.current = true;
-    const isPristineDefault =
-      layout.length === DEFAULT_LAYOUT.length &&
-      layout.every((li, idx) => {
-        const d = DEFAULT_LAYOUT[idx];
-        return d && li.i === d.i && li.x === d.x && li.y === d.y && li.w === d.w && li.h === d.h;
-      });
-    if (!isPristineDefault) return;
+    if (containerWidth <= 0 || resizing.current) return;
     const fitted = layout.map((li) =>
-      snapLayoutItemToStreamAspect(li, li, 16 / 9, containerWidth, rowHeight, chromeTopPx, COLS)
+      snapLayoutItemToStreamAspect(li, li, slotStreamAspectRatio[li.i] ?? 16 / 9,
+        containerWidth, rowHeight, measuredChrome[li.i] ?? chromeTopPx, COLS)
     );
-    const changed = fitted.some((li, idx) => li.w !== layout[idx].w || li.h !== layout[idx].h);
-    if (changed) onLayoutChange(fitted);
-  }, [containerWidth, rowHeight, chromeTopPx, layout, onLayoutChange]);
+    // Only apply changes visible on screen; tiny deltas just make panels jitter (CSS transition on every update).
+    if (fitted.some((li, i) => layoutHeightDeltaPx(li.h, layout[i].h, rowHeight) >= REFIT_THRESHOLD_PX)) onLayoutChange(fitted);
+  }, [containerWidth, rowHeight, chromeTopPx, measuredChrome, slotStreamAspectRatio, layout, onLayoutChange]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, slotId: string) => {
@@ -333,8 +310,9 @@ export function ResizableStreamGrid({
 
   const handleResizeStop: EventCallback = useCallback(
     (layout, oldItem, newItem) => {
+      resizing.current = false;
       if (!newItem || !oldItem || containerWidth <= 0) return;
-      const ar = slotStreamAspectRatio[newItem.i];
+      const ar = slotStreamAspectRatio[newItem.i] ?? 16 / 9;
       if (!ar || ar <= 0) return;
       const snapped = snapLayoutItemToStreamAspect(
         newItem,
@@ -342,14 +320,14 @@ export function ResizableStreamGrid({
         ar,
         containerWidth,
         rowHeight,
-        chromeTopPx,
+        measuredChrome[newItem.i] ?? chromeTopPx,
         COLS
       );
       if (snapped.w === newItem.w && snapped.h === newItem.h) return;
       const nextLayout = layout.map((li) => (li.i === snapped.i ? snapped : li));
       onLayoutChange(nextLayout);
     },
-    [containerWidth, rowHeight, chromeTopPx, slotStreamAspectRatio, onLayoutChange]
+    [containerWidth, rowHeight, chromeTopPx, measuredChrome, slotStreamAspectRatio, onLayoutChange]
   );
 
   useEffect(() => {
@@ -388,16 +366,19 @@ export function ResizableStreamGrid({
         className={`layout ${fillHeight ? 'flex-1 min-h-0' : ''}`}
         layout={layout}
         onLayoutChange={onLayoutChange}
+        onResizeStart={() => { resizing.current = true; }}
+        onDragStart={() => { resizing.current = true; }}
+        onDragStop={() => { resizing.current = false; }}
         onResizeStop={handleResizeStop}
         cols={12}
         rowHeight={rowHeight}
         margin={[GRID_MARGIN[0], GRID_MARGIN[1]]}
         containerPadding={[GRID_CONTAINER_PADDING[0], GRID_CONTAINER_PADDING[1]]}
         isDraggable={editing}
-        isResizable={editing}
+        isResizable={true}
         draggableHandle=".grid-drag-handle"
-        resizeHandles={editing ? ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] : []}
-        compactType={disableCompact ? null : 'vertical'}
+        resizeHandles={['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']}
+        compactType="vertical"
         preventCollision={false}
         useCSSTransforms={true}
         autoSize={true}
@@ -413,6 +394,7 @@ export function ResizableStreamGrid({
           return (
             <div
               key={slotId}
+              data-slot-id={slotId}
               className={`grid-slot group relative rounded-lg border overflow-hidden flex flex-col min-h-0 w-full h-full transition-colors ${
                 isDropTarget || (isPickTarget && itemId !== pickingItemId)
                   ? 'border-primary ring-2 ring-primary/50'
@@ -494,19 +476,9 @@ export function ResizableStreamGrid({
                     initialSeekSeconds={initialSeekSecondsByItemId?.[option.item.id]}
                     onVideoIntrinsicSize={(vw, vh) => {
                       if (vw <= 0 || vh <= 0) return;
-                      const ar = vw / vh;
-                      setSlotStreamAspectRatio((prev) => ({ ...prev, [slotId]: ar }));
-                      // First aspect report: fit slot to stream. Skip in fullscreen (no compaction/reflow).
-                      if (!disableCompact && !autoFittedSlots.current.has(slotId) && containerWidth > 0) {
-                        autoFittedSlots.current.add(slotId);
-                        const li = layout.find((l) => l.i === slotId);
-                        if (li) {
-                          const snapped = snapLayoutItemToStreamAspect(li, li, ar, containerWidth, rowHeight, chromeTopPx, COLS);
-                          if (snapped.w !== li.w || snapped.h !== li.h) {
-                            onLayoutChange(layout.map((l) => (l.i === slotId ? snapped : l)));
-                          }
-                        }
-                      }
+                      const ar = normalizeAspect(vw / vh);
+                      setSlotStreamAspectRatio((prev) =>
+                        prev[slotId] === ar ? prev : { ...prev, [slotId]: ar });
                     }}
                   />
                 ) : (
