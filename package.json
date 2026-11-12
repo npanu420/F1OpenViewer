@@ -34,7 +34,7 @@
     "react-grid-layout": "^2.3.0",
     "shaka-player": "^5.3.4",
     "undici": "^7.29.0",
-    "ws": "^8.22.1"
+    "ws": "^8.22.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.5",
