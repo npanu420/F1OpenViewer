@@ -27,7 +27,7 @@
     "@fontsource/space-grotesk": "^5.3.0",
     "axios": "^1.21.0",
     "country-flag-icons": "1.6.20",
-    "dotenv": "^16.6.1",
+    "dotenv": "^18.0.10",
     "framer-motion": "^12.35.2",
     "lucide-react": "^1.70.0",
     "react": "^19.3.1",
