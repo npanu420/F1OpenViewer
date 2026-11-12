@@ -43,7 +43,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
     "autoprefixer": "^10.6.2",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.7",
     "cross-env": "^10.1.0",
     "electron": "github:castlabs/electron-releases#v42.11.18+wvcus",
     "electron-builder": "^26.18.0",
