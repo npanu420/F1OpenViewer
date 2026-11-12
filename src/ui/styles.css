@@ -741,3 +741,27 @@ body[data-stream-focus] .workspace.session-workspace { padding: 8px; }
 @container (max-width: 470px) { .hud-md { display: none; } }
 @container (max-width: 360px) { .hud-sm, .driver-hud-drs { display: none; } }
 @container (max-width: 250px) { .driver-hud-times { display: none; } }
+
+/* First-run setup */
+.onboarding-step { margin: 0 0 10px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: hsl(var(--muted-foreground)); }
+.onboarding-heading { margin: 0 0 10px; font-size: 13px; font-weight: 600; letter-spacing: .04em; color: hsl(var(--foreground)); }
+.onboarding-hint { margin: 14px 0 0; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.onboarding-languages { display: grid; gap: 8px; }
+.onboarding-option, .onboarding-driver { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--card)); color: hsl(var(--foreground)); text-align: left; font-size: 14px; transition: background-color var(--dur-feedback) var(--ease-out), border-color var(--dur-feedback) var(--ease-out); }
+.onboarding-option:hover, .onboarding-driver:hover { background: hsl(var(--accent)); }
+.onboarding-option[aria-checked='true'], .onboarding-driver[aria-pressed='true'] { border-color: hsl(var(--primary)); background: hsl(var(--primary) / .12); }
+.onboarding-option:focus-visible, .onboarding-driver:focus-visible, .onboarding-primary:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
+.onboarding-option-name { font-weight: 500; }
+.onboarding-tag { padding: 1px 6px; border: 1px solid hsl(var(--border)); border-radius: 999px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: hsl(var(--muted-foreground)); }
+.onboarding-drivers { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; max-height: min(52vh, 460px); overflow-y: auto; padding-right: 4px; }
+.onboarding-driver { min-height: 52px; }
+.onboarding-driver-team { flex-shrink: 0; width: 3px; align-self: stretch; border-radius: 2px; }
+.onboarding-driver-number { flex-shrink: 0; width: 26px; font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 700; color: hsl(var(--muted-foreground)); text-align: right; }
+.onboarding-driver-text { display: flex; flex-direction: column; min-width: 0; }
+.onboarding-driver-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.onboarding-driver-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: hsl(var(--muted-foreground)); }
+.onboarding-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 24px; }
+.onboarding-primary { min-height: 40px; padding: 8px 20px; border: 1px solid hsl(var(--primary)); border-radius: 8px; background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); font-weight: 700; letter-spacing: .04em; transition: opacity var(--dur-feedback) var(--ease-out); }
+.onboarding-primary:hover { opacity: .92; }
+.onboarding-primary:active { opacity: .8; }
+@media (prefers-reduced-motion: reduce) { .onboarding-option, .onboarding-driver, .onboarding-primary { transition: none; } }

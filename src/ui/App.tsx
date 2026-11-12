@@ -4,6 +4,7 @@ import { getCatalog } from '../services/catalog';
 import { getVodSeasons } from '../services/vod';
 import { session } from '../services/session';
 import { useLocale } from '../i18n/LocaleContext';
+import { onboardingNeeded } from '../services/onboarding';
 import { Header } from './components/Header';
 import { SettingsPanel, type ThemeMode } from './components/SettingsPanel';
 import { X, WifiOff } from 'lucide-react';
@@ -11,6 +12,7 @@ import { X, WifiOff } from 'lucide-react';
 // Each window type only downloads/parses what it renders: the live-timing popout no longer
 // carries Shaka + react-grid-layout, the main window no longer the standalone views.
 const LoginView = lazy(() => import('./views/LoginView').then((m) => ({ default: m.LoginView })));
+const OnboardingView = lazy(() => import('./views/OnboardingView').then((m) => ({ default: m.OnboardingView })));
 const DashboardView = lazy(() => import('./views/DashboardView').then((m) => ({ default: m.DashboardView })));
 const StandaloneMultiviewView = lazy(() => import('./views/StandaloneMultiviewView').then((m) => ({ default: m.StandaloneMultiviewView })));
 const StandalonePlayerView = lazy(() => import('./views/StandalonePlayerView').then((m) => ({ default: m.StandalonePlayerView })));
@@ -35,6 +37,7 @@ type Route =
   | { name: 'boot' }
   | { name: 'offline' }
   | { name: 'login' }
+  | { name: 'onboarding' }
   | { name: 'dashboard' }
   | { name: 'live'; item: CatalogItem };
 
@@ -115,7 +118,8 @@ export function App() {
       setRoute({ name: 'dashboard' });
       return;
     }
-    setRoute({ name: 'login' });
+    // Not signed in: a fresh install starts with the first-run setup, anything else with sign-in.
+    setRoute(onboardingNeeded() ? { name: 'onboarding' } : { name: 'login' });
   }
 
   useEffect(() => {
@@ -259,19 +263,24 @@ export function App() {
     );
   }
 
+  const finishSignIn = async () => {
+    setSignedIn((await session.get()).signedIn);
+    setRoute({ name: 'dashboard' });
+    await loadCatalog();
+  };
+
+  if (route.name === 'onboarding') {
+    return (
+      <Suspense fallback={<BootScreen />}>
+        <OnboardingView onLoggedIn={finishSignIn} error={error} setError={setError} setBusy={setBusy} />
+      </Suspense>
+    );
+  }
+
   if (route.name === 'login') {
     return (
       <Suspense fallback={<BootScreen />}>
-        <LoginView
-          onLoggedIn={async () => {
-            setSignedIn((await session.get()).signedIn);
-            setRoute({ name: 'dashboard' });
-            await loadCatalog();
-          }}
-          error={error}
-          setError={setError}
-          setBusy={setBusy}
-        />
+        <LoginView onLoggedIn={finishSignIn} error={error} setError={setError} setBusy={setBusy} />
       </Suspense>
     );
   }

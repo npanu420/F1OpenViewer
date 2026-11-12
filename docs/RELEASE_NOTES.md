@@ -51,6 +51,11 @@ A customizable auto layout, a calmer and more consistent interface, and a long r
 - **Buffer size**, **audio at start** (all muted, or the main feed on), **automatic sync** when streams start, the **most streams** the auto layout may show, whether **data channels give way to onboards** while Live Timing is open, and **how quickly the controls over the video hide** (or never).
 - Settings sync between the main window and the multiview window and survive reinstalls; "Restore defaults" puts them back.
 
+### First launch
+
+- **A short setup on a fresh install**: when the app has no saved data it asks for your language (preselected from your system), your favourite drivers from the current grid, and then signs you in. The favourites are used by the auto layout right away.
+- It only appears when nothing is saved, and picks up where you left off if you close the app half way. Installs that already have settings go straight to sign-in, as before.
+
 ### Languages (work in progress)
 
 - **French, German and Spanish** join English and Italian. They are a first pass and still being reviewed: anything not translated yet shows in English.

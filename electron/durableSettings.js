@@ -23,6 +23,7 @@ const DURABLE_SETTINGS_KEYS = new Set([
   'f1openviewer-multiview-bar-collapsed',
   'f1openviewer-favorite-drivers',
   'f1openviewer-preferences',
+  'f1openviewer-onboarding',
 ]);
 
 /** Keys that are a prefix + free-form suffix (e.g. per-session live-timing sync offsets). */

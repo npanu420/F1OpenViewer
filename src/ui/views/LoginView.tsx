@@ -8,11 +8,14 @@ type Props = {
   error: string | null;
   setError: (e: string | null) => void;
   setBusy: (b: boolean) => void;
+  /** First-run setup: where this screen sits in it, and the way back to the previous step. */
+  stepLabel?: string;
+  onBack?: () => void;
 };
 
 type Mode = 'browser' | 'credentials' | 'token';
 
-export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
+export function LoginView({ onLoggedIn, error, setError, setBusy, stepLabel, onBack }: Props) {
   const { t } = useLocale();
   const [submitting, setSubmitting] = useState(false);
   const [mode, setMode] = useState<Mode>('browser');
@@ -82,6 +85,7 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
       >
         <div className="mb-8">
           <p className="brand-wordmark text-lg mb-8">OpenViewer</p>
+          {stepLabel && <p className="onboarding-step">{stepLabel}</p>}
           <h1 className="font-heading text-2xl font-bold tracking-wider text-foreground m-0">
             {t('login.title')}
           </h1>
@@ -216,6 +220,12 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
             )}
           </div>
         </details>
+
+        {onBack && (
+          <button type="button" className="ui-button mt-6" disabled={submitting} onClick={onBack}>
+            {t('onboarding.back')}
+          </button>
+        )}
       </motion.div>
     </div>
   );
