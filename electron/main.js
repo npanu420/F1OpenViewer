@@ -1,6 +1,6 @@
 const path = require('path');
 try {
-  require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+  require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true });
 } catch (_) {}
 const os = require('os');
 const { app, BrowserWindow, Menu, session } = require('electron');
