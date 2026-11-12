@@ -20,7 +20,7 @@ const LiveEventView = lazy(() => import('./views/LiveEventView').then((m) => ({ 
 /** Full-window placeholder while the session restores or a view chunk loads. */
 function BootScreen({ label }: { label?: string }) {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
+    <div className="h-full min-h-[50vh] bg-background flex items-center justify-center">
       <div className="text-center">
         <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto mb-3" />
         {label && <p className="text-xs text-muted-foreground font-heading tracking-wider">{label}</p>}
@@ -278,7 +278,7 @@ export function App() {
 
   if (route.name === 'live') {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="app-shell">
         <Header
           selectedYear={selectedYear}
           onSelectYear={handleSelectYear}
@@ -296,6 +296,7 @@ export function App() {
           isSignedIn={signedIn}
           onLogout={logout}
         />
+        <div className="app-content">
         <Suspense fallback={<BootScreen />}>
         <LiveEventView
           item={route.item}
@@ -311,12 +312,13 @@ export function App() {
           onEmbedError={setError}
         />
         </Suspense>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="app-shell">
       {updateInfo && (
         <div className="flex items-center justify-center gap-3 px-4 py-2 bg-primary/15 border-b border-primary/30 text-sm font-heading text-foreground">
           <span>{t('app.updateAvailable').replace('{version}', updateInfo.version)}</span>
@@ -354,6 +356,7 @@ export function App() {
         isSignedIn={signedIn}
         onLogout={logout}
       />
+      <div className="app-content">
       <Suspense fallback={<BootScreen />}>
       <DashboardView
         items={catalog}
@@ -377,6 +380,7 @@ export function App() {
         }}
       />
       </Suspense>
+      </div>
     </div>
   );
 }

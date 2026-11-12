@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { VodSession, VodOnboard } from '../../domain/vod';
@@ -87,8 +86,8 @@ export function LiveEventView({
   );
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="workspace">
+    <div className="h-full overflow-y-auto scrollbar-hide bg-background">
+      <main className="workspace session-workspace">
         {error && <p role="alert" className="error mb-3">{error}</p>}
         <div className="session-heading">
           <button
@@ -97,7 +96,7 @@ export function LiveEventView({
             type="button"
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-            <span className="font-heading tracking-wider">
+            <span>
               {t('player.back')}
             </span>
           </button>
@@ -110,7 +109,7 @@ export function LiveEventView({
             <span className="font-heading font-bold text-red-400 tracking-widest text-sm">
               {t('header.live')}
             </span>
-            <h2 className="font-heading text-2xl font-bold tracking-wider">
+            <h2 className="truncate">
               {item.title}
             </h2>
           </div>
@@ -125,11 +124,7 @@ export function LiveEventView({
             </p>
           </div>
         ) : (
-          <motion.div
-            initial={false}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-          >
+          <div className="flex-1 min-h-0 flex flex-col">
             <MultiViewer
               session={session}
               streams={streams}
@@ -151,8 +146,9 @@ export function LiveEventView({
                 title: item.title,
               }}
               onPortStreamsToWindow={removePlayback}
+              onReleasePlayback={removePlayback}
             />
-          </motion.div>
+          </div>
         )}
       </main>
     </div>

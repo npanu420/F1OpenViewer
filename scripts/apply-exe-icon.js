@@ -7,7 +7,7 @@ const fs = require('fs');
 
 async function applyIcon(appOutDir, productFilename) {
   if (!appOutDir || process.platform !== 'win32') return;
-  const exeName = (productFilename || 'F1 OpenViewer') + '.exe';
+  const exeName = (productFilename || 'OpenViewer') + '.exe';
   const exePath = path.join(appOutDir, exeName);
   const iconPath = path.join(process.cwd(), 'build', 'icon.ico');
   if (!fs.existsSync(exePath) || !fs.existsSync(iconPath)) return;

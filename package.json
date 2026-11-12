@@ -1,6 +1,6 @@
 {
   "name": "f1-openviewer",
-  "version": "1.2.2",
+  "version": "1.2.5",
   "description": "",
   "main": "electron/main.js",
   "scripts": {
@@ -26,6 +26,7 @@
     "@fontsource/rajdhani": "^5.3.0",
     "@fontsource/space-grotesk": "^5.3.0",
     "axios": "^1.21.0",
+    "country-flag-icons": "1.6.20",
     "dotenv": "^16.6.1",
     "framer-motion": "^12.35.2",
     "lucide-react": "^1.70.0",
@@ -58,7 +59,7 @@
   },
   "build": {
     "appId": "com.f1openviewer.app",
-    "productName": "F1 OpenViewer",
+    "productName": "OpenViewer",
     "icon": "build/icon",
     "files": [
       "dist/**",

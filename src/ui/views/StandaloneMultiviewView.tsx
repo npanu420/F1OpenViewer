@@ -45,11 +45,12 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
     loadingItemIds,
     onPlayEmbedded,
     onPlayAllEmbedded,
+    removePlayback,
   } = useEmbeddedPlayback(reportEmbedError, state?.embeddedPlayback ?? {});
   const hasResolvedPlayingRef = useRef(false);
 
   useEffect(() => {
-    const base = 'F1 OpenViewer';
+    const base = 'OpenViewer';
     document.title =
       multiviewInstanceId != null ? `${base} — Multiview #${multiviewInstanceId}` : `${base} — Multiview`;
   }, [multiviewInstanceId]);
@@ -136,7 +137,7 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
           {embedError}
         </div>
       )}
-      <div className="flex-1 min-h-0 flex flex-col pt-2 pb-4 px-4 overflow-y-auto overflow-x-hidden scrollbar-hide">
+      <div className="flex-1 min-h-0 flex flex-col pt-2 pb-4 px-4 overflow-hidden">
         <MultiViewer
           session={savedSession}
           streams={streams}
@@ -161,6 +162,10 @@ export function StandaloneMultiviewView({ multiviewInstanceId }: StandaloneMulti
           initialLayout={layout}
           initialSlotToItemId={slotToItemId}
           initialSeekSecondsByItemId={state.currentTimes}
+          initialAutoLayout={state.autoLayout ?? false}
+          initialAutoSlotIds={state.autoSlotIds}
+          initialAutoTileLimit={state.autoTileLimit}
+          onReleasePlayback={removePlayback}
           multiviewInstanceId={multiviewInstanceId}
         />
       </div>

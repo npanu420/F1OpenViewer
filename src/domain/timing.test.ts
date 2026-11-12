@@ -147,6 +147,18 @@ test('selectDrivers: joins feeds, sorts by line, maps tyre/telemetry', () => {
   assert.equal(ham.inPit, true);
   assert.equal(ham.tyre, 'SOFT');
   assert.equal(ham.drs, true); // 10 >= 8
+  assert.equal(rus.hasDrs, true);
+});
+
+test('selectDrivers: no DRS channel (2026 regulations) is not reported as DRS closed', () => {
+  const store = createStore();
+  for (const [feed, data] of Object.entries(SAMPLE)) applyRecord(store, feed, data);
+  // Same car data without channel 45, as the 2026 archive sends it.
+  applyRecord(store, 'CarData', { Entries: [{ Cars: { '63': { Channels: { 0: 9000, 2: 300, 3: 8, 4: 100, 5: 0 } } } }] });
+  const rus = selectDrivers(store).find((x) => x.tla === 'RUS')!;
+  assert.equal(rus.hasDrs, false);
+  assert.equal(rus.drs, false);
+  assert.equal(rus.speedKmh, 300);
 });
 
 test('selectDrivers: ignores _meta keys, empty store → []', () => {

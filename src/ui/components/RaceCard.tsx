@@ -1,7 +1,7 @@
-import { motion } from 'framer-motion';
-import { Calendar, MapPin, ChevronRight, Wrench, Flag } from 'lucide-react';
+import { MapPin, ChevronRight } from 'lucide-react';
 import type { VodEvent } from '../../domain/vod';
-import { getFlag, getEventCountryCode } from '@/lib/flags';
+import { getEventCountryCode } from '@/lib/flags';
+import { CountryBadge } from './CountryBadge';
 
 interface RaceCardProps {
   event: VodEvent;
@@ -13,29 +13,23 @@ interface RaceCardProps {
 
 export function RaceCard({ event, onClick, index, circuit }: RaceCardProps) {
   const countryCode = getEventCountryCode(event);
-  const flag = countryCode ? getFlag(countryCode) : '';
 
   return (
-    <motion.button
+    <button
+      type="button"
       onClick={onClick}
-      className="race-card w-full text-left bg-card rounded-lg p-5 group hover:bg-accent transition-colors relative overflow-hidden"
-
+      className="race-card w-full text-left group"
+      style={{ animationDelay: `${Math.min(index, 14) * 25}ms` }}
     >
-
-
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            {event.isTest ? (
-              <Wrench className="w-4 h-4 text-muted-foreground" />
-            ) : (
-              <span className="text-lg leading-none" aria-hidden>{flag || <Flag className="w-4 h-4" />}</span>
-            )}
-            <span className="text-xs font-heading font-bold text-muted-foreground tracking-widest">
+            <CountryBadge code={countryCode} isTest={event.isTest} />
+            <span className="text-xs font-medium text-muted-foreground tabular-nums">
               {event.isTest ? 'TEST' : `R${String(event.meetingNumber || index + 1).padStart(2, '0')}`}
             </span>
           </div>
-          <h3 className="font-heading text-base font-medium text-foreground line-clamp-2 group-hover:text-foreground transition-colors">
+          <h3 className="text-base font-medium text-foreground line-clamp-2">
             {event.meetingName}
           </h3>
           {circuit && (
@@ -47,14 +41,11 @@ export function RaceCard({ event, onClick, index, circuit }: RaceCardProps) {
             </div>
           )}
           {event.country && (
-            <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-              <Calendar className="w-3 h-3" />
-              {event.country}
-            </div>
+            <div className="mt-1 text-xs text-muted-foreground">{event.country}</div>
           )}
         </div>
-        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors shrink-0 mt-1" />
+        <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-[color,transform] shrink-0 mt-1" aria-hidden />
       </div>
-    </motion.button>
+    </button>
   );
 }

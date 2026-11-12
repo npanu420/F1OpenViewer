@@ -1,4 +1,4 @@
-# Contributing to F1 OpenViewer
+# Contributing to OpenViewer
 
 Thanks for wanting to contribute. This project is maintained in spare time, so a bit of structure here helps keep things moving.
 

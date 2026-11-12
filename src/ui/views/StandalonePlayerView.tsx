@@ -63,7 +63,7 @@ export function StandalonePlayerView({ contentId, channelId, title }: Props) {
   }, []);
 
   useEffect(() => {
-    document.title = `F1 OpenViewer — ${activeTitle || contentId}`;
+    document.title = `OpenViewer — ${activeTitle || contentId}`;
   }, [activeTitle, contentId]);
 
   // Main process is about to destroy this window: unmount the player first so Shaka/EME

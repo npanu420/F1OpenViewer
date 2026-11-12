@@ -18,6 +18,6 @@ try {
   console.log('[clean-release] release/ folder removed.');
 } catch (err) {
   console.error('[clean-release] Cannot remove release/:', err.message);
-  console.error('Close F1 OpenViewer (and any process using files in release/) and try again.');
+  console.error('Close OpenViewer (and any process using files in release/) and try again.');
   process.exit(1);
 }

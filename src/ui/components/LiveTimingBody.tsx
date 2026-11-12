@@ -3,6 +3,8 @@ import { Play, Pause, Wind, Thermometer, Droplets, Gauge, CloudRain, Radio, Link
 import { useReplayTiming } from '../hooks/useReplayTiming';
 import { useLiveTiming, type LiveTimingQuery } from '../hooks/useLiveTiming';
 import { useLocale } from '../../i18n/LocaleContext';
+import { useHudPublisher } from '../../services/driverHud';
+import { usePreferences } from '../../services/preferences';
 import type {
   DriverRow,
   SectorView,
@@ -115,7 +117,7 @@ function fmtClock(ms: number): string {
   return h > 0 ? `${h}:${p2(m)}:${p2(sec)}` : `${p2(m)}:${p2(sec)}`;
 }
 
-const TYRE_COLOR: Record<string, string> = {
+export const TYRE_COLOR: Record<string, string> = {
   SOFT: '#ff3b3b',
   MEDIUM: '#ffd83b',
   HARD: '#ffffff',
@@ -123,7 +125,7 @@ const TYRE_COLOR: Record<string, string> = {
   WET: '#3b8cff',
 };
 
-const TYRE_LETTER: Record<string, string> = {
+export const TYRE_LETTER: Record<string, string> = {
   SOFT: 'S',
   MEDIUM: 'M',
   HARD: 'H',
@@ -132,7 +134,7 @@ const TYRE_LETTER: Record<string, string> = {
 };
 
 /** Mini-sector color. 0 none, 2049 green, 2051 purple, 2064 pit. */
-function segColor(status: number): string {
+export function segColor(status: number): string {
   switch (status) {
     case 2051: return '#b14bff'; // overall fastest (purple)
     case 2049: return '#43d675'; // green
@@ -236,13 +238,13 @@ const DriverRowItem = React.memo(function DriverRowItem({
     <>
     <div
       className={`flex items-center border-b border-border/40 hover:bg-white/[0.05] transition-colors ${
-        full ? 'timing-driver-row h-10 text-sm' : 'h-9 text-sm'
+        full ? 'timing-driver-row h-10 text-sm' : docked ? 'timing-dock-row text-sm' : 'h-9 text-sm'
       }  ${row.retired ? 'opacity-50' : ''}`}
     >
       <div className={`${full ? 'w-9' : 'w-7'} shrink-0 text-center font-bold tabular-nums`}>{row.position}</div>
       <div className={`${full ? 'w-1.5 h-8' : 'w-1 h-6'} shrink-0 rounded-sm mr-2`} style={{ backgroundColor: row.teamColour }} />
       <div className={`${tlaWidth} shrink-0 font-heading font-bold tracking-wider flex items-center gap-1 min-w-0 overflow-hidden`}>
-        <button type="button" className="underline-offset-4 hover:underline min-h-8" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{row.tla}</button>
+        <button type="button" className="underline-offset-4 hover:underline" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{row.tla}</button>
         {row.drs && <span className="text-[8px] font-bold text-emerald-400 shrink-0" title="DRS active">DRS</span>}
         {row.retired ? (
           <span className="text-[9px] font-bold text-destructive shrink-0">OUT</span>
@@ -254,6 +256,7 @@ const DriverRowItem = React.memo(function DriverRowItem({
       </div>
       <TimingCell value={row.gapToLeader} width={full ? 'w-20 shrink-0' : col('w-[3.25rem]', fluid)} muted large={full} />
       {showInterval && <TimingCell value={row.interval} width={full ? 'w-20 shrink-0' : col('w-[3.75rem]', fluid)} muted large={full} />}
+      {docked && !dockWide && <TimingCell value={row.interval} width={`dock-mid ${col('w-[3.75rem]', true)}`} muted />}
       {showLastLap && <TimingCell value={row.lastLap} width={full ? 'w-24 shrink-0' : col('w-[4.25rem]', fluid)} large={full} />}
       {showBestLap && <TimingCell value={row.bestLap} width="timing-secondary w-24 shrink-0" muted large={full} />}
       {showDockExtras && <TimingCell value={row.bestLap} width={`dock-xl ${col('w-[4.25rem]', true)}`} muted />}
@@ -268,8 +271,8 @@ const DriverRowItem = React.memo(function DriverRowItem({
             >
               {TYRE_LETTER[row.tyre] ?? row.tyre[0]}
             </span>
-            {(showBestLap || showDockExtras) && <span className={`${full ? 'text-sm' : 'text-[11px]'} text-muted-foreground tabular-nums`}>{row.stintLaps ?? ''}</span>}
-            {(showBestLap || showDockExtras) && pitStops > 0 && <span className="text-[9px] text-muted-foreground/70 tabular-nums">×{pitStops}</span>}
+            {(showBestLap || docked) && <span className={`${full ? 'text-sm' : 'text-[11px]'} text-muted-foreground tabular-nums`}>{row.stintLaps ?? ''}</span>}
+            {(showBestLap || docked) && pitStops > 0 && <span className="text-[9px] text-muted-foreground/70 tabular-nums">×{pitStops}</span>}
           </>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -447,6 +450,25 @@ interface TimingBodyProps {
   dockWide?: boolean;
 }
 
+/** Dock row heights (px): rows grow up to the max to fill the height, never below the min. */
+const DOCK_ROW_MIN = 28;
+const DOCK_ROW_MAX = 40;
+/** Race control goes under the standings when at least this much height is left for it. */
+const DOCK_FEED_MIN = 200;
+
+/**
+ * Dock layout for the height available: standings rows sized to fill it, and when the standings
+ * leave enough room, race control / team radio in the space below instead of behind a tab.
+ */
+function dockLayout(available: number, rows: number, headRow: number): { rowHeight: number; split: boolean } {
+  const n = Math.max(1, rows);
+  for (const rowHeight of [36, 32, 30]) {
+    if (available - headRow - n * rowHeight >= DOCK_FEED_MIN) return { rowHeight, split: true };
+  }
+  const fill = Math.floor((available - headRow) / n);
+  return { rowHeight: Math.max(DOCK_ROW_MIN, Math.min(DOCK_ROW_MAX, fill)), split: false };
+}
+
 /**
  * The side feeds can hold hundreds of rows. Their arrays keep their identity until the store
  * actually changes, so memoizing them skips the per-tick (clock/scrub bar) re-renders.
@@ -520,13 +542,29 @@ function TimingBody({
   const tlaHeadWidth = compact ? 'w-14' : full ? 'w-32' : 'w-24';
   const hasTelemetry = drivers.some((d) => d.speedKmh != null);
 
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [contentHeight, setContentHeight] = useState(0);
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!docked || !el) return;
+    const observer = new ResizeObserver(() => setContentHeight(el.clientHeight));
+    observer.observe(el);
+    setContentHeight(el.clientHeight);
+    return () => observer.disconnect();
+  }, [docked]);
+  const dock = docked && contentHeight > 0 ? dockLayout(contentHeight, drivers.length, dockWide ? 28 : 0) : null;
+  const split = dock?.split ?? false;
+  const [feedPanel, setFeedPanel] = useState<'control' | 'radio'>('control');
+
   return (
     <div className={`timing-surface timing-density-${density} ${compact ? 'h-full' : 'h-screen'} overflow-hidden bg-background text-foreground flex flex-col`}>
       {/* Header: title, status, weather */}
-      <div className={`flex items-center gap-4 border-b border-border bg-card/60 flex-wrap ${full ? 'px-6 py-3' : compact ? 'px-2 py-1.5' : 'px-4 py-2'}`}>
+      <div className={`flex items-center border-b border-border bg-card/60 flex-wrap ${full ? 'gap-4 px-6 py-3' : docked ? 'gap-x-2 gap-y-1 pl-3 pr-16 py-2' : 'gap-4 px-4 py-2'}`}>
+        {/* The dock is narrow: the session name gets its own line, the status chips wrap below it. */}
+        {docked && <span className="w-full font-heading font-bold tracking-wider truncate text-sm" title={title}>{title || t('timing.title')}</span>}
         <div className="flex items-center gap-2 min-w-0 max-w-full">
           {headerBadge}
-          <span className={`font-heading font-bold tracking-wider truncate ${full ? 'text-lg' : ''}`}>{title || t('timing.title')}</span>
+          {!docked && <span className={`font-heading font-bold tracking-wider truncate ${full ? 'text-lg' : ''}`}>{title || t('timing.title')}</span>}
           {lapCount && (
             <span className={`tabular-nums font-bold rounded bg-secondary shrink-0 ${full ? 'text-sm px-2.5 py-1' : 'text-xs px-2 py-0.5'}`}>
               LAP {lapCount.current}/{lapCount.total}
@@ -555,6 +593,18 @@ function TimingBody({
         )}
       </div>
 
+      {docked ? (
+        // The dock sizes its rows to the height, so it has no density setting.
+        !split && (
+          <div className="timing-dock-tabs" role="tablist" aria-label={t('timing.title')}>
+            {(['standings', 'control', 'radio'] as const).map((panel) => (
+              <button key={panel} type="button" role="tab" aria-selected={activePanel === panel} onClick={() => setActivePanel(panel)}>
+                {t(panel === 'standings' ? 'experience.standings' : panel === 'control' ? 'timing.raceControl' : 'timing.teamRadio')}
+              </button>
+            ))}
+          </div>
+        )
+      ) : (
       <div className="flex flex-wrap gap-2 items-center px-3 py-2 border-b border-border">
         <div className="timing-panel-tabs gap-1" role="group" aria-label={t('timing.title')}>
           {(['standings', 'control', 'radio'] as const).map((panel) => <button key={panel} className="ui-button" aria-pressed={activePanel === panel} onClick={() => setActivePanel(panel)}>{t(panel === 'standings' ? 'experience.standings' : panel === 'control' ? 'timing.raceControl' : 'timing.teamRadio')}</button>)}
@@ -565,9 +615,17 @@ function TimingBody({
           </select>
         </label>
       </div>
-      <div className="flex-1 flex min-h-0">
+      )}
+      <div
+        ref={contentRef}
+        className={`flex-1 flex min-h-0 ${split ? 'flex-col' : ''}`}
+        style={dock ? ({ '--dock-row-h': `${dock.rowHeight}px` } as React.CSSProperties) : undefined}
+      >
         {/* Timing table */}
-        <div data-active={activePanel === 'standings'} className={`timing-table flex-1 overflow-auto thin-scrollbar min-w-0 ${docked ? 'overflow-x-auto' : ''}`}>
+        <div
+          data-active={split || activePanel === 'standings'}
+          className={`timing-table overflow-auto thin-scrollbar min-w-0 ${split ? 'shrink-0' : 'flex-1'} ${docked ? 'timing-dock-table overflow-x-auto' : ''}`}
+        >
           {(dockWide || full) && (
             <div className={`flex items-center px-0 text-muted-foreground border-b border-border sticky top-0 bg-background min-w-max ${full ? 'h-9 text-xs' : 'h-7 text-[10px]'}`}>
               <div className={`${full ? 'w-9' : 'w-7'} shrink-0 text-center`}>P</div>
@@ -602,7 +660,21 @@ function TimingBody({
 
         {/* Race control + team radio feed, each panel scrolls on its own and never grows past its share.
             Compact views expose the feeds through the panel selector. */}
-        {(full || activePanel !== 'standings') && (
+        {split && (
+          <div className="timing-dock-feed">
+            <div className="timing-dock-tabs" role="tablist" aria-label={t('timing.raceControl')}>
+              {(['control', 'radio'] as const).map((panel) => (
+                <button key={panel} type="button" role="tab" aria-selected={feedPanel === panel} onClick={() => setFeedPanel(panel)}>
+                  {t(panel === 'control' ? 'timing.raceControl' : 'timing.teamRadio')}
+                </button>
+              ))}
+            </div>
+            {feedPanel === 'control'
+              ? <RaceControlList raceControl={raceControl} emptyLabel={t('timing.noMessages')} />
+              : <TeamRadioList teamRadio={teamRadio} tlaByNum={tlaByNum} sessionPath={sessionPath} emptyLabel={t('timing.noClips')} />}
+          </div>
+        )}
+        {!split && (full || activePanel !== 'standings') && (
           <div data-active={activePanel !== 'standings'} className="timing-feed border-l border-border bg-card/30 flex flex-col min-h-0">
             <div data-active={activePanel === 'control'} className="flex-1 min-h-0 flex flex-col basis-0">
               <div className="px-4 py-2.5 text-xs text-muted-foreground border-b border-border bg-card/60 shrink-0">
@@ -664,7 +736,11 @@ export function ReplayTimingPanel({
   dockWide?: boolean;
 }) {
   const { t: tr } = useLocale();
-  const t = useReplayTiming(path, syncStart, contentId);
+  // The dock feeds the driver HUD, which wants car telemetry too.
+  const hudOn = usePreferences().driverHud !== 'off';
+  const t = useReplayTiming(path, syncStart, contentId, { telemetry: Boolean(docked) && hudOn });
+  // The dock shares its rows with the driver HUD of the same window.
+  useHudPublisher(docked && !t.loading && !t.error ? t.drivers : null);
   if (t.loading) return <LoadingScreen label={tr('timing.loading')} compact={compact} />;
   if (t.error) return <ErrorScreen message={t.error} compact={compact} />;
 
@@ -692,14 +768,15 @@ export function ReplayTimingPanel({
         {t.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
       </button>
       {!compact && <span className="text-xs tabular-nums text-muted-foreground w-16 shrink-0">{fmtClock(t.offsetMs)}</span>}
-      {!compact && (
+      {(
         <input
           type="range"
           min={0}
           max={t.durationMs || 1}
           value={t.offsetMs}
           onChange={(e) => (t.synced ? t.requestVideoSeek(Number(e.target.value)) : t.seek(Number(e.target.value)))}
-          className="flex-1 accent-primary"
+          className="flex-1 min-w-0 accent-primary"
+          aria-label={tr('experience.seek')}
         />
       )}
       {!compact && <span className="text-xs tabular-nums text-muted-foreground w-16 shrink-0">{fmtClock(t.durationMs)}</span>}
@@ -741,7 +818,8 @@ export function ReplayTimingPanel({
       lapCount={t.lapCount}
       teamRadio={t.teamRadio}
       sessionPath={path}
-      footer={footer}
+      // The dock follows the video, so it has no transport of its own: only a way back after a detach.
+      footer={docked ? (resyncButton && <div className="flex justify-end border-t border-border px-2 py-1.5">{resyncButton}</div>) : footer}
       compact={compact}
       docked={docked}
       dockWide={dockWide}
@@ -849,6 +927,7 @@ export function LiveTimingPanel({
 }) {
   const { t: tr } = useLocale();
   const t = useLiveTiming(query);
+  useHudPublisher(docked && !t.loading && !t.error ? t.drivers : null);
   if (t.loading) return <LoadingScreen label={tr('timing.connecting')} compact={compact} />;
   if (t.error) return <ErrorScreen message={t.error} compact={compact} />;
 
@@ -856,7 +935,8 @@ export function LiveTimingPanel({
   const footer = (
     <div className={`flex items-center gap-3 border-t border-border bg-card/60 ${compact ? 'px-2 py-1.5' : 'px-4 py-2'}`}>
       <LivePill connected={t.connected} reconnecting={reconnecting} detail={t.statusDetail} />
-      <span className="text-xs text-muted-foreground">{tr('experience.liveWarning')}</span>
+      {/* The dock shows this warning itself. */}
+      {!docked && <span className="text-xs text-muted-foreground">{tr('experience.liveWarning')}</span>}
       {reconnecting && t.statusDetail && !compact && (
         <span className="text-[11px] text-muted-foreground truncate">{t.statusDetail}</span>
       )}

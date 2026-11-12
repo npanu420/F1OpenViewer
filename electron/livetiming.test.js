@@ -321,3 +321,21 @@ test('curl header config (stdin) cannot be broken out of by quotes or newlines',
   assert.ok(cfg.startsWith('header = "Authorization: Bearer ab'));
   assert.ok(!cfg.includes('\nurl'));
 });
+
+test('parseJsonStream: HUD telemetry keeps every CarData record, reduced to its newest snapshot', () => {
+  const zlib = require('zlib');
+  const pack = (obj) => JSON.stringify(zlib.deflateRawSync(Buffer.from(JSON.stringify(obj))).toString('base64'));
+  const record = (n) => ({ Entries: [
+    { Utc: `a${n}`, Cars: { 1: { Channels: { 2: 100 + n } } } },
+    { Utc: `b${n}`, Cars: { 1: { Channels: { 2: 200 + n } } } },
+  ] });
+  const lines = [];
+  for (let i = 0; i < 12; i++) lines.push(`00:00:${String(i).padStart(2, '0')}.000${pack(record(i))}`);
+  const body = lines.join('\r\n');
+  const hud = lt.parseJsonStream(body, 'CarData.z', { hud: true });
+  assert.equal(hud.length, 12);
+  assert.deepEqual(hud[3].data, { Entries: [{ Utc: 'b3', Cars: { 1: { Channels: { 2: 203 } } } }] });
+  // Without the option the feed is still sampled, and other feeds ignore it.
+  assert.ok(lt.parseJsonStream(body, 'CarData.z').length < 12);
+  assert.equal(lt.parseJsonStream(body, 'Position.z', { hud: true }).length, lt.parseJsonStream(body, 'Position.z').length);
+});

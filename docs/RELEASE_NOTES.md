@@ -1,8 +1,78 @@
-# Release Notes - F1 OpenViewer
+# Release Notes - OpenViewer
 
-## Unreleased
+## v1.2.5
 
-Reliability, security and cleanup pass. No new user-facing feature; a lot of things that failed quietly now work or say why.
+A customizable auto layout, a calmer and more consistent interface, and a long reliability, performance and security pass underneath.
+
+### Auto layout
+
+- **Tiles always fit**: the multiview now defaults to an automatic layout where every tile is exactly 16:9, so there are no black bars at the sides or top, and the number of tiles follows the window. Make the window bigger and streams are added, make it smaller and the lowest-priority ones are dropped (and stop playing).
+- **The main feed stays the big one**: the layout favours a large main tile whenever it costs little space, and on ultrawide windows it uses multi-column side blocks so the whole area is filled.
+- **Smooth resizing**: tiles follow the window edge exactly while you drag it, and glide to their new positions when the arrangement changes (a count change, the timing dock opening, a stream added) instead of jumping. While you drag, streams are added or dropped only once you let go, and the tiles don't flip back and forth between two similar arrangements.
+- **Smart stream priority**: main feed first, then your favourite drivers, then data channels, then the other onboards. While Live Timing is open the data channels give way to onboards, since the timing tower already shows them.
+- **Follows the race**: with live timing available, onboards of drivers who retire (or are knocked out in qualifying) leave the layout on their own, and the free tiles go to the onboards at the front of the race. An onboard on screen keeps its tile through a single overtake, so a close battle doesn't keep swapping streams. Works in replays too, following the video. Can be turned off in Settings.
+- **Fewer reloads**: when the priority changes, only the streams that come or go are touched; the others stay in their panel and keep playing.
+- **Favourite drivers**: star a driver in the Streams list and the auto layout places them right after the main feed. Favourites are also listed and removable in Settings.
+- **Fully customizable**: pick streams by hand from the Streams list or the panel menu, remove a panel with the X, add one, or drag a panel onto another to swap them. Hand-placed streams stay where you put them when the layout re-plans. Edit mode shows exactly the layout you see (no jump into another grid), and Layout presets or turning Auto off give you the free-form grid with manual sizing.
+- **Your choices fill the screen**: if the number of streams you picked would leave an ultrawide window half empty, the layout adds a few more tiles rather than leaving gaps.
+- Moving a stream between panels or switching layout mode resumes it from where it was.
+
+### Cleaner controls
+
+- **A shorter toolbar**: Play all, Resync (shown when two or more streams are playing), the Streams list, Audio, Live Timing, a single Layout menu and the multiview window button. Auto layout, stream names, edit mode and saved layouts all live in the Layout menu, with a short explanation for each.
+- **Streams list**: a checklist of every feed and onboard. One click adds a stream to the grid or takes it out, with team colors, a playing indicator and a favourite star. It floats over the video, so choosing streams never resizes the grid.
+- **Panel menu fixed**: it opens next to its button instead of far away, and offers Change stream, Reload and Remove panel.
+- Idle tiles show the stream name next to the play button, and empty tiles have a "Choose a stream" button.
+- **More room for the streams**: the toolbar of the multiview window can be hidden, and in the main window one click hides the header, session bar and toolbar (Esc brings them back).
+- **Nothing on top of the video**: floating buttons, the cursor and panel names fade out while the pointer rests and come back as soon as it moves.
+- Live Timing has its own button in the multiview window toolbar, and an "open in window" button in the dock.
+
+### Live Timing dock
+
+- **No wasted space**: the rows grow to fill the dock height, and when the standings leave room, race control and team radio show underneath instead of behind a tab.
+- A slimmer header with the session name on its own line; the close button is never covered by the multiview controls.
+- Narrow docks also show laps on the current tyre and the number of stops, plus the interval once there is room for it.
+- The dock follows the video, so it no longer has its own play and scrub controls (the standalone timing window keeps them).
+
+### Driver HUD on onboards
+
+- **Live data over every onboard**: position and driver, gear, speed, DRS, last and best lap, interval and gap to the leader, the micro sectors of the current lap and the current tyre with its age. It follows the video, like the Live Timing dock.
+- **Strategy on hover**: point at the tyre to see every stint and the number of stops.
+- **Ready for 2026**: the 2026 cars have no DRS and the archive sends no DRS data, so the DRS badge only shows for sessions that have it.
+- **Telemetry in replays**: speed, gear and DRS now load for past sessions too, but only while the HUD is on, so the Live Timing dock opens just as fast with it off. Speed updates about once a second and follows the video.
+- **Adapts to the tile**: wide tiles show everything; narrower ones move the micro sectors to a thin bar along the bottom edge, and the smallest keep position, speed and tyre.
+- In Settings: shown while Live Timing is open (default), always, or never.
+
+### More settings
+
+- **Video quality**: automatic (sized to each tile), best available (1080p wherever the stream offers it), or capped at 720p / 480p to save bandwidth.
+- **Live delay**: choose how far behind the live edge live streams are held, from the lowest (4 s) up to a minute, for fewer stalls on a weak connection.
+- **Closest to live (experimental, off by default)**: ignores the delay the stream itself asks players to keep and stays about one segment behind the newest video, backing off by itself if it stalls. The measured delay shows next to LIVE. Not yet verified on a live session.
+- **Buffer size**, **audio at start** (all muted, or the main feed on), **automatic sync** when streams start, the **most streams** the auto layout may show, whether **data channels give way to onboards** while Live Timing is open, and **how quickly the controls over the video hide** (or never).
+- Settings sync between the main window and the multiview window and survive reinstalls; "Restore defaults" puts them back.
+
+### Languages (work in progress)
+
+- **French, German and Spanish** join English and Italian. They are a first pass and still being reviewed: anything not translated yet shows in English.
+- The language picker in Settings lists every language by its own name.
+
+### Visual overhaul
+
+- **The app is now called OpenViewer.** Your login, settings and saved layouts carry over from earlier versions.
+
+- A flat true-black theme with no glass effects, gradients or emoji icons, one set of motion timings, and reduced motion following the system setting.
+- Country badges on the calendar, quieter race cards, a lighter header and fewer fonts to load.
+- The session view fills the window with the grid getting all remaining height, and the whole app scrolls inside a fixed header.
+- A compact session bar, a searchable calendar with an empty state, and an adaptive Live Timing dock (more columns when it is wide, tabs when it is narrow).
+- Accessibility: keyboard stream placement, accessible seek and volume sliders, focus restore and Escape in dialogs.
+
+### Playback
+
+- **Jumping to another point of a replay no longer freezes the onboards**: they used to keep counting time on a frozen picture, or step one frame at a time, because sync kept re-seeking them before they could load. Now each stream lands slightly ahead of the main feed (by its own measured load time) and waits for it, so it starts playing in sync after a few seconds.
+- Streams that sync paused while the main feed was buffering are always resumed, even when another stream starts at that moment (for example a new onboard picked by the auto layout). A stream you pause yourself is left alone.
+- Small tiles load a lower rendition (capped at 720p) instead of decoding full quality for a thumbnail-sized video.
+- Streams served from Akamai hosts are allowed by the content security policy.
+- Tailwind, Vite, React and Vitest were upgraded; catalog loading is incremental and embedded playback handles concurrent starts better.
 
 ### Reliability
 
@@ -226,7 +296,7 @@ This release improves **fullscreen multiview**, **live streaming**, and **user f
 
 **Note:** On Windows, unsigned or non–commercially signed builds may still trigger a **Microsoft Defender SmartScreen** warning. This is expected; you can use "More info" → "Run anyway" if you trust the source.
 
-**Note (macOS):** Builds without a paid Apple Developer ID / notarization will trigger a **Gatekeeper** "cannot be opened because it is from an unidentified developer" warning on first launch. This is expected; right‑click (or Control‑click) the app → **Open** to bypass it, or run `xattr -d com.apple.quarantine "F1 OpenViewer.app"` in Terminal.
+**Note (macOS):** Builds without a paid Apple Developer ID / notarization will trigger a **Gatekeeper** "cannot be opened because it is from an unidentified developer" warning on first launch. This is expected; right‑click (or Control‑click) the app → **Open** to bypass it, or run `xattr -d com.apple.quarantine "OpenViewer.app"` in Terminal.
 
 ---
 
@@ -261,7 +331,7 @@ The SmartScreen note from 1.0.0 still applies if you use an unsigned or non–co
 
 ## v1.0.0
 
-This is the initial public release of **F1 OpenViewer**, a desktop client for F1 TV built with Electron and React. The app allows you to sign in with your own F1 TV account, perform entitlement checks, and play DRM-protected content using Widevine, closely mirroring the official F1 TV web experience while remaining strictly non-pirate and subscription‑based.
+This is the initial public release of **OpenViewer**, a desktop client for F1 TV built with Electron and React. The app allows you to sign in with your own F1 TV account, perform entitlement checks, and play DRM-protected content using Widevine, closely mirroring the official F1 TV web experience while remaining strictly non-pirate and subscription‑based.
 
 On Windows, this first version is not yet signed with a trusted commercial code‑signing certificate, so you will likely see a **Microsoft Defender SmartScreen warning** when you run the installer or executable. This is expected for new, unsigned open‑source applications.
 

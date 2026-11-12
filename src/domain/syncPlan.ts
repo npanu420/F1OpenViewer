@@ -11,6 +11,14 @@ export const RATE_FAST = 1.05;
 export const RATE_SLOW = 0.95;
 /** Keep a seek target this far inside the live window so it lands on already-available media. */
 const LIVE_EDGE_MARGIN = 1;
+/**
+ * Seconds a stream takes to show video after a seek to media it has not loaded, until measured.
+ * Seeking exactly to the reference would land behind it again once loaded, and seek again: a
+ * stream stuck showing one frame per seek.
+ */
+export const DEFAULT_SEEK_LEAD = 2;
+/** A stream ahead of the reference by up to this many seconds pauses until it is caught up. */
+export const MAX_WAIT_AHEAD = 10;
 
 export interface SeekRange {
   start: number;
@@ -26,6 +34,11 @@ export interface PlanInput {
   canSeek: boolean;
   /** Reference stalled: hold everyone instead of correcting against a moving target. */
   refBuffering: boolean;
+  /**
+   * This stream is seeking or has no data at its position yet. Seeking it again would throw away
+   * the segments it is fetching, so after a long jump it would never get a frame on screen.
+   */
+  streamBuffering?: boolean;
   refLive: boolean;
   streamLive: boolean;
   refTime: number;
@@ -33,12 +46,18 @@ export interface PlanInput {
   seekable: SeekRange | null;
   /** The stream's current time (to avoid redundant live seeks). */
   streamTime: number;
+  /** The stream already has media loaded at the reference time (a seek there is instant). Default true. */
+  bufferedAtRef?: boolean;
+  /** Seconds this stream needs to show video after a seek to unloaded media (see DEFAULT_SEEK_LEAD). */
+  seekLead?: number;
 }
 
 export type Plan =
   | { kind: 'hold' }
   | { kind: 'seek'; to: number }
   | { kind: 'rate'; rate: number }
+  /** Ahead of the reference: pause until it catches up. */
+  | { kind: 'wait' }
   | { kind: 'normal' };
 
 /**
@@ -58,14 +77,19 @@ export function liveEntries<T extends { getVideo: () => { isConnected: boolean }
 }
 
 export function planCorrection(i: PlanInput): Plan {
-  if (i.refBuffering) return { kind: 'hold' };
+  if (i.refBuffering || i.streamBuffering) return { kind: 'hold' };
 
   const abs = Math.abs(i.offset);
   const live = i.refLive || i.streamLive;
   const coarse = live ? LIVE_COARSE_SEEK_THRESHOLD : COARSE_SEEK_THRESHOLD;
 
   if (i.canSeek && abs >= coarse) {
-    if (!live) return { kind: 'seek', to: Math.max(0, i.refTime) };
+    if (!live) {
+      if (i.bufferedAtRef !== false) return { kind: 'seek', to: Math.max(0, i.refTime) };
+      if (i.offset > 0 && i.offset <= MAX_WAIT_AHEAD) return { kind: 'wait' };
+      // Aim where the reference will be once this stream has loaded.
+      return { kind: 'seek', to: Math.max(0, i.refTime + (i.seekLead ?? DEFAULT_SEEK_LEAD)) };
+    }
     // Live/DVR: only seek inside the stream's own window, clamped away from its edge.
     const r = i.seekable;
     if (r && Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start) {

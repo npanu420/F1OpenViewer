@@ -81,7 +81,7 @@ export function LoginView({ onLoggedIn, error, setError, setBusy }: Props) {
         transition={{ duration: 0.3 }}
       >
         <div className="mb-8">
-          <p className="brand-wordmark text-lg mb-8">F1 OpenViewer</p>
+          <p className="brand-wordmark text-lg mb-8">OpenViewer</p>
           <h1 className="font-heading text-2xl font-bold tracking-wider text-foreground m-0">
             {t('login.title')}
           </h1>

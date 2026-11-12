@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { planCorrection, RATE_FAST, RATE_SLOW, type PlanInput } from './syncPlan';
+import { DEFAULT_SEEK_LEAD, planCorrection, RATE_FAST, RATE_SLOW, type PlanInput } from './syncPlan';
 
 const base: PlanInput = {
   offset: 0,
@@ -17,6 +17,27 @@ const plan = (over: Partial<PlanInput>) => planCorrection({ ...base, ...over });
 test('reference buffering always holds, whatever the drift', () => {
   expect(plan({ refBuffering: true, offset: 30 })).toEqual({ kind: 'hold' });
   expect(plan({ refBuffering: true, offset: 0 })).toEqual({ kind: 'hold' });
+});
+
+test('a stream still loading after a seek is left alone, not seeked again', () => {
+  expect(plan({ streamBuffering: true, offset: -0.6 })).toEqual({ kind: 'hold' });
+  expect(plan({ streamBuffering: true, offset: -30 })).toEqual({ kind: 'hold' });
+  expect(plan({ streamBuffering: false, offset: -0.6 })).toEqual({ kind: 'seek', to: 100 });
+});
+
+test('VOD: a stream behind, with nothing loaded at the reference, seeks ahead of it by its load time', () => {
+  expect(plan({ offset: -1.4, bufferedAtRef: false })).toEqual({ kind: 'seek', to: 100 + DEFAULT_SEEK_LEAD });
+  expect(plan({ offset: -1.4, bufferedAtRef: false, seekLead: 3.5 })).toEqual({ kind: 'seek', to: 103.5 });
+  // Media already loaded there: straight to the reference.
+  expect(plan({ offset: -1.4, bufferedAtRef: true })).toEqual({ kind: 'seek', to: 100 });
+});
+
+test('VOD: a stream ahead waits for the reference instead of seeking back into unloaded media', () => {
+  expect(plan({ offset: 1.2, bufferedAtRef: false })).toEqual({ kind: 'wait' });
+  // Far ahead: waiting would take too long, seek.
+  expect(plan({ offset: 60, bufferedAtRef: false }).kind).toBe('seek');
+  // Close enough: the gentle rate nudge.
+  expect(plan({ offset: 0.3, bufferedAtRef: false })).toEqual({ kind: 'rate', rate: RATE_SLOW });
 });
 
 test('VOD: inside the threshold nothing happens', () => {

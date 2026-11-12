@@ -3,6 +3,8 @@ import shaka from 'shaka-player/dist/shaka-player.compiled-es2021';
 import { useLocale } from '../../i18n/LocaleContext';
 import { VideoControls } from './VideoControls';
 import { debug } from '../../lib/log';
+import { getPreferences } from '../../services/preferences';
+import { liveTuning } from '../../domain/liveLatency';
 
 export type ShakaVideoHandle = {
   /** Returns the underlying HTMLVideoElement (or null) */
@@ -86,8 +88,21 @@ function isLikelyLiveVideo(video: HTMLVideoElement): boolean {
   return d > 60 * 60 * 24;
 }
 
+/** Where players that were just torn down stopped, by manifest URL, so a remounted panel resumes. */
+const RESUME_WINDOW_MS = 15_000;
+const recentPositions = new Map<string, { time: number; at: number; playing: boolean }>();
+
+function takeRecentPosition(manifestUrl: string): number | undefined {
+  const entry = recentPositions.get(manifestUrl);
+  if (!entry) return undefined;
+  recentPositions.delete(manifestUrl);
+  const age = Date.now() - entry.at;
+  if (age > RESUME_WINDOW_MS) return undefined;
+  // The other streams kept playing meanwhile, so land where this one would be by now.
+  return entry.time + (entry.playing ? age / 1000 : 0);
+}
+
 /** Live edge offset (seconds behind the end of the seek range). */
-const LIVE_EDGE_OFFSET = 6;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -102,7 +117,7 @@ function sleep(ms: number): Promise<void> {
  * available we jump near its end. We also keep nudging until the video actually starts advancing,
  * because a single seek to a not-yet-buffered position can leave the element paused on a black frame.
  */
-async function seekToLiveEdge(player: shaka.Player, video: HTMLVideoElement): Promise<void> {
+async function seekToLiveEdge(player: shaka.Player, video: HTMLVideoElement, edgeOffset: number): Promise<void> {
   const deadline = Date.now() + 10000;
   let lastTime = -1;
   let stableProgressTicks = 0;
@@ -150,9 +165,9 @@ async function seekToLiveEdge(player: shaka.Player, video: HTMLVideoElement): Pr
       : 0;
 
     if (edge != null) {
-      const target = Math.max(start, edge - LIVE_EDGE_OFFSET);
+      const target = Math.max(start, edge - edgeOffset);
       // Only seek when we're meaningfully off the edge (avoids fighting normal playback).
-      if (!Number.isFinite(video.currentTime) || Math.abs(video.currentTime - edge) > LIVE_EDGE_OFFSET * 3) {
+      if (!Number.isFinite(video.currentTime) || Math.abs(video.currentTime - edge) > edgeOffset * 3) {
         try {
           if (typeof (player as any).goToLive === 'function' && isLive) {
             (player as any).goToLive();
@@ -200,6 +215,7 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
   const lastPositionRef = useRef<{ manifestUrl: string; time: number } | null>(null);
   /** Manifest URL for which the parent-supplied initialSeekSeconds has already been consumed. */
   const initialSeekConsumedRef = useRef<string>('');
+  const resumeTimeRef = useRef<{ manifestUrl: string; time: number } | null>(null);
 
   /**
    * Stable getters for VideoControls. 
@@ -270,6 +286,10 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
     async function init() {
       setReady(false);
       props.onError('');
+      if (!lastPositionRef.current && resumeTimeRef.current?.manifestUrl !== props.manifestUrl) {
+        const time = takeRecentPosition(props.manifestUrl);
+        resumeTimeRef.current = time != null && time > 0 ? { manifestUrl: props.manifestUrl, time } : null;
+      }
 
       // Wait for any in-flight destroy of a previous Shaka instance to complete before creating
       // a new one. Prevents the "two players on the same <video>" race when manifest/headers
@@ -317,18 +337,29 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
         if (!destroyed) props.onError(msg);
       });
 
-      const applyConfig = (licenseUrl: string) => {
+      const isHlsUrl = (url: string) => /\.m3u8(\?|$)/i.test(url);
+      const applyConfig = (licenseUrl: string, manifestUrl: string) => {
         const hasWidevineLicense = Boolean(licenseUrl && licenseUrl.trim().length > 0);
-        // Lower buffer when many streams (compact/embedded) to avoid all of them buffering heavily
+        const prefs = getPreferences();
+        // Tiles buffer less than a single player: the default 30 s per tile adds up with N streams.
+        const scale = prefs.bufferSize === 'low' ? 0.5 : prefs.bufferSize === 'high' ? 2 : 1;
         const streaming: Record<string, unknown> =
           props.compact
-            ? { bufferingGoal: 10, rebufferingGoal: 3, bufferBehind: 10 } // default 30 s per tile adds up with N streams
-            : { bufferingGoal: 20, rebufferingGoal: 6 };
+            ? { bufferingGoal: 10 * scale, rebufferingGoal: 3, bufferBehind: 10 * scale }
+            : { bufferingGoal: 20 * scale, rebufferingGoal: 6 };
         streaming.returnToEndOfLiveWindowWhenOutside = true;
-        streaming.liveSync = { enabled: true, targetLatency: 4 };
-        const config: any = { streaming };
-        if (props.compact) {
-          config.abr = { restrictions: { maxHeight: 720 } };
+        const live = liveTuning(prefs, isHlsUrl(manifestUrl));
+        streaming.liveSync = live.liveSync;
+        if (live.rebufferingGoal != null && props.preferLiveEdge) streaming.rebufferingGoal = live.rebufferingGoal;
+        const config: any = { streaming, manifest: live.manifest };
+        if (prefs.videoQuality === '720' || prefs.videoQuality === '480') {
+          config.abr = { restrictToElementSize: Boolean(props.compact), restrictions: { maxHeight: Number(prefs.videoQuality) } };
+        } else if (prefs.videoQuality === 'max') {
+          // The best rendition is picked after load (see selectBestVariant).
+          config.abr = { enabled: false };
+        } else if (props.compact) {
+          // Capped at 720p; smaller tiles pick the rendition matching their size.
+          config.abr = { restrictToElementSize: true, restrictions: { maxHeight: 720 } };
         }
         if (hasWidevineLicense) {
           config.drm = { servers: { 'com.widevine.alpha': licenseUrl } };
@@ -336,7 +367,7 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
         player.configure(config);
       };
 
-      applyConfig(props.licenseUrl);
+      applyConfig(props.licenseUrl, props.manifestUrl);
 
       const setLicenseHeaders = (headers?: Record<string, string>, stripManifestDrm = false) => {
         const net = player.getNetworkingEngine();
@@ -426,6 +457,10 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
         if (lp && lp.manifestUrl === manifestUrl && Number.isFinite(lp.time) && lp.time > 0) {
           return lp.time;
         }
+        const resumed = resumeTimeRef.current;
+        if (resumed && resumed.manifestUrl === manifestUrl && initialSeekConsumedRef.current !== manifestUrl) {
+          return resumed.time;
+        }
         const seek = propsRef.current.initialSeekSeconds;
         if (
           initialSeekConsumedRef.current !== manifestUrl &&
@@ -449,7 +484,18 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
           currentTime: video.currentTime,
         });
         if (isLive) {
-          await seekToLiveEdge(player, video);
+          const prefs = getPreferences();
+          // Now that the manifest is loaded the real segment length is known: aim one segment back.
+          let segmentSeconds: number | null = null;
+          try { segmentSeconds = player.getStats().maxSegmentDuration || null; } catch (_) {}
+          const live = liveTuning(prefs, isHlsUrl(propsRef.current.manifestUrl), segmentSeconds);
+          if (prefs.lowLatencyLive) {
+            const streaming: Record<string, unknown> = { liveSync: live.liveSync };
+            if (live.rebufferingGoal != null) streaming.rebufferingGoal = live.rebufferingGoal;
+            try { player.configure({ streaming }); } catch (_) {}
+            debug('[shaka][live] low latency', { segmentSeconds, target: (live.liveSync as any).targetLatency });
+          }
+          await seekToLiveEdge(player, video, live.edgeOffset);
           initialSeekConsumedRef.current = propsRef.current.manifestUrl;
         } else {
           applyInitialSeek();
@@ -458,7 +504,7 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
       };
 
       const loadWith = async (manifestUrl: string, licenseUrl: string, headers?: Record<string, string>) => {
-        applyConfig(licenseUrl);
+        applyConfig(licenseUrl, manifestUrl);
         setLicenseHeaders(headers, !Boolean(licenseUrl?.trim()));
         const startTime = computeStartTime(manifestUrl);
         // Supplying startTime lets the initial buffer fetch begin at the requested segment.
@@ -474,6 +520,7 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
         try {
           await Promise.race([loadPromise, timeoutPromise]);
           if (startTime != null) initialSeekConsumedRef.current = manifestUrl;
+          if (getPreferences().videoQuality === 'max') selectBestVariant(player);
         } finally {
           if (timer != null) clearTimeout(timer);
         }
@@ -568,6 +615,7 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
         const url = propsRef.current.manifestUrl;
         if (video && url && Number.isFinite(video.currentTime) && video.currentTime > 0) {
           lastPositionRef.current = { manifestUrl: url, time: video.currentTime };
+          recentPositions.set(url, { time: video.currentTime, at: Date.now(), playing: !video.paused });
         }
       } catch (_) {}
       const p = playerRef.current;
@@ -630,7 +678,7 @@ const ShakaVideoInner = forwardRef<ShakaVideoHandle, Props>(function ShakaVideo(
           muted
           playsInline
           onClick={() => { const v = videoRef.current; if (v) { if (v.paused) v.play().catch(() => {}); else v.pause(); } }}
-          className={fillLayout ? 'w-full flex-1 min-h-0 object-contain bg-black' : 'w-full bg-black'}
+          className={fillLayout ? `w-full flex-1 min-h-0 object-contain bg-black media-fade ${ready ? 'is-ready' : ''}` : 'w-full bg-black'}
         />
         {ready && (
           <VideoControls
@@ -670,6 +718,15 @@ function propsEqual(prev: Readonly<Props>, next: Readonly<Props>): boolean {
     }
   }
   return true;
+}
+
+/** Highest rendition (then highest bitrate) the stream offers; ABR stays off so it is kept. */
+function selectBestVariant(player: any): void {
+  try {
+    const tracks = (player.getVariantTracks?.() ?? []) as Array<{ height?: number; bandwidth?: number }>;
+    const best = [...tracks].sort((a, b) => (b.height || 0) - (a.height || 0) || (b.bandwidth || 0) - (a.bandwidth || 0))[0];
+    if (best) player.selectVariantTrack(best, true);
+  } catch (_) {}
 }
 
 export const ShakaVideo = React.memo(ShakaVideoInner, propsEqual);

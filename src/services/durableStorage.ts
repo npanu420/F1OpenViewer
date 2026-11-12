@@ -16,6 +16,9 @@ const DURABLE_KEYS = [
   'f1openviewer-sync-reference-mode',
   'f1openviewer-livetiming-dock-width',
   'f1openviewer-header-collapsed',
+  'f1openviewer-multiview-bar-collapsed',
+  'f1openviewer-favorite-drivers',
+  'f1openviewer-preferences',
 ] as const;
 
 /** Free-form keys with a fixed prefix (per-session live-timing sync offsets). */

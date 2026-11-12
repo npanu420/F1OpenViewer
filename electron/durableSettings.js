@@ -20,6 +20,9 @@ const DURABLE_SETTINGS_KEYS = new Set([
   'f1openviewer-sync-reference-mode',
   'f1openviewer-livetiming-dock-width',
   'f1openviewer-header-collapsed',
+  'f1openviewer-multiview-bar-collapsed',
+  'f1openviewer-favorite-drivers',
+  'f1openviewer-preferences',
 ]);
 
 /** Keys that are a prefix + free-form suffix (e.g. per-session live-timing sync offsets). */

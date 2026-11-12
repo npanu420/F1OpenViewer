@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronLeft, ChevronRight, MonitorPlay } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, MonitorPlay, Star } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleContext';
 import { getDriverInitials, getTeamColor } from '../../lib/teamColors';
 import { getDriverHeadshotUrl, prefetchDriverHeadshots } from '../../services/driverHeadshots';
 import { DRIVER_SHELF_DRAG_TYPE, type StreamOption } from './ResizableStreamGrid';
+import { favoriteDriverKey, toggleFavoriteDriver, useFavoriteDrivers } from '../../services/favoriteDrivers';
 
 function ShelfCard({
   option,
@@ -13,6 +14,7 @@ function ShelfCard({
   picking,
   onPick,
   groupStart,
+  favorite,
 }: {
   option: StreamOption;
   assigned: boolean;
@@ -21,7 +23,10 @@ function ShelfCard({
   onPick: () => void;
   /** First card in a new team group; bit of left margin. */
   groupStart?: boolean;
+  favorite: boolean;
 }) {
+  const { t } = useLocale();
+  const driverName = option.driverName || option.label;
   const [headshotUrl, setHeadshotUrl] = useState<string | null>(null);
   const teamColor = getTeamColor(option.teamName);
 
@@ -38,6 +43,7 @@ function ShelfCard({
   }, [option.type, option.driverNumber, option.driverName, option.label]);
 
   return (
+    <div className={`relative shrink-0 snap-start ${groupStart ? 'ml-2.5' : ''}`}>
     <button
       type="button"
       aria-pressed={picking}
@@ -47,15 +53,13 @@ function ShelfCard({
         e.dataTransfer.effectAllowed = 'copy';
       }}
       onClick={onPick}
-      className={`relative shrink-0 snap-start w-20 select-none cursor-grab active:cursor-grabbing rounded-lg border overflow-hidden transition-[colors,transform] hover:-translate-y-0.5 ${
-        groupStart ? 'ml-2.5' : ''
-      } ${
+      className={`relative block w-20 select-none cursor-grab active:cursor-grabbing rounded-lg border overflow-hidden transition-colors ${
         picking
           ? 'border-primary ring-2 ring-primary/50'
           : playing
             ? 'border-primary/50'
-            : 'border-border/60 hover:border-border'
-      } bg-card`}
+            : 'border-border/60 hover:border-muted-foreground/50'
+      } bg-card hover:bg-accent/60`}
       title={option.label}
     >
       {teamColor && (
@@ -91,6 +95,19 @@ function ShelfCard({
         </span>
       )}
     </button>
+    {option.type === 'driver' && (
+      <button
+        type="button"
+        aria-pressed={favorite}
+        aria-label={`${favorite ? t('experience.unfavorite') : t('experience.favorite')}: ${driverName}`}
+        title={favorite ? t('experience.unfavorite') : t('experience.favorite')}
+        onClick={() => toggleFavoriteDriver(driverName)}
+        className={`favorite-star ${favorite ? 'is-favorite' : ''}`}
+      >
+        <Star className="w-3 h-3" fill={favorite ? 'currentColor' : 'none'} aria-hidden />
+      </button>
+    )}
+    </div>
   );
 }
 
@@ -205,17 +222,23 @@ interface DriverShelfProps {
   onPickCard: (itemId: string | null) => void;
 }
 
-/** Main + data first, then onboards grouped by team. */
-function orderShelfOptions(streamOptions: StreamOption[]): StreamOption[] {
+/** Main + data first, then favourite drivers (in favourite order), then onboards grouped by team. */
+function orderShelfOptions(streamOptions: StreamOption[], favorites: string[]): StreamOption[] {
+  const rank = new Map(favorites.map((name, index) => [favoriteDriverKey(name), index]));
+  const rankOf = (o: StreamOption) => rank.get(favoriteDriverKey(o.driverName || o.label));
   const nonDriver = streamOptions.filter((o) => o.type !== 'driver');
   const drivers = streamOptions.filter((o) => o.type === 'driver');
-  const sorted = [...drivers].sort((a, b) => (a.teamName || '￿').localeCompare(b.teamName || '￿'));
-  return [...nonDriver, ...sorted];
+  const starred = drivers.filter((o) => rankOf(o) != null).sort((a, b) => rankOf(a)! - rankOf(b)!);
+  const others = drivers.filter((o) => rankOf(o) == null).sort((a, b) => (a.teamName || '￿').localeCompare(b.teamName || '￿'));
+  return [...nonDriver, ...starred, ...others];
 }
 
 export function DriverShelf({ streamOptions, assignedItemIds, playingItemIds, pickingItemId, onPickCard }: DriverShelfProps) {
   const { t } = useLocale();
-  const ordered = useMemo(() => orderShelfOptions(streamOptions), [streamOptions]);
+  const favorites = useFavoriteDrivers();
+  const favoriteKeys = useMemo(() => new Set(favorites.map(favoriteDriverKey)), [favorites]);
+  const isFavorite = (o: StreamOption) => o.type === 'driver' && favoriteKeys.has(favoriteDriverKey(o.driverName || o.label));
+  const ordered = useMemo(() => orderShelfOptions(streamOptions, favorites), [streamOptions, favorites]);
 
   useEffect(() => {
     const hasDrivers = streamOptions.some((o) => o.type === 'driver' && o.driverNumber != null);
@@ -235,7 +258,12 @@ export function DriverShelf({ streamOptions, assignedItemIds, playingItemIds, pi
             playing={playingItemIds.has(option.item.id)}
             picking={pickingItemId === option.item.id}
             onPick={() => onPickCard(pickingItemId === option.item.id ? null : option.item.id)}
-            groupStart={option.type === 'driver' && i > 0 && ordered[i - 1].teamName !== option.teamName}
+            favorite={isFavorite(option)}
+            groupStart={option.type === 'driver' && i > 0 && (
+              isFavorite(option)
+                ? !isFavorite(ordered[i - 1])
+                : isFavorite(ordered[i - 1]) || ordered[i - 1].teamName !== option.teamName
+            )}
           />
         ))}
       </ShelfScrollRow>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { ExternalLink, X } from 'lucide-react';
 import { ReplayResolvingPanel, LiveTimingPanel } from './LiveTimingBody';
 import { useLocale } from '../../i18n/LocaleContext';
 import { getDockWidth, setDockWidth, MIN_DOCK_WIDTH, MAX_DOCK_WIDTH, WIDE_DOCK_THRESHOLD } from '../../services/dockSettings';
@@ -21,6 +21,7 @@ export interface DockSessionQuery {
 interface LiveTimingDockProps {
   query: DockSessionQuery;
   onClose: () => void;
+  onPopOut?: () => void;
   /** Standalone multiview has no app header; dock can use full height. */
   fullscreen?: boolean;
 }
@@ -30,7 +31,7 @@ function effectiveMaxWidth(): number {
   return Math.min(MAX_DOCK_WIDTH, Math.round(window.innerWidth * 0.6));
 }
 
-export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockProps) {
+export function LiveTimingDock({ query, onClose, onPopOut, fullscreen }: LiveTimingDockProps) {
   const { t } = useLocale();
   const [width, setWidth] = useState(() => Math.min(getDockWidth(), effectiveMaxWidth()));
   const draggingRef = useRef(false);
@@ -79,7 +80,7 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
   return (
     <div
       className={`timing-dock relative shrink-0 glass-panel border-l border-border flex flex-col ${
-        fullscreen ? 'h-full' : 'sticky top-14 h-[calc(100vh-3.5rem)]'
+        fullscreen ? 'h-full' : 'self-stretch'
       }`}
       style={{ width }}
     >
@@ -96,21 +97,29 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
         title={t('timing.dragResize')}
         className="timing-dock-resizer absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-ew-resize hover:bg-primary/40 transition-colors z-10"
       />
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
-        <span className="font-heading text-xs font-semibold text-muted-foreground">
-          {t('timing.title')}
-        </span>
+      {/* Sits in the corner of the timing header, which keeps room for it (no extra title bar). */}
+      <div className="timing-dock-actions">
+        {onPopOut && (
+          <button
+            type="button"
+            onClick={onPopOut}
+            title={t('timing.openWindowTitle')}
+            aria-label={t('timing.openWindowTitle')}
+            className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onClose}
           title={t('timing.close')}
           aria-label={t('timing.close')}
-          className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="w-4 h-4" />
         </button>
       </div>
-      {query.live && <p className="px-3 py-2 text-xs text-muted-foreground">{t('experience.liveWarning')}</p>}
       <div className="flex-1 min-h-0">
         {query.live ? (
           <LiveTimingPanel
@@ -141,6 +150,7 @@ export function LiveTimingDock({ query, onClose, fullscreen }: LiveTimingDockPro
           />
         )}
       </div>
+      {query.live && <p className="px-3 py-1.5 text-[11px] text-muted-foreground border-t border-border/50">{t('experience.liveWarning')}</p>}
     </div>
   );
 }

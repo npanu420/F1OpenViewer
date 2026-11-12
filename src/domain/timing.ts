@@ -103,12 +103,16 @@ export interface DriverRow {
   inPit: boolean;
   pitOut: boolean;
   retired: boolean;
+  /** Qualifying: out of this part of the session. */
+  knockedOut: boolean;
   sectors: SectorView[];
   tyre: string;
   stintLaps: number | null;
   speedKmh: number | null;
   gear: number | null;
   drs: boolean;
+  /** The car data carries a DRS channel. Seasons without DRS (2026 on) do not send one. */
+  hasDrs: boolean;
   /** Full stint history (tyre changes = pit stops), oldest first. */
   stints: StintView[];
 }
@@ -181,7 +185,8 @@ export function selectDrivers(store: TimingStore): DriverRow[] {
     const stints = allStints(appLines[num]);
     const stint = stints[stints.length - 1] ?? { compound: '', laps: null };
     const ch = latestCarChannels(store, num);
-    const drsVal = ch ? Number(ch[CH.DRS] ?? 0) : 0;
+    const hasDrs = ch != null && ch[CH.DRS] != null;
+    const drsVal = hasDrs ? Number(ch[CH.DRS]) : 0;
     rows.push({
       number: num,
       tla: String(d.Tla || ''),
@@ -197,12 +202,14 @@ export function selectDrivers(store: TimingStore): DriverRow[] {
       inPit: !!tl.InPit,
       pitOut: !!tl.PitOut,
       retired: !!tl.Retired,
+      knockedOut: !!tl.KnockedOut,
       sectors: toSectors(tl),
       tyre: stint.compound,
       stintLaps: stint.laps,
       speedKmh: ch ? Number(ch[CH.Speed] ?? 0) : null,
       gear: ch ? Number(ch[CH.Gear] ?? 0) : null,
       drs: drsVal >= 8,
+      hasDrs,
       stints,
     });
   }

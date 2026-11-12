@@ -70,7 +70,7 @@ export type PreloadApi = {
     /** Resolve a season+session query to its archive path. */
     resolveSession(year: number, query: { sessionKey?: string | number; meetingKey?: string | number; meetingNumber?: number; meetingName?: string; sessionName?: string; sessionType?: string }): Promise<{ path: string; meeting: { Key?: string | number; Name?: string } | null; session: { Key?: string | number; Name?: string } | null } | null>;
     /** Fetch + parse all (or given) feeds for an archived session. */
-    loadSession(path: string, feeds?: string[]): Promise<Record<string, Array<{ offsetMs: number; ts: string; data: unknown }>>>;
+    loadSession(path: string, feeds?: string[], opts?: { telemetry?: boolean }): Promise<Record<string, Array<{ offsetMs: number; ts: string; data: unknown }>>>;
     /** Curated video-to-timing anchor for this session (session_start, seconds) plus per-channel camera diffs. */
     getSyncData(meetingKey: string | number, sessionKey: string | number): Promise<{ sessionStartSec: number; channelDiffs: Record<string, { diff: number; diffV2: number }>; contentId: string | null } | null>;
     /** Fetch a team radio clip's audio bytes (base64). The renderer's network stack can't reach the CDN directly. */

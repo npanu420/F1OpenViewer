@@ -16,7 +16,7 @@
 
 - **Electron fuses are not compatible with VMP signing**: castlabs EVS answers `Binary signature denied` as soon as any fuse is flipped (tested with Electron 42.11.18, even `runAsNode` alone). Fuses stay off; without VMP, encrypted (live) content does not play.
 
-- **Dev mode**: When running `npm run dev`, the Widevine CDM is in development mode. The F1 license server returns 403 with `DEVELOPMENT_CERTIFICATE_NOT_ALLOWED` for **encrypted** content. This is expected; use a signed production build (e.g. `release\win-unpacked\F1 OpenViewer.exe`). Some recent VODs (e.g. 2026 pipeline 6, `SDR_HD_DASH`) are served in the clear and do play in dev builds.
+- **Dev mode**: When running `npm run dev`, the Widevine CDM is in development mode. The F1 license server returns 403 with `DEVELOPMENT_CERTIFICATE_NOT_ALLOWED` for **encrypted** content. This is expected; use a signed production build (e.g. `release\win-unpacked\OpenViewer.exe`). Some recent VODs (e.g. 2026 pipeline 6, `SDR_HD_DASH`) are served in the clear and do play in dev builds.
 
 - ~~playToken / license failures (403 / ACN_5002) with VMP-signed builds~~ **Fixed**: `contentPlay` loads the DASH manifest with **GET** (`fetchManifestData` in `f1tv-bridge.js`) so CloudFront can set the `playToken` cookie. **HEAD** responses do not carry `Set-Cookie` for that CDN, so the older HEAD-only flow could miss the cookie. The session cookie is then available to the license proxy and Chromium. `npm run build:signed` defaults to **`--force`** so Widevine VMP signing does not reuse a stale cached signature.
 

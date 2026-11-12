@@ -1,5 +1,4 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
 import { Monitor, Radio, BarChart3, Volume2, VolumeX, Play } from 'lucide-react';
 import type { CatalogItem } from '../../domain/catalog';
 import type { PlaybackInfo } from '../../services/entitlement';
@@ -28,6 +27,8 @@ interface StreamPanelProps {
   fillHeight?: boolean;
   /** When true, hide the header bar (label + volume) so content fills full height */
   hideHeader?: boolean;
+  /** No border or rounding: the surrounding tile draws them. */
+  bare?: boolean;
   /** videoWidth/videoHeight from the element once known (layout only) */
   onVideoIntrinsicSize?: (width: number, height: number) => void;
   /** Emitted when this panel becomes the audio-focused one (parent mutes the other panels). */
@@ -45,7 +46,6 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       type,
       driverNumber,
       teamColor,
-      index = 0,
       onClick,
       catalogItem,
       playback,
@@ -54,6 +54,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
       onEmbedError,
       fillHeight = false,
       hideHeader = false,
+      bare = false,
       onVideoIntrinsicSize,
       onAudioFocus,
       audioFocusedItemId,
@@ -119,12 +120,9 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
     }
 
     return (
-      <motion.div
-        className={`stream-placeholder flex flex-col text-left overflow-hidden ${fillHeight ? 'flex-1 min-h-0' : ''}`}
-        style={borderColor ? { borderColor, borderWidth: '1px' } : undefined}
-        initial={false}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: index * 0.04, duration: 0.3 }}
+      <div
+        className={`flex flex-col text-left overflow-hidden ${bare ? 'relative bg-black' : 'stream-placeholder'} ${fillHeight ? 'flex-1 min-h-0' : ''}`}
+        style={borderColor && !bare ? { borderColor, borderWidth: '1px' } : undefined}
       >
         {!hideHeader && (
         <div data-stream-header className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
@@ -217,14 +215,15 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
                         e.stopPropagation();
                         onPlayEmbedded!(catalogItem!);
                       }}
-                      className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground mx-auto mb-2 hover:opacity-90 transition-opacity"
-                      title={t('dashboard.playEmbedded')}
-                      aria-label={t('dashboard.playEmbedded')}
+                      className="flex items-center justify-center w-11 h-11 rounded-full bg-primary text-primary-foreground mx-auto mb-2 hover:opacity-90 transition-opacity"
+                      title={`${t('dashboard.playEmbedded')}: ${label}`}
+                      aria-label={`${t('dashboard.playEmbedded')}: ${label}`}
                     >
                       <Play className="w-5 h-5" />
                     </button>
-                    <p className="text-[10px] text-muted-foreground font-heading tracking-wider">
-                      {t('dashboard.playEmbedded')}
+                    <p className="text-sm font-medium text-white truncate max-w-full">
+                      {label}
+                      {driverNumber != null && <span className="ml-1.5 text-xs tabular-nums text-white/60">#{driverNumber}</span>}
                     </p>
                     {onClick && (
                       <button
@@ -233,7 +232,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
                           e.stopPropagation();
                           onClick();
                         }}
-                        className="mt-1 text-[10px] text-primary hover:underline font-heading"
+                        className="mt-0.5 text-xs text-white/60 hover:text-white hover:underline"
                       >
                         {t('dashboard.openInWindow')}
                       </button>
@@ -277,7 +276,7 @@ export const StreamPanel = forwardRef<StreamPanelHandle, StreamPanelProps>(
             </div>
           )}
         </div>
-      </motion.div>
+      </div>
     );
   }
 );

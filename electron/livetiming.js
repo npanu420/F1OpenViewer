@@ -108,16 +108,26 @@ function decodePayload(feed, payloadStr) {
  */
 const SAMPLE_STRIDE = 5;
 
+/** CarData record reduced to its newest snapshot (records bundle a few of them). */
+function latestCarSnapshot(data) {
+  const entries = data && Array.isArray(data.Entries) ? data.Entries : null;
+  if (!entries || !entries.length) return null;
+  return { Entries: [entries[entries.length - 1]] };
+}
+
 /**
  * Parse a `.jsonStream` body into ordered records.
  * Format: newline-delimited; each line = `HH:MM:SS.mmm` (12 chars) + payload.
  * @returns {{offsetMs:number, ts:string, data:any}[]}
  */
-function parseJsonStream(text, feed) {
+function parseJsonStream(text, feed, opts = {}) {
   const out = [];
   const body = stripBom(text);
   if (!body) return out;
-  const stride = isCompressedFeed(feed) ? SAMPLE_STRIDE : 1;
+  // HUD telemetry keeps every record (a speed readout that moves every 4 s is useless) but only
+  // the newest snapshot of each, which is what the view reads anyway: about the same payload.
+  const hud = Boolean(opts.hud) && feed === 'CarData.z';
+  const stride = hud ? 1 : isCompressedFeed(feed) ? SAMPLE_STRIDE : 1;
   let i = 0;
   for (const rawLine of body.split(/\r?\n/)) {
     const line = rawLine.replace(/^﻿/, '');
@@ -127,7 +137,9 @@ function parseJsonStream(text, feed) {
     if (offsetMs == null) continue;
     const keep = i++ % stride === 0;
     if (!keep) continue;
-    const data = decodePayload(feed, line.slice(12));
+    let data = decodePayload(feed, line.slice(12));
+    if (data == null) continue;
+    if (hud) data = latestCarSnapshot(data);
     if (data == null) continue;
     out.push({ offsetMs, ts, data });
   }
@@ -412,10 +424,10 @@ async function fetchArchiveText(url, cacheable) {
 }
 
 /** Fetch + parse one feed's full archived stream for a session Path. */
-async function getSessionFeed(sessionPath, feed) {
+async function getSessionFeed(sessionPath, feed, opts) {
   const p = safeArchivePath(sessionPath);
   const txt = await fetchArchiveText(`${STATIC_BASE}/${p}${feed}.jsonStream`, isCacheableSessionPath(p));
-  return parseJsonStream(txt, feed);
+  return parseJsonStream(txt, feed, opts);
 }
 
 /** Light feed set for replay (excludes the heavy per-tick telemetry blobs). */
@@ -452,12 +464,15 @@ function assembleSession(list, results) {
   return out;
 }
 
-function loadSession(sessionPath, feeds) {
+function loadSession(sessionPath, feeds, opts) {
   const requested = Array.isArray(feeds) ? feeds.filter((f) => typeof f === 'string' && FEED_NAME.test(f)) : [];
-  const list = requested.length ? requested : REPLAY_FEEDS;
-  return sessionLoadCache.get(`${sessionPath}|${list.join(',')}`, async () => {
+  const base = requested.length ? requested : REPLAY_FEEDS;
+  // Car telemetry for the driver HUD: speed, gear, pedals, DRS (not part of the light replay set).
+  const telemetry = Boolean(opts && opts.telemetry === true);
+  const list = telemetry && !base.includes('CarData.z') ? [...base, 'CarData.z'] : base;
+  return sessionLoadCache.get(`${sessionPath}|${list.join(',')}${telemetry ? '|hud' : ''}`, async () => {
     const results = await Promise.all(
-      list.map((feed) => getSessionFeed(sessionPath, feed).catch(() => null))
+      list.map((feed) => getSessionFeed(sessionPath, feed, { hud: telemetry }).catch(() => null))
     );
     return assembleSession(list, results);
   });

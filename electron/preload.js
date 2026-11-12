@@ -65,7 +65,7 @@ contextBridge.exposeInMainWorld('f1', {
   closeMultiviewWindow: () => ipcRenderer.invoke('multiview:closeWindow'),
   liveTiming: {
     resolveSession: (year, query) => ipcRenderer.invoke('livetiming:resolveSession', year, query),
-    loadSession: (path, feeds) => ipcRenderer.invoke('livetiming:loadSession', path, feeds),
+    loadSession: (path, feeds, opts) => ipcRenderer.invoke('livetiming:loadSession', path, feeds, opts),
     getSyncData: (meetingKey, sessionKey) => ipcRenderer.invoke('livetiming:getSyncData', meetingKey, sessionKey),
     getAudio: (sessionPath, clipPath) => ipcRenderer.invoke('livetiming:getAudio', sessionPath, clipPath),
     openWindow: (opts) => ipcRenderer.invoke('livetiming:openWindow', opts),

@@ -163,7 +163,7 @@ function createMultiviewWindow() {
     width: 1600,
     height: 900,
     backgroundColor: '#0b0f14',
-    title: `F1 OpenViewer — Multiview #${id}`,
+    title: `OpenViewer — Multiview #${id}`,
     icon: getAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -295,7 +295,7 @@ function createLiveTimingWindow(opts = {}) {
     width: 1100,
     height: 860,
     backgroundColor: '#0b0f14',
-    title: `F1 OpenViewer — Live Timing${title ? ' — ' + title : ''}`,
+    title: `OpenViewer — Live Timing${title ? ' — ' + title : ''}`,
     icon: getAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -383,7 +383,7 @@ async function openCustomPlayerWindow(contentId, title, channelId) {
     height: 720,
     frame: false,
     backgroundColor: '#000000',
-    title: `F1 OpenViewer – ${title || id}`,
+    title: `OpenViewer – ${title || id}`,
     icon: getAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

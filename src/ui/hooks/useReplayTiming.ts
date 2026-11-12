@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { onLocalClock } from '../../services/driverHud';
 import { buildTimeline, timelineDuration } from '../../domain/replay';
 import { ReplayController } from '../../domain/replayController';
 import { persistDurableSetting } from '../../services/durableStorage';
@@ -148,7 +149,19 @@ function fmtHMS(ms: number): string {
  * view-model plus transport controls. The clock source is internal for now; M4 swaps it for
  * the video playback offset (call seek() from a timeupdate listener instead).
  */
-export function useReplayTiming(path: string | null, mvSyncStartSec: number | null = null, contentId?: number) {
+export function useReplayTiming(
+  path: string | null,
+  mvSyncStartSec: number | null = null,
+  contentId?: number,
+  options: {
+    /** 'local': the players are in this window (driver HUD); 'ipc': clock relayed by the main process. */
+    clockSource?: 'ipc' | 'local';
+    /** Also load car telemetry (speed, gear, DRS) for the driver HUD. */
+    telemetry?: boolean;
+  } = {}
+) {
+  const clockSource = options.clockSource ?? 'ipc';
+  const telemetry = options.telemetry === true;
   const controllerRef = useRef<ReplayController | null>(null);
   const durationRef = useRef(0);
   const offsetRef = useRef(0);
@@ -265,7 +278,7 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
     lapOffsetsRef.current = new Map();
     setState((p) => ({ ...p, ...EMPTY, loading: true, error: null, offsetMs: 0, durationMs: 0 }));
     window.f1.liveTiming
-      .loadSession(path)
+      .loadSession(path, undefined, telemetry ? { telemetry: true } : undefined)
       .then((byFeed) => {
         if (cancelled) return;
         const timeline = buildTimeline(byFeed as any);
@@ -328,7 +341,7 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
     return () => {
       cancelled = true;
     };
-  }, [path, mvSyncStartSec, pushState]);
+  }, [path, mvSyncStartSec, pushState, telemetry]);
 
   // Self-advancing clock. Suspended while synced, since the relayed video clock drives the offset then.
   useEffect(() => {
@@ -344,9 +357,9 @@ export function useReplayTiming(path: string | null, mvSyncStartSec: number | nu
 
   // Subscribe to the relayed video master clock (from the window playing the streams).
   useEffect(() => {
-    const lt = window.f1?.liveTiming;
-    if (!lt?.onClock) return;
-    return lt.onClock(({ timeSec, paused, wallClockMs, contentId: from }) => {
+    const subscribe = clockSource === 'local' ? onLocalClock : window.f1?.liveTiming?.onClock;
+    if (!subscribe) return;
+    return subscribe(({ timeSec, paused, wallClockMs, contentId: from }) => {
       if (!controllerRef.current) return;
       if (!sessionMatches(contentId, from)) return; // another session's multiview
       const firstClock = !seenClockRef.current;

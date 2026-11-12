@@ -1,4 +1,4 @@
-# F1 OpenViewer — Setup guide (English)
+# OpenViewer — Setup guide (English)
 
 This guide walks you through cloning the repo, configuring the app, building a test version (without signing), and then building a signed version so that **DRM-protected F1 TV content** works.
 
@@ -77,7 +77,7 @@ You can leave the other options in `.env` as they are for now.
    The built installer and the portable `.exe` use the same icon file so that the app looks consistent everywhere (installer, desktop shortcut, taskbar, and the unpacked executable).
 
    - **Location:** Place your Windows icon file at **`build/icon.ico`** (multi-size `.ico` recommended, e.g. 16×16, 32×32, 48×48, 256×256).
-   - **Build config:** In `package.json`, the `build` section already points to `build/icon` / `build/icon.ico` for Windows. The installer and the portable app in `release\win-unpacked\F1 OpenViewer.exe` both use this icon.
+   - **Build config:** In `package.json`, the `build` section already points to `build/icon` / `build/icon.ico` for Windows. The installer and the portable app in `release\win-unpacked\OpenViewer.exe` both use this icon.
    - **After signing:** The icon is applied in `afterPack` (before code sign and VMP). Do **not** modify the exe after Widevine VMP signing, or you will get "Verified media path has been tampered" and DRM will fail.
 
    If you don't add `build/icon.ico`, the build will still succeed; the app will use the default Electron icon.
@@ -120,8 +120,8 @@ npm run build
 ```
 
 - The build finishes and creates:
-  - **Installer:** `release\F1 OpenViewer Setup <version>.exe`
-  - **Portable app:** `release\win-unpacked\F1 OpenViewer.exe`
+  - **Installer:** `release\OpenViewer Setup <version>.exe`
+  - **Portable app:** `release\win-unpacked\OpenViewer.exe`
 
 - You can run the installer or the `.exe` directly. The app will work for browsing and login.
 
@@ -138,7 +138,7 @@ To get a **signed** build so that DRM works, you need a code-signing certificate
 2. Run the following commands. Replace `PASSWORD` with a password you choose (you will use it again when building):
 
    ```powershell
-   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=F1 OpenViewer Dev" -CertStoreLocation "Cert:\CurrentUser\My" -NotAfter (Get-Date).AddYears(3)
+   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=OpenViewer Dev" -CertStoreLocation "Cert:\CurrentUser\My" -NotAfter (Get-Date).AddYears(3)
    $pwd = ConvertTo-SecureString -String "PASSWORD" -Force -AsPlainText
    Export-PfxCertificate -Cert $cert -FilePath "$env:USERPROFILE\Desktop\f1openviewer-dev.pfx" -Password $pwd
    ```
@@ -201,11 +201,11 @@ Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) 
 **Where to find the signed app**
 
 - **Portable (signed, DRM-capable):**  
-  `release\win-unpacked\F1 OpenViewer.exe`  
+  `release\win-unpacked\OpenViewer.exe`  
   This is the one that has been VMP-signed and can play DRM content.
 
 - **Installer:**  
-  `release\F1 OpenViewer Setup <version>.exe`  
+  `release\OpenViewer Setup <version>.exe`  
   This installer was created before the VMP signing step, so the exe inside it is not VMP-signed. For DRM playback, use the exe in `release\win-unpacked` directly, or run the build script again and then create a new installer if your build process supports that.
 
 ---
@@ -215,9 +215,9 @@ Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) 
 | Goal                         | Command / Step                                                                 |
 |-----------------------------|-------------------------------------------------------------------------------|
 | Run in development           | `npm run dev`                                                                 |
-| Build for test (no DRM)     | `npm run build` → run `release\win-unpacked\F1 OpenViewer.exe` or the installer |
+| Build for test (no DRM)     | `npm run build` → run `release\win-unpacked\OpenViewer.exe` or the installer |
 | Build + sign (DRM works)    | Set `CSC_LINK` and `CSC_KEY_PASSWORD`, then `npm run build:signed`             |
-| Signed app (DRM)            | `release\win-unpacked\F1 OpenViewer.exe`                                       |
+| Signed app (DRM)            | `release\win-unpacked\OpenViewer.exe`                                       |
 
 ---
 
@@ -246,9 +246,9 @@ Use **`npm run build:signed`** to build the app and then run the VMP (Widevine) 
   Make sure you did a fresh build after the project was updated (the build uses `base: './'` so that assets load correctly from the packaged app).
 
 - **DRM / 403 license errors**
-  Use the **signed** build (`npm run build:signed`) and run **`release\win-unpacked\F1 OpenViewer.exe`** (not the installed app if the installer was built before VMP). Ensure you are logged in with "Sign in with browser". See BUILD_SIGNING.md for more.
+  Use the **signed** build (`npm run build:signed`) and run **`release\win-unpacked\OpenViewer.exe`** (not the installed app if the installer was built before VMP). Ensure you are logged in with "Sign in with browser". See BUILD_SIGNING.md for more.
 
 - **"Verified media path has been tampered"**
-  Run only **`release\win-unpacked\F1 OpenViewer.exe`** (the VMP-signed exe). Do not modify the exe after VMP signing. See **docs/BUILD_SIGNING.md** § 2.6.
+  Run only **`release\win-unpacked\OpenViewer.exe`** (the VMP-signed exe). Do not modify the exe after VMP signing. See **docs/BUILD_SIGNING.md** § 2.6.
 
 For more details on signing and certificates, see **docs/BUILD_SIGNING.md**.

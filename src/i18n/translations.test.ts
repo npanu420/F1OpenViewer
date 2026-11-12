@@ -40,3 +40,17 @@ test('dynamic stage/variant keys used by the session tabs exist in both language
     for (const v of variants) expect(translations[lang][`variant.${v}`], `${lang} variant.${v}`).toBeTruthy();
   }
 });
+
+test('work-in-progress languages only use English keys and keep their placeholders', () => {
+  const en = translations.en;
+  for (const lang of ['fr', 'de', 'es'] as const) {
+    const dict = translations[lang];
+    expect(Object.keys(dict).filter((k) => !(k in en)), `${lang} unknown keys`).toEqual([]);
+    for (const [k, v] of Object.entries(dict)) {
+      const want = (en[k].match(/\{[a-zA-Z]+\}/g) ?? []).sort();
+      const got = (v.match(/\{[a-zA-Z]+\}/g) ?? []).sort();
+      expect(got, `${lang} ${k}`).toEqual(want);
+      expect(v.trim(), `${lang} ${k}`).not.toBe('');
+    }
+  }
+});

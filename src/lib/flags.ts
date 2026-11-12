@@ -40,7 +40,7 @@ const NAME_PATTERNS: Array<[RegExp, string]> = [
   [/dutch|netherlands|zandvoort/i, 'NL'],
   [/azerbaijan|baku/i, 'AZ'],
   [/singapore/i, 'SG'],
-  [/mexic/i, 'MX'],
+  [/m[eé]xic/i, 'MX'],
   [/paulo|brazil|brasil|interlagos/i, 'BR'],
   [/abu dhabi|yas marina/i, 'AE'],
   [/portug/i, 'PT'],

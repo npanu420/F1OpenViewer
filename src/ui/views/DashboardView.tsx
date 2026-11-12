@@ -11,7 +11,8 @@ import {
 } from '../../services/vod';
 import { useEmbeddedPlayback } from '../hooks/useEmbeddedPlayback';
 import { useLocale } from '../../i18n/LocaleContext';
-import { getFlag, getEventCountryCode } from '../../lib/flags';
+import { getEventCountryCode } from '../../lib/flags';
+import { CountryBadge } from '../components/CountryBadge';
 import { LiveSection } from '../components/LiveSection';
 import { DashboardHero } from '../components/DashboardHero';
 import { RaceCard } from '../components/RaceCard';
@@ -66,6 +67,7 @@ export function DashboardView({
   const { t } = useLocale();
   const [search, setSearch] = useState('');
   const calendarScroll = useRef(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [selectedEvent, setSelectedEvent] = useState<VodEvent | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string>('');
 
@@ -111,7 +113,7 @@ export function DashboardView({
   );
   useEffect(() => {
     if (!selectedEvent) {
-      const id = requestAnimationFrame(() => window.scrollTo(0, calendarScroll.current));
+      const id = requestAnimationFrame(() => scrollRef.current?.scrollTo(0, calendarScroll.current));
       return () => cancelAnimationFrame(id);
     }
   }, [selectedEvent]);
@@ -258,9 +260,9 @@ export function DashboardView({
   }, [onRefresh]);
 
   const handleSelectEvent = (ev: VodEvent) => {
-    calendarScroll.current = window.scrollY;
+    calendarScroll.current = scrollRef.current?.scrollTop ?? 0;
     setSelectedEvent(ev);
-    window.scrollTo(0, 0);
+    scrollRef.current?.scrollTo(0, 0);
     setActiveSessionId('');
   };
 
@@ -293,10 +295,10 @@ export function DashboardView({
   }, [items, selectedYear]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className={`workspace ${selectedEvent ? '' : 'catalog-workspace'}`}>
+    <div ref={scrollRef} className="h-full overflow-y-auto scrollbar-hide bg-background">
+      <main className={`workspace ${selectedEvent ? 'session-workspace' : 'catalog-workspace'}`}>
         {error && (
-          <div className="mb-4 error" role="alert">
+          <div className="mb-4 error shrink-0" role="alert">
             {error}
           </div>
         )}
@@ -305,10 +307,10 @@ export function DashboardView({
           {!selectedEvent ? (
             <motion.div
               key={`season-${selectedYear}`}
-              initial={false}
+              initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0, x: -30 }}
-              transition={{ duration: 0.3 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12 }}
             >
               <DashboardHero
                 liveItem={itemsForSelectedYear.find((it) => it.kind === 'live')}
@@ -330,7 +332,7 @@ export function DashboardView({
 
               <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <h2 className="font-heading text-2xl font-bold tracking-wider">
+                  <h2 className="text-2xl">
                     {seasonLabel}
                   </h2>
                   <p className="text-sm text-muted-foreground mt-1">
@@ -347,7 +349,7 @@ export function DashboardView({
                   type="button"
                   onClick={() => { handleRefresh().catch(() => {}); }}
                   disabled={busy}
-                  className="py-2 px-4 rounded-lg font-heading text-sm font-bold tracking-wider border border-border bg-accent/30 hover:bg-accent/50 disabled:opacity-50"
+                  className="ui-button"
                 >
                   {t('dashboard.refresh')}
                 </button>
@@ -396,10 +398,11 @@ export function DashboardView({
           ) : (
             <motion.div
               key="race-view"
-              initial={false}
+              className="flex-1 min-h-0 flex flex-col"
+              initial={{ opacity: 0, x: 16 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
             >
               <div className="session-heading">
                 <button
@@ -407,31 +410,26 @@ export function DashboardView({
                   className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0 group"
                   type="button"
                 >
-                  <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-                  <span className="font-heading tracking-wider">
-                    {t('dashboard.backToCalendar')}
-                  </span>
+                  <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+                  <span>{t('dashboard.backToCalendar')}</span>
                 </button>
 
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">
-                    {getFlag(getEventCountryCode(selectedEvent))}
-                  </span>
-                  <span className="text-primary font-heading font-bold text-lg tracking-widest">
-                    R{String(selectedEvent.meetingNumber ?? 0).padStart(2, '0')}
-                  </span>
-                  <h2 className="font-heading text-2xl font-bold tracking-wider">
-                    {selectedEvent.meetingName}
-                  </h2>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <CountryBadge code={getEventCountryCode(selectedEvent)} isTest={selectedEvent.isTest} />
+                  {!selectedEvent.isTest && (
+                    <span className="text-muted-foreground text-sm font-medium tabular-nums">
+                      R{String(selectedEvent.meetingNumber ?? 0).padStart(2, '0')}
+                    </span>
+                  )}
+                  <h2 className="truncate">{selectedEvent.meetingName}</h2>
                 </div>
                 {selectedEvent.country && (
-                  <p className="text-sm text-muted-foreground mt-1">
+                  <p className="text-sm text-muted-foreground shrink-0">
                     {selectedEvent.country}
                   </p>
                 )}
               </div>
 
-              
 
               {loadingSess ? (
                 <p className="text-sm text-muted-foreground mb-4">
@@ -439,7 +437,7 @@ export function DashboardView({
                 </p>
               ) : sessionTabItems.length > 0 ? (
                 <>
-                  <div className="mb-2 min-w-0">
+                  <div className="session-tabs-bar mb-3 min-w-0 shrink-0">
                     <SessionTabs
                       sessions={sessionTabItems}
                       activeSessionId={activeSessionId}
@@ -475,6 +473,7 @@ export function DashboardView({
                       }}
                       // Drop transferred streams here; they keep playing in the popout only.
                       onPortStreamsToWindow={removePlayback}
+                      onReleasePlayback={removePlayback}
                     />
                   )}
                 </>

@@ -1,6 +1,6 @@
 # Signed build (code signing + Widevine VMP)
 
-There are **two types of signing** useful for F1 OpenViewer:
+There are **two types of signing** useful for OpenViewer:
 
 1. **Code signing** — signing the executable (Windows/macOS) so the system and user recognise the app (no “Unknown publisher”).
 2. **Widevine VMP signing** — required for the F1 TV server to accept DRM licenses (avoids `DEVELOPMENT_CERTIFICATE_NOT_ALLOWED`).
@@ -41,7 +41,7 @@ $env:CSC_KEY_PASSWORD = "your_certificate_password"
 
 ```powershell
 # CertStoreLocation MUST be "Cert:\CurrentUser\My" (certificate store), NOT a disk folder (otherwise: Access denied)
-$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=F1 OpenViewer Dev" -CertStoreLocation "Cert:\CurrentUser\My" -NotAfter (Get-Date).AddYears(3)
+$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=OpenViewer Dev" -CertStoreLocation "Cert:\CurrentUser\My" -NotAfter (Get-Date).AddYears(3)
 
 # Export to .pfx (replace PASSWORD with a password of your choice)
 $pwd = ConvertTo-SecureString -String "PASSWORD" -Force -AsPlainText
@@ -164,16 +164,16 @@ For apps that also support offline download you can use `--persistent`:
 python3 -m castlabs_evs.vmp sign-pkg --persistent path/to/release/win-unpacked
 ```
 
-- **macOS (manual VMP):** `castlabs_evs.vmp sign-pkg` does **not** take the path to the `.app` bundle. It expects the **same directory electron-builder uses as output for that target** — the folder that **contains** `F1 OpenViewer.app` (electron-builder’s `appOutDir`), for example:
+- **macOS (manual VMP):** `castlabs_evs.vmp sign-pkg` does **not** take the path to the `.app` bundle. It expects the **same directory electron-builder uses as output for that target** — the folder that **contains** `OpenViewer.app` (electron-builder’s `appOutDir`), for example:
   - **Apple Silicon:** `release/mac-arm64`
   - **Intel:** often `release/mac` (name depends on arch / your `package.json` build config)
 
 ```bash
-# Correct: directory that contains F1 OpenViewer.app
+# Correct: directory that contains OpenViewer.app
 python3 -m castlabs_evs.vmp sign-pkg --force "/path/to/project/release/mac-arm64"
 ```
 
-Passing the `.app` itself (e.g. dragging `F1 OpenViewer.app` into the terminal) causes **`FileNotFoundError: No matching executable found`**, because the tool looks for `*.app` **inside** the path you give, and searches for the Electron Framework there.
+Passing the `.app` itself (e.g. dragging `OpenViewer.app` into the terminal) causes **`FileNotFoundError: No matching executable found`**, because the tool looks for `*.app` **inside** the path you give, and searches for the Electron Framework there.
 
 **macOS — signing order:** EVS signs binaries inside the bundle (e.g. `Electron Framework`). **Apple code signing must include those files**, so either:
 
@@ -219,7 +219,7 @@ If you see **"F1 TV: Widevine license generation failed >> Verified media path h
 
 **What to do:**
 
-1. **Use the correct exe** — Run **`release\win-unpacked\F1 OpenViewer.exe`** (the one that was VMP-signed). Do **not** run the app from the NSIS installer if the installer was built before the VMP step: the installed exe may not be VMP-signed, or may have been overwritten by a copy that was modified after signing.
+1. **Use the correct exe** — Run **`release\win-unpacked\OpenViewer.exe`** (the one that was VMP-signed). Do **not** run the app from the NSIS installer if the installer was built before the VMP step: the installed exe may not be VMP-signed, or may have been overwritten by a copy that was modified after signing.
 2. **Do not modify the exe after VMP** — Do not run any tool (rcedit, resource editors, etc.) on the exe after `castlabs_evs.vmp sign-pkg`. If you need to change the icon, do it in `afterPack` (see `scripts/apply-exe-icon.js`) so it happens before code sign and VMP.
 3. **Rebuild and re-sign** — Build with `npm run build:signed` so that VMP is applied to the final exe with no subsequent modifications. If you had previously applied the icon after VMP, do a clean build and use the new exe from `release\win-unpacked`.
 
@@ -228,7 +228,7 @@ If you see **"F1 TV: Widevine license generation failed >> Verified media path h
 If you see "DRM license rejected by server (error 403 / ACN_5002)" with a build that previously worked:
 
 1. **Session/token expiry (most common)** — F1 TV session tokens (ascendon/entitlement) often expire after a few hours. The same build can work in the morning and return 403 in the afternoon; the server may report it like an uncertified client. The app now **refreshes the session before each playback** (and retries once on 403). If it still fails, **sign in again** with "Sign in with browser" and retry.
-2. **Re-sign with a fresh VMP signature** — If re-login does not help, the binary may no longer match the cached EVS signature. On **Windows**, run `npm run build:signed` (uses `--force` by default), or manually: `py -m castlabs_evs.vmp sign-pkg --force release\win-unpacked`. On **macOS**, run `python3 -m castlabs_evs.vmp sign-pkg --force` on the folder that **contains** `F1 OpenViewer.app` (e.g. `release/mac-arm64`), then **re-sign** the `.app` if you had already code-signed it (see §2.4).
+2. **Re-sign with a fresh VMP signature** — If re-login does not help, the binary may no longer match the cached EVS signature. On **Windows**, run `npm run build:signed` (uses `--force` by default), or manually: `py -m castlabs_evs.vmp sign-pkg --force release\win-unpacked`. On **macOS**, run `python3 -m castlabs_evs.vmp sign-pkg --force` on the folder that **contains** `OpenViewer.app` (e.g. `release/mac-arm64`), then **re-sign** the `.app` if you had already code-signed it (see §2.4).
 3. **Ensure the license proxy receives the right headers** — The app forwards `drmToken`, `Authorization`, and entitlement headers from the player to the F1 license server. If you use a custom build, ensure the main process license proxy is used (dashboard and player both use it when `licenseUrl` is rewritten to the local proxy).
 
 **macOS (same DRM issues):** If VMP is missing or stale, re-run EVS on the **output folder** (not the `.app`), with `--force` when the network allows:
@@ -261,7 +261,7 @@ The script `scripts/evs-after-sign.js` calls `castlabs_evs.vmp sign-pkg` on `con
 | Platform  | Correct order |
 |-----------|----------------|
 | **Windows** | 1) Code signing (electron-builder) → 2) VMP signing (EVS `sign-pkg` on `release/win-unpacked`) |
-| **macOS**   | 1) VMP signing (EVS `sign-pkg` on the folder **containing** `F1 OpenViewer.app`, e.g. `release/mac-arm64`) → 2) Apple code signing / notarization of the whole `.app` **if** you started from an unsigned build; **if** you already signed with electron-builder, run VMP then **re-sign** the bundle. |
+| **macOS**   | 1) VMP signing (EVS `sign-pkg` on the folder **containing** `OpenViewer.app`, e.g. `release/mac-arm64`) → 2) Apple code signing / notarization of the whole `.app` **if** you started from an unsigned build; **if** you already signed with electron-builder, run VMP then **re-sign** the bundle. |
 
 **`sign-pkg` path:** Always pass the **directory that contains the `.app`**, not `Something.app` itself (see §2.4).
 

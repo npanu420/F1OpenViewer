@@ -1,8 +1,12 @@
-# ![F1 OpenViewer](assets/openviewer_banner.png)
+# ![OpenViewer](assets/openviewer_banner.png)
 
-# F1 OpenViewer by npanu420
+# OpenViewer by npanu420
 
 Official login, entitlement, and DRM (Widevine) playback in an Electron app. Authorized access only, no piracy.
+
+[![OpenViewer auto layout: streams are added, dropped and re-arranged while the window is resized](assets/auto-layout-demo.gif)](docs/media/auto-layout-demo.mp4)
+
+*The auto layout following the window, with Live Timing and the driver HUD. [Watch the full video](docs/media/auto-layout-demo.mp4).*
 
 📖 **Setup:** [docs/SETUP.md](docs/SETUP.md) — clone, configure `.env`, run in dev, build and sign.
 
@@ -32,7 +36,7 @@ Official login, entitlement, and DRM (Widevine) playback in an Electron app. Aut
 
 - **Everything stays in sync, automatically** — In multiview, the main feed, onboards, and data channel are continuously locked to each other: the sync engine anchors on the race/world feed and keeps correcting the rest (seek if the drift is large, subtle playback-rate nudges if it's small), so onboards never quietly drift ahead or behind the race. If the world feed rebuffers, everything else automatically syncs instead of running away.
 - **Live Timing synced to the video, not just running alongside it** — Standings, gaps, sector times, tyre stints, race control messages and team radio line up automatically with whatever moment you're watching in the replay, no manual alignment needed.
-- **Resizable, savable multiview layouts** — Drag and resize the stream grid, save layouts you like, and reuse them; pop the whole multiview out into its own fullscreen window.
+- **Auto layout that fills any screen** — Every tile is exactly 16:9, so there are no black bars, and the number of streams follows the window: the main feed stays the big tile, favourite drivers come next, and ultrawide monitors get filled edge to edge. Remove, add or swap panels by hand, save layouts you like, or pop the whole multiview out into its own window.
 - **Live-edge playback** — Live sessions track the live edge instead of drifting behind like a plain HTML5 video.
 
 ---
@@ -41,7 +45,7 @@ Official login, entitlement, and DRM (Widevine) playback in an Electron app. Aut
 
 Live Timing opens in its own window next to a session replay and shows the same kind of data you'd see on the official timing screen: standings, gaps, sector times, tyre stints, race control messages and team radio clips.
 
-| Ultrawide (dock + multiview side by side) | Standard width |
+| Ultrawide (dock beside the auto layout) | Standard width |
 |---|---|
 | ![Live Timing dock, ultrawide](assets/livetiming.png) | ![Live Timing dock, standard width](assets/livetiming-compact.png) |
 
@@ -89,9 +93,10 @@ Manual alignment used to be difficult because the archive and video clocks weren
 
 | | |
 |---|---|
-| **Main Grid UI** | ![Screenshot 1](assets/screenshot001.png) |
-| **Fullscreen view** | ![Screenshot 2](assets/screenshot002.png) |
-| **Home with Live Event** | ![Screenshot 3](assets/screenshot003.png) |
+| **Session view, auto layout** | ![Session view with the auto layout](assets/screenshot001.png) |
+| **Multiview window, ultrawide** | ![Multiview window on an ultrawide monitor](assets/screenshot002.png) |
+| **Controls hidden, ultrawide** | ![Controls hidden with the Live Timing dock](assets/screenshot004.png) |
+| **Home** | ![Home with the race calendar](assets/screenshot003.png) |
 
 ---
 

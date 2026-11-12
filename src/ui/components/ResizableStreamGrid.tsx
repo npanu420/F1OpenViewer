@@ -1,5 +1,6 @@
-import React, { useRef, useCallback, useState, useEffect } from 'react';
-import { Plus, GripVertical, ChevronRight, X, MoreHorizontal } from 'lucide-react';
+import React, { useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Plus, GripVertical, ChevronRight, X, MoreHorizontal, Check } from 'lucide-react';
 import type { EventCallback, Layout, LayoutItem } from 'react-grid-layout';
 import { calcGridColWidth, calcGridItemWHPx } from 'react-grid-layout/core';
 import { ReactGridLayout, WidthProvider } from 'react-grid-layout/legacy';
@@ -10,10 +11,15 @@ import { StreamPanel, type StreamPanelHandle } from './StreamPanel';
 
 /** MIME type for DriverShelf drag onto a grid slot. */
 export const DRIVER_SHELF_DRAG_TYPE = 'application/x-f1ov-stream-id';
+/** MIME type for dragging an auto tile onto another one to swap them. */
+const SLOT_DRAG_TYPE = 'application/x-f1ov-slot-id';
 
 import 'react-grid-layout/css/styles.css';
 import { snapLayoutItemToStreamAspect } from './gridAspect';
 import { movePanel } from './layoutOperations';
+import { AutoTileGrid } from './AutoTileGrid';
+import { DriverHud } from './DriverHud';
+import { useHudRows } from '../../services/driverHud';
 
 // react-grid-layout 2.2.2 /legacy types disagree on ref callback (null vs undefined).
 // Bug is in their .d.ts, not our usage. Hand-declare the props we pass to GridLayoutWithWidth.
@@ -99,8 +105,8 @@ export function getDefaultNewSlotGridSize(): { w: number; h: number } {
 /** Horizontal + vertical gap between grid cells (must match GridLayoutWithWidth margin). */
 const GRID_MARGIN: readonly [number, number] = [12, 12];
 const GRID_CONTAINER_PADDING: readonly [number, number] = [0, 0];
-/** Approx. chrome above the video: grid slot header + StreamPanel header when both in layout flow. */
-const SLOT_CHROME_TOP_PX = 88;
+/** Approx. chrome above the video before it is measured: slot header in layout flow + borders. */
+const SLOT_CHROME_TOP_PX = 45;
 
 
 interface ResizableStreamGridProps {
@@ -139,7 +145,19 @@ interface ResizableStreamGridProps {
   pickingItemId?: string | null;
   /** Slot consumed the pick (assigned or cancelled). */
   onPickingConsumed?: () => void;
+  /** Auto layout (`AutoTileGrid`) instead of the 12-column grid; `layout` is ignored. */
+  auto?: boolean;
+  autoSlotIds?: string[];
+  maxTiles?: number;
+  preferredTiles?: number;
+  onAutoCount?: (count: number) => void;
+  autoFixedCount?: number | null;
+  onSwapSlots?: (fromSlotId: string, toSlotId: string) => void;
+  /** Draw the live-timing HUD over playing onboards (when timing rows are available). */
+  showDriverHud?: boolean;
 }
+
+const NO_SLOTS: string[] = [];
 
 const DEFAULT_ROW_HEIGHT = 80;
 /** Minimum on-screen height change (px) that justifies re-laying out the grid. */
@@ -180,11 +198,23 @@ export function ResizableStreamGrid({
   initialSeekSecondsByItemId,
   pickingItemId = null,
   onPickingConsumed,
+  auto = false,
+  autoSlotIds = NO_SLOTS,
+  maxTiles,
+  preferredTiles = 3,
+  onAutoCount,
+  autoFixedCount = null,
+  onSwapSlots,
+  showDriverHud = false,
 }: ResizableStreamGridProps) {
+  const hudRows = useHudRows();
+  const slotCount = auto ? autoSlotIds.length : layout.length;
   const { t } = useLocale();
   const refsByItemId = useRef<Map<string, StreamPanelHandle>>(new Map());
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; slotId: string } | null>(null);
+  /** Panel menu: at the pointer (right click) or under its "..." button. */
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; slotId: string; anchor: DOMRect | null } | null>(null);
   const [sizesSubmenuVisible, setSizesSubmenuVisible] = useState(false);
+  const [streamListVisible, setStreamListVisible] = useState(false);
   const [dragOverSlotId, setDragOverSlotId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLElement | null>(null);
@@ -231,7 +261,7 @@ export function ResizableStreamGrid({
   const resizing = useRef(false);
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || auto) return;
     const measure = () => {
       const next: Record<string, number> = {};
       el.querySelectorAll<HTMLElement>('[data-slot-id]').forEach((slot) => {
@@ -248,7 +278,7 @@ export function ResizableStreamGrid({
     el.querySelectorAll('[data-stream-header], .grid-slot-header').forEach((header) => observer.observe(header));
     measure();
     return () => observer.disconnect();
-  }, [hideSlotHeadersUntilHover, editing, slotToItemId, layout.length]);
+  }, [auto, hideSlotHeadersUntilHover, editing, slotToItemId, layout.length]);
   const chromeTopPx = hideSlotHeadersUntilHover ? 4 : SLOT_CHROME_TOP_PX;
 
   const rowHeight =
@@ -258,25 +288,66 @@ export function ResizableStreamGrid({
 
   // Fit all panels in one update, preserving widths and ordering. Refit when window
   // width, header visibility or video metadata changes, including fullscreen.
+  const fitLayout = useCallback(
+    (items: Layout): Layout =>
+      items.map((li) =>
+        snapLayoutItemToStreamAspect(li, li, slotStreamAspectRatio[li.i] ?? 16 / 9,
+          containerWidth, rowHeight, measuredChrome[li.i] ?? chromeTopPx, COLS)
+      ),
+    [containerWidth, rowHeight, chromeTopPx, measuredChrome, slotStreamAspectRatio]
+  );
   useEffect(() => {
-    if (containerWidth <= 0 || resizing.current) return;
-    const fitted = layout.map((li) =>
-      snapLayoutItemToStreamAspect(li, li, slotStreamAspectRatio[li.i] ?? 16 / 9,
-        containerWidth, rowHeight, measuredChrome[li.i] ?? chromeTopPx, COLS)
-    );
+    if (auto || containerWidth <= 0 || resizing.current) return;
+    const fitted = fitLayout(layout);
     // Only apply changes visible on screen; tiny deltas just make panels jitter (CSS transition on every update).
     if (fitted.some((li, i) => layoutHeightDeltaPx(li.h, layout[i].h, rowHeight) >= REFIT_THRESHOLD_PX)) onLayoutChange(fitted);
-  }, [containerWidth, rowHeight, chromeTopPx, measuredChrome, slotStreamAspectRatio, layout, onLayoutChange]);
+  }, [auto, containerWidth, rowHeight, fitLayout, layout, onLayoutChange]);
+
+  /**
+   * react-grid-layout reports its compacted layout one update late, so after two quick refits it
+   * echoes the first one and the panels bounce between the two forever. Outside a gesture the
+   * reported layout is fitted again before it is stored.
+   */
+  const handleGridLayoutChange = useCallback(
+    (next: Layout) => onLayoutChange(resizing.current || containerWidth <= 0 ? next : fitLayout(next)),
+    [onLayoutChange, fitLayout, containerWidth]
+  );
 
   const handleContextMenu = useCallback(
-    (e: React.MouseEvent, slotId: string) => {
+    (e: React.MouseEvent, slotId: string, fromButton = false) => {
       e.preventDefault();
       e.stopPropagation();
       menuTriggerRef.current = e.currentTarget as HTMLElement;
-      setContextMenu({ x: Math.max(8, Math.min(e.clientX, window.innerWidth - 220)), y: Math.max(8, Math.min(e.clientY, window.innerHeight - 320)), slotId });
+      setSizesSubmenuVisible(false);
+      setStreamListVisible(false);
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        slotId,
+        anchor: fromButton ? (e.currentTarget as HTMLElement).getBoundingClientRect() : null,
+      });
     },
     []
   );
+
+  // Placed once its real size is known (it grows with a submenu), flipped or clamped to the window.
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!contextMenu || !menu) return;
+    const margin = 8;
+    const { width, height } = menu.getBoundingClientRect();
+    const { anchor } = contextMenu;
+    let left = anchor ? anchor.right - width : contextMenu.x;
+    let top = anchor ? anchor.bottom + 4 : contextMenu.y;
+    if (top + height > window.innerHeight - margin) {
+      top = anchor ? anchor.top - 4 - height : window.innerHeight - margin - height;
+    }
+    left = Math.max(margin, Math.min(left, window.innerWidth - margin - width));
+    top = Math.max(margin, top);
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.visibility = 'visible';
+  }, [contextMenu, sizesSubmenuVisible, streamListVisible]);
 
   const applyRatio = useCallback(
     (slotId: string, num: number, den: number) => {
@@ -335,6 +406,7 @@ export function ResizableStreamGrid({
     const close = () => {
       setContextMenu(null);
       setSizesSubmenuVisible(false);
+      setStreamListVisible(false);
     };
     menuRef.current?.querySelector('button')?.focus();
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { close(); menuTriggerRef.current?.focus(); } };
@@ -357,15 +429,180 @@ export function ResizableStreamGrid({
     [onRegisterPanelRef]
   );
 
+  // Auto tiles are exactly 16:9, so their headers always overlay the video.
+  const headerMode: 'flow' | 'hover' | 'overlay' = hideSlotHeadersUntilHover ? 'hover' : auto ? 'overlay' : 'flow';
+
+  const renderSlot = (slotId: string) => {
+    const itemId = slotToItemId[slotId] || '';
+    const option = streamOptions.find((o) => o.item.id === itemId);
+    const isDropTarget = dragOverSlotId === slotId;
+    const isPickTarget = pickingItemId != null;
+    const highlighted = isDropTarget || (isPickTarget && itemId !== pickingItemId);
+    // The HUD names the driver itself, so it replaces the slot header (except while editing).
+    const hudRow = showDriverHud && !editing && option?.type === 'driver' && option.driverNumber != null && embeddedPlayback[itemId]
+      ? hudRows.find((row) => row.number === String(option.driverNumber)) ?? null
+      : null;
+    const menuButton = (
+      <button type="button" className="ui-button ui-button-ghost !p-1 !min-h-7" aria-haspopup="menu" aria-label={`${t('experience.panelOptions')}: ${option?.label ?? slotId}`} onClick={(event) => handleContextMenu(event, slotId, true)}><MoreHorizontal className="w-4 h-4" /></button>
+    );
+
+    return (
+      <div
+        key={slotId}
+        data-slot-id={slotId}
+        data-target={highlighted ? 'true' : undefined}
+        className={`grid-slot group relative overflow-hidden flex flex-col min-h-0 w-full h-full ${
+          auto
+            ? 'grid-slot-auto'
+            : `rounded-lg border transition-colors bg-card ${highlighted ? 'border-primary ring-2 ring-primary/50' : 'border-border/50'}`
+        } ${headerMode === 'hover' ? 'grid-slot-hide-header-until-hover' : ''} ${isPickTarget ? 'cursor-pointer' : ''}`}
+        style={{ minHeight: 0 }}
+        onContextMenu={(e) => handleContextMenu(e, slotId)}
+        onDragOver={(e) => {
+          const swap = auto && editing && e.dataTransfer.types.includes(SLOT_DRAG_TYPE);
+          if (!swap && !e.dataTransfer.types.includes(DRIVER_SHELF_DRAG_TYPE)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = swap ? 'move' : 'copy';
+          setDragOverSlotId(slotId);
+        }}
+        onDragLeave={() => setDragOverSlotId((cur) => (cur === slotId ? null : cur))}
+        onDrop={(e) => {
+          const fromSlotId = e.dataTransfer.getData(SLOT_DRAG_TYPE);
+          if (fromSlotId) {
+            e.preventDefault();
+            setDragOverSlotId(null);
+            if (fromSlotId !== slotId) onSwapSlots?.(fromSlotId, slotId);
+            return;
+          }
+          const droppedId = e.dataTransfer.getData(DRIVER_SHELF_DRAG_TYPE);
+          if (!droppedId) return;
+          e.preventDefault();
+          setDragOverSlotId(null);
+          onSlotToItemIdChange(slotId, droppedId);
+        }}
+        onClick={() => {
+          if (!pickingItemId) return;
+          onSlotToItemIdChange(slotId, pickingItemId);
+          onPickingConsumed?.();
+        }}
+      >
+        {hudRow && <DriverHud row={hudRow}><span className="driver-hud-menu">{menuButton}</span></DriverHud>}
+        {/* Slot header: drag, label, clear. Overlaid (absolute) unless it is in layout flow. */}
+        <div
+          hidden={hudRow != null}
+          className={`grid-slot-header flex items-center gap-2 px-2 py-1.5 shrink-0 ${
+            headerMode === 'flow'
+              ? 'border-b border-border/50 bg-card'
+              : `absolute top-0 left-0 right-0 z-10 ${auto ? 'grid-slot-header-overlay' : 'border-b border-border/50 bg-card'}`
+          }`}
+        >
+          <div
+            hidden={!editing}
+            className="grid-drag-handle cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5 touch-none"
+            onClick={(e) => e.stopPropagation()}
+            // Manual grid: react-grid-layout drags by this handle. Auto tiles: drop on another tile to swap.
+            draggable={auto && editing}
+            onDragStart={(e) => {
+              if (!auto) return;
+              e.dataTransfer.setData(SLOT_DRAG_TYPE, slotId);
+              e.dataTransfer.effectAllowed = 'move';
+              const tile = e.currentTarget.closest<HTMLElement>('[data-slot-id]');
+              if (tile) e.dataTransfer.setDragImage(tile, 24, 16);
+            }}
+            onDragEnd={() => setDragOverSlotId(null)}
+          >
+            <GripVertical className="w-4 h-4" />
+          </div>
+          <span className="flex-1 min-w-0 text-xs font-medium truncate text-foreground">
+            {option ? option.label : t('dashboard.gridEmptySlot')}
+          </span>
+          {option?.driverNumber != null && (
+            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">#{option.driverNumber}</span>
+          )}
+          {menuButton}
+          {editing && onRemoveSlot && (
+            <button
+              type="button"
+              aria-label={`${t('experience.removeSlot')}: ${option?.label ?? slotId}`}
+              title={t('experience.removeSlot')}
+              disabled={slotCount <= 1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveSlot(slotId);
+              }}
+              className="shrink-0 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 disabled:opacity-40 disabled:pointer-events-none"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {isPickTarget && <button type="button" className="absolute inset-0 z-30 bg-black/60 text-white text-sm" onClick={(event) => { event.stopPropagation(); onSlotToItemIdChange(slotId, pickingItemId!); onPickingConsumed?.(); }}>{t('experience.chooseSlot')}</button>}
+        {/* Content: fills remaining height (or full height when header is absolute) */}
+        <div className="flex-1 min-h-0 flex flex-col min-w-0 bg-black overflow-hidden">
+          {option ? (
+            <StreamPanel
+              key={`${slotId}-${option.item.id}`}
+              ref={(r) => registerRef(option.item.id, r)}
+              label={option.label}
+              type={option.type}
+              driverNumber={option.driverNumber}
+              catalogItem={option.item}
+              playback={embeddedPlayback[option.item.id]}
+              loading={loadingItemIds[option.item.id]}
+              onPlayEmbedded={onPlayEmbedded}
+              onEmbedError={onEmbedError}
+              onClick={() => onOpen?.(option.item)}
+              fillHeight
+              bare={auto}
+              // The slot header already names the stream.
+              hideHeader
+              audioFocusedItemId={audioFocusedItemId}
+              onAudioFocus={onAudioFocus}
+              initialSeekSeconds={initialSeekSecondsByItemId?.[option.item.id]}
+              onVideoIntrinsicSize={(vw, vh) => {
+                if (vw <= 0 || vh <= 0) return;
+                const ar = normalizeAspect(vw / vh);
+                setSlotStreamAspectRatio((prev) =>
+                  prev[slotId] === ar ? prev : { ...prev, [slotId]: ar });
+              }}
+            />
+          ) : (
+            <div className="flex-1 min-h-0 flex items-center justify-center w-full h-full">
+              <button
+                type="button"
+                className="ui-button"
+                aria-haspopup="menu"
+                onClick={(event) => { handleContextMenu(event, slotId, true); setStreamListVisible(true); }}
+              >
+                <Plus className="w-4 h-4" aria-hidden />{t('experience.chooseStream')}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       ref={containerRef}
-      className={`resizable-stream-grid ${fillHeight ? 'flex-1 min-h-0 flex flex-col' : ''}`}
+      className={`resizable-stream-grid ${auto || fillHeight ? 'flex-1 min-h-0 flex flex-col' : ''}`}
     >
+      {auto ? (
+        <AutoTileGrid
+          slotIds={autoSlotIds}
+          maxTiles={maxTiles ?? streamOptions.length}
+          preferredCount={preferredTiles}
+          fixedCount={autoFixedCount}
+          onCountChange={(count) => onAutoCount?.(count)}
+          renderTile={renderSlot}
+        />
+      ) : (
       <GridLayoutWithWidth
         className={`layout ${fillHeight ? 'flex-1 min-h-0' : ''}`}
         layout={layout}
-        onLayoutChange={onLayoutChange}
+        onLayoutChange={handleGridLayoutChange}
         onResizeStart={() => { resizing.current = true; }}
         onDragStart={() => { resizing.current = true; }}
         onDragStop={() => { resizing.current = false; }}
@@ -383,191 +620,93 @@ export function ResizableStreamGrid({
         useCSSTransforms={true}
         autoSize={true}
       >
-        {layout.map((item: LayoutItem) => {
-          const slotId = item.i;
-          const itemId = slotToItemId[slotId] || '';
-          const option = streamOptions.find((o) => o.item.id === itemId);
-
-          const isDropTarget = dragOverSlotId === slotId;
-          const isPickTarget = pickingItemId != null;
-
-          return (
-            <div
-              key={slotId}
-              data-slot-id={slotId}
-              className={`grid-slot group relative rounded-lg border overflow-hidden flex flex-col min-h-0 w-full h-full transition-colors ${
-                isDropTarget || (isPickTarget && itemId !== pickingItemId)
-                  ? 'border-primary ring-2 ring-primary/50'
-                  : 'border-border/50'
-              } bg-card ${hideSlotHeadersUntilHover ? 'grid-slot-hide-header-until-hover' : ''} ${isPickTarget ? 'cursor-pointer' : ''}`}
-              style={{ minHeight: 0 }}
-              onContextMenu={(e) => handleContextMenu(e, slotId)}
-              onDragOver={(e) => {
-                if (!e.dataTransfer.types.includes(DRIVER_SHELF_DRAG_TYPE)) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'copy';
-                setDragOverSlotId(slotId);
-              }}
-              onDragLeave={() => setDragOverSlotId((cur) => (cur === slotId ? null : cur))}
-              onDrop={(e) => {
-                const droppedId = e.dataTransfer.getData(DRIVER_SHELF_DRAG_TYPE);
-                if (!droppedId) return;
-                e.preventDefault();
-                setDragOverSlotId(null);
-                onSlotToItemIdChange(slotId, droppedId);
-              }}
-              onClick={() => {
-                if (!pickingItemId) return;
-                onSlotToItemIdChange(slotId, pickingItemId);
-                onPickingConsumed?.();
-              }}
-            >
-              {/* Slot header: drag, label, clear. Absolute when hideSlotHeadersUntilHover. */}
-              <div
-                className={`grid-slot-header flex items-center gap-2 px-2 py-1.5 border-b border-border/50 shrink-0 bg-card transition-opacity duration-200 ${hideSlotHeadersUntilHover ? 'absolute top-0 left-0 right-0 z-10 opacity-0 group-hover:opacity-100 border-border/50' : ''}`}
-              >
-                <div
-                  hidden={!editing}
-                  className="grid-drag-handle cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5 touch-none"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <GripVertical className="w-4 h-4" />
-                </div>
-                <span className="flex-1 min-w-0 text-xs font-heading truncate text-foreground">
-                  {option ? option.label : t('dashboard.gridEmptySlot')}
-                </span>
-                <button type="button" className="ui-button !p-1 !min-h-7" aria-label={`${t('experience.panelOptions')}: ${option?.label ?? slotId}`} onClick={(event) => { event.stopPropagation(); handleContextMenu(event, slotId); }}><MoreHorizontal className="w-4 h-4" /></button>
-                {editing && option && (
-                  <button
-                    type="button"
-                    aria-label={t('dashboard.gridClearSlot')}
-                    title={t('dashboard.gridClearSlot')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSlotToItemIdChange(slotId, '');
-                    }}
-                    className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {isPickTarget && <button type="button" className="absolute inset-0 z-30 bg-black/60 text-white text-sm" onClick={(event) => { event.stopPropagation(); onSlotToItemIdChange(slotId, pickingItemId!); onPickingConsumed?.(); }}>{t('experience.chooseSlot')}</button>}
-              {/* Content: fills remaining height (or full height when header is absolute) */}
-              <div className="flex-1 min-h-0 flex flex-col min-w-0 bg-black overflow-hidden">
-                {option ? (
-                  <StreamPanel
-                    key={`${slotId}-${option.item.id}`}
-                    ref={(r) => registerRef(option.item.id, r)}
-                    label={option.label}
-                    type={option.type}
-                    driverNumber={option.driverNumber}
-                    catalogItem={option.item}
-                    playback={embeddedPlayback[option.item.id]}
-                    loading={loadingItemIds[option.item.id]}
-                    onPlayEmbedded={onPlayEmbedded}
-                    onEmbedError={onEmbedError}
-                    onClick={() => onOpen?.(option.item)}
-                    fillHeight
-                    hideHeader={hideSlotHeadersUntilHover}
-                    audioFocusedItemId={audioFocusedItemId}
-                    onAudioFocus={onAudioFocus}
-                    initialSeekSeconds={initialSeekSecondsByItemId?.[option.item.id]}
-                    onVideoIntrinsicSize={(vw, vh) => {
-                      if (vw <= 0 || vh <= 0) return;
-                      const ar = normalizeAspect(vw / vh);
-                      setSlotStreamAspectRatio((prev) =>
-                        prev[slotId] === ar ? prev : { ...prev, [slotId]: ar });
-                    }}
-                  />
-                ) : (
-                  <div className="flex-1 min-h-0 flex items-center justify-center carbon-texture w-full h-full">
-                    <span className="text-[10px] text-muted-foreground font-heading tracking-wider">
-                      {t('dashboard.gridSelectStream')}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {layout.map((item: LayoutItem) => renderSlot(item.i))}
       </GridLayoutWithWidth>
+      )}
 
-      {contextMenu && (() => {
-        const itemId = slotToItemId[contextMenu.slotId] || '';
-        const hasStream = Boolean(itemId && onReloadStream);
+      {contextMenu && createPortal((() => {
+        const menuSlotId = contextMenu.slotId;
+        const itemId = slotToItemId[menuSlotId] || '';
+        const closeMenu = () => { setContextMenu(null); setSizesSubmenuVisible(false); setStreamListVisible(false); };
+        const assignedElsewhere = new Set(Object.entries(slotToItemId).filter(([slot, id]) => slot !== menuSlotId && id).map(([, id]) => id));
+        const row = 'panel-menu-item';
         return (
           <div
             ref={menuRef}
             data-panel-menu
-            role="region" aria-label={t('experience.panelOptions')}
-            className="fixed z-[100] w-[210px] max-h-[min(70vh,360px)] overflow-y-auto py-1 rounded-lg border border-border bg-popover shadow-lg"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
+            role="menu" aria-label={t('experience.panelOptions')}
+            className="panel-menu thin-scrollbar"
+            // Positioned and revealed by the layout effect above.
+            style={{ left: 0, top: 0, visibility: 'hidden' }}
             onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.stopPropagation()}
           >
-            {hasStream && (
-              <>
-                <button
-                  type="button"
-                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/50 transition-colors flex items-center gap-2"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onReloadStream?.(itemId);
-                    setContextMenu(null);
-                  }}
-                >
-                  {t('dashboard.reloadStream')}
-                </button>
-                <div className="border-t border-border/50 my-1" />
-              </>
+            <button type="button" role="menuitem" aria-expanded={streamListVisible} className={`${row} justify-between`} onClick={() => setStreamListVisible((open) => !open)}>
+              <span>{t('experience.changeStream')}</span>
+              <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${streamListVisible ? 'rotate-90' : ''}`} aria-hidden />
+            </button>
+            {streamListVisible && (
+              <div className="panel-menu-list thin-scrollbar">
+                {streamOptions.map((o) => {
+                  const current = o.item.id === itemId;
+                  return (
+                    <button
+                      key={o.item.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={current}
+                      className={`${row} ${current ? 'text-foreground' : assignedElsewhere.has(o.item.id) ? 'text-muted-foreground' : ''}`}
+                      onClick={() => { if (!current) onSlotToItemIdChange(menuSlotId, o.item.id); closeMenu(); }}
+                    >
+                      <Check className={`w-3.5 h-3.5 shrink-0 ${current ? '' : 'invisible'}`} aria-hidden />
+                      <span className="truncate">{o.label}</span>
+                      {o.driverNumber != null && <span className="ml-auto pl-2 text-xs tabular-nums text-muted-foreground">#{o.driverNumber}</span>}
+                    </button>
+                  );
+                })}
+              </div>
             )}
-            {editing && <div
-              className="relative"
-              onMouseEnter={() => setSizesSubmenuVisible(true)}
-              onMouseLeave={() => setSizesSubmenuVisible(false)}
-            >
-              <button type="button" aria-expanded={sizesSubmenuVisible} onClick={() => setSizesSubmenuVisible((open) => !open)} className="w-full px-3 py-1.5 text-sm flex items-center justify-between hover:bg-accent/50 transition-colors">
+            {itemId && onReloadStream && (
+              <button type="button" role="menuitem" className={row} onClick={() => { onReloadStream(itemId); closeMenu(); }}>
+                {t('dashboard.reloadStream')}
+              </button>
+            )}
+            {itemId && !auto && (
+              <button type="button" role="menuitem" className={row} onClick={() => { onSlotToItemIdChange(menuSlotId, ''); closeMenu(); }}>
+                {t('dashboard.gridClearSlot')}
+              </button>
+            )}
+            {editing && !auto && <>
+              <div className="panel-menu-separator" />
+              <button type="button" role="menuitem" aria-expanded={sizesSubmenuVisible} className={`${row} justify-between`} onClick={() => setSizesSubmenuVisible((open) => !open)}>
                 <span>{t('dashboard.sizesSubmenu')}</span>
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${sizesSubmenuVisible ? 'rotate-90' : ''}`} aria-hidden />
               </button>
               {sizesSubmenuVisible && (
-                <div
-                  className="min-w-[100px] py-1 rounded-lg border border-border bg-popover shadow-lg max-h-[70vh] overflow-y-auto"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <div className="panel-menu-list thin-scrollbar grid grid-cols-3">
                   {SIZE_RATIOS.map(({ num, den }) => (
-                    <button
-                      key={`${num}-${den}`}
-                      type="button"
-                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/50 transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        applyRatio(contextMenu.slotId, num, den);
-                        setContextMenu(null);
-                        setSizesSubmenuVisible(false);
-                      }}
-                    >
+                    <button key={`${num}-${den}`} type="button" role="menuitem" className={`${row} justify-center tabular-nums`} onClick={() => { applyRatio(menuSlotId, num, den); closeMenu(); }}>
                       {num}/{den}
                     </button>
                   ))}
                 </div>
               )}
-            </div>}
-            {editing && <>
-              <button className="w-full text-left px-3 py-2 text-sm hover:bg-accent" onClick={() => { onLayoutChange(movePanel(layout, contextMenu.slotId, -1)); setContextMenu(null); }}>{t('experience.moveUp')}</button>
-              <button className="w-full text-left px-3 py-2 text-sm hover:bg-accent" onClick={() => { onLayoutChange(movePanel(layout, contextMenu.slotId, 1)); setContextMenu(null); }}>{t('experience.moveDown')}</button>
-              <button className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-accent" disabled={layout.length <= 1} onClick={() => { onRemoveSlot?.(contextMenu.slotId); setContextMenu(null); }}>{t('experience.removeSlot')}</button>
+              <button type="button" role="menuitem" className={row} onClick={() => { onLayoutChange(movePanel(layout, menuSlotId, -1)); closeMenu(); }}>{t('experience.moveUp')}</button>
+              <button type="button" role="menuitem" className={row} onClick={() => { onLayoutChange(movePanel(layout, menuSlotId, 1)); closeMenu(); }}>{t('experience.moveDown')}</button>
+            </>}
+            {onRemoveSlot && <>
+              <div className="panel-menu-separator" />
+              <button type="button" role="menuitem" className={`${row} text-destructive`} disabled={slotCount <= 1} onClick={() => { onRemoveSlot(menuSlotId); closeMenu(); }}>{t('experience.removeSlot')}</button>
             </>}
           </div>
         );
-      })()}
+      })(), document.body)}
 
       {canAddSlot && onAddSlot && (
         <button
           type="button"
           onClick={onAddSlot}
-          className="mt-3 flex items-center gap-2 py-2 px-3 rounded-lg border border-dashed border-border hover:bg-accent/30 text-muted-foreground hover:text-foreground text-sm font-heading transition-colors"
+          className="mt-3 shrink-0 flex items-center gap-2 py-2 px-3 rounded-lg border border-dashed border-border hover:bg-accent/30 text-muted-foreground hover:text-foreground text-sm font-heading transition-colors"
         >
           <Plus className="w-4 h-4" />
           {t('dashboard.gridAddSlot')}

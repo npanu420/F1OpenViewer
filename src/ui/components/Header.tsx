@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import { Settings, ChevronUp, ChevronDown } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleContext';
 import { SeasonSelector } from './SeasonSelector';
@@ -19,7 +18,7 @@ export function Header({
   selectedYear,
   onSelectYear,
   onSettingsClick,
-  brandLabel = 'F1 OPEN VIEWER',
+  brandLabel = 'OpenViewer',
   subtitle = 'RACE CONTROL',
   availableYears,
   hasLive = false,
@@ -37,7 +36,7 @@ export function Header({
 
   if (collapsed) {
     return (
-      <header className="border-b border-border/50 glass-panel sticky top-0 z-50">
+      <header className="app-header border-b border-border/50 glass-panel shrink-0 z-50">
         <button
           type="button"
           onClick={toggleCollapsed}
@@ -52,13 +51,9 @@ export function Header({
   }
 
   return (
-    <header className="border-b border-border/50 glass-panel sticky top-0 z-50">
+    <header className="app-header border-b border-border/50 glass-panel shrink-0 z-50">
       <div className="w-full mx-auto px-4 sm:px-6 h-12 flex items-center gap-4">
-        <motion.div
-          className="flex items-center gap-2.5"
-          initial={false}
-          animate={{ opacity: 1, x: 0 }}
-        >
+        <div className="flex items-center gap-2.5">
           <img
             src={`${import.meta.env.BASE_URL}app-icon.png`}
             alt=""
@@ -72,7 +67,7 @@ export function Header({
               {subtitle}
             </p>
           </div>
-        </motion.div>
+        </div>
 
         <div className="w-px h-6 bg-border hidden sm:block" />
 
@@ -106,26 +101,24 @@ export function Header({
               {hasLive ? t('header.live') : t('experience.idle')}
             </span>
           </div>
-          <motion.button
+          <button
+            type="button"
             onClick={onSettingsClick}
             className="w-9 h-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
             title={t('header.settingsTitle')}
             aria-label={t('header.settingsTitle')}
           >
             <Settings className="w-4.5 h-4.5" />
-          </motion.button>
-          <motion.button
+          </button>
+          <button
+            type="button"
             onClick={toggleCollapsed}
             className="w-9 h-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
             title={t('header.collapseTitle')}
             aria-label={t('header.collapseTitle')}
           >
             <ChevronUp className="w-4.5 h-4.5" />
-          </motion.button>
+          </button>
         </div>
       </div>
     </header>

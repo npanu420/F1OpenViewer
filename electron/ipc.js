@@ -214,7 +214,8 @@ function setupIpc() {
 
   // ----- Live Timing (separate public feed; no DRM) -----
   handle('livetiming:resolveSession', async (_evt, year, query) => livetiming.resolveSessionPath(year, query));
-  handle('livetiming:loadSession', async (_evt, sessionPath, feeds) => livetiming.loadSession(sessionPath, feeds));
+  handle('livetiming:loadSession', async (_evt, sessionPath, feeds, opts) =>
+    livetiming.loadSession(sessionPath, feeds, { telemetry: Boolean(opts && opts.telemetry === true) }));
   // Relays the main feed's video clock to every open live-timing window so they can sync to it.
   on('livetiming:reportClock', (_evt, payload) => windows.broadcastLiveTimingClock(payload));
   handle('livetiming:hasClockListeners', () => windows.liveTimingListenerCount() > 0);

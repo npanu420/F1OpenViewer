@@ -27,6 +27,27 @@ export const layoutPresets = {
   equal: [{ x: 0, y: 0, w: 6, h: 5 }, { x: 6, y: 0, w: 6, h: 5 }, { x: 0, y: 5, w: 6, h: 5 }, { x: 6, y: 5, w: 6, h: 5 }],
 } as const;
 
+/** Manual grid with as many panels as the auto layout shows, with the same ids. */
+export function manualLayoutForCount(count: number): Layout {
+  const total = Math.max(1, Math.floor(count));
+  const base = applyLayoutPreset([], total === 1 ? 'single' : 'focus').slice(0, total);
+  const extra = Array.from({ length: total - base.length }, (_, index) => ({
+    i: `slot-${base.length + index}`,
+    x: (index % 3) * 4,
+    y: 8 + Math.floor(index / 3) * 3,
+    w: 4,
+    h: 3,
+    minW: 2,
+    minH: 2,
+  }));
+  return [...base, ...extra];
+}
+
+/** Same as `manualLayoutForCount`, for auto slot ids that can have gaps. */
+export function manualLayoutForSlots(ids: readonly string[]): Layout {
+  return manualLayoutForCount(ids.length).map((cell, index) => ({ ...cell, i: ids[index] ?? cell.i }));
+}
+
 export function applyLayoutPreset(layout: Layout, preset: keyof typeof layoutPresets): Layout {
   const used = [...layout];
   return layoutPresets[preset].map((position, index) => {

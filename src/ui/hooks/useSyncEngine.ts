@@ -6,7 +6,7 @@ import {
   getSyncKeepLocked,
   getSyncReferenceMode,
 } from '../../services/syncSettings';
-import { COARSE_SEEK_THRESHOLD, liveEntries, planCorrection, type SeekRange } from '../../domain/syncPlan';
+import { COARSE_SEEK_THRESHOLD, DEFAULT_SEEK_LEAD, liveEntries, planCorrection, type SeekRange } from '../../domain/syncPlan';
 
 /**
  * Multi-stage sync engine for VOD/live multiview.
@@ -59,6 +59,15 @@ function seekRangeOf(video: HTMLVideoElement): SeekRange | null {
     if (s && s.length > 0) return { start: s.start(0), end: s.end(s.length - 1) };
   } catch (_) {}
   return null;
+}
+
+/** Media is loaded at `time` (with a little to play after it). */
+function isBufferedAt(video: HTMLVideoElement, time: number): boolean {
+  try {
+    const b = video.buffered;
+    for (let i = 0; i < b.length; i++) if (time >= b.start(i) && time + 0.3 <= b.end(i)) return true;
+  } catch (_) {}
+  return false;
 }
 
 function clampRate(r: number): number {
@@ -138,6 +147,12 @@ export function useSyncEngine() {
   const enginePausedRef = useRef<Set<string>>(new Set());
   /** True after the reference has played once, to avoid false buffering before autoplay. */
   const refHasStartedRef = useRef<boolean>(false);
+  /** Streams paused because they are ahead, waiting for the reference to catch up. */
+  const waitingRef = useRef<Set<string>>(new Set());
+  /** When the engine last seeked a stream into unloaded media, to measure how long loading takes. */
+  const seekStartedRef = useRef<Map<string, number>>(new Map());
+  /** Measured seek-to-video time per stream (seconds), used as the lead of the next such seek. */
+  const seekLeadRef = useRef<Map<string, number>>(new Map());
 
   const stopTimers = useCallback(() => {
     if (tickTimerRef.current != null) {
@@ -161,11 +176,13 @@ export function useSyncEngine() {
 
   const resumeEnginePausedStreams = useCallback(() => {
     for (const e of liveEntries(entriesRef.current)) {
-      if (enginePausedRef.current.has(e.id) && e.video.paused) {
+      if ((enginePausedRef.current.has(e.id) || waitingRef.current.has(e.id)) && e.video.paused) {
         e.video.play().catch(() => {});
       }
     }
     enginePausedRef.current.clear();
+    waitingRef.current.clear();
+    seekStartedRef.current.clear();
   }, []);
 
   const cancelSync = useCallback(() => {
@@ -186,8 +203,9 @@ export function useSyncEngine() {
       const refEntry = entries.find((e) => e.id === refIdRef.current);
       if (!refEntry || entries.length < 2) {
         for (const e of entries) {
-          if (enginePausedRef.current.has(e.id) && e.video.paused) e.video.play().catch(() => {});
+          if ((enginePausedRef.current.has(e.id) || waitingRef.current.has(e.id)) && e.video.paused) e.video.play().catch(() => {});
           enginePausedRef.current.delete(e.id);
+          waitingRef.current.delete(e.id);
           if (Math.abs(e.video.playbackRate - 1) > 0.001) e.video.playbackRate = 1;
         }
         return { infos: [], allDone: true };
@@ -242,25 +260,73 @@ export function useSyncEngine() {
           };
         }
 
-        // Resume streams paused while the reference was buffering.
-        if (enginePausedRef.current.has(e.id) && v.paused) {
-          v.play().catch(() => {});
+        const holding = { id: e.id, label: e.label, offset, rate: 1, isReference: false, done: false };
+        // Resume streams paused while the reference was buffering. They stay ours until they really
+        // play: a play() that does not take (element mid-load) is retried next tick. Meanwhile no
+        // seek or rate change, which on a paused element only steps it one frame at a time.
+        if (enginePausedRef.current.has(e.id)) {
+          if (v.paused) {
+            v.play().catch(() => {});
+            allDone = false;
+            return holding;
+          }
           enginePausedRef.current.delete(e.id);
         }
 
+        // Paused by the user (not by us): leave it be. Seeking or speeding a paused element only
+        // steps it one frame at a time.
+        if (v.paused && !waitingRef.current.has(e.id)) {
+          if (Math.abs(rate - 1) > 0.001) v.playbackRate = 1;
+          return { ...holding, done: true };
+        }
+
+        const buffering = v.seeking || v.readyState < HAVE_FUTURE_DATA;
+        // Learn how long this stream takes to show video after a seek into unloaded media.
+        const seekedAt = seekStartedRef.current.get(e.id);
+        if (seekedAt != null && !buffering) {
+          const took = (performance.now() - seekedAt) / 1000;
+          seekLeadRef.current.set(e.id, Math.min(8, Math.max(0.75, took * 1.25 + 0.25)));
+          seekStartedRef.current.delete(e.id);
+        }
         const streamLive = isLikelyLiveVideo(v);
+        const bufferedAtRef = isBufferedAt(v, refTime);
         const plan = planCorrection({
           offset,
           threshold,
           canSeek,
           refBuffering: false, // handled above (hold)
+          streamBuffering: buffering,
+          bufferedAtRef,
+          seekLead: seekLeadRef.current.get(e.id) ?? DEFAULT_SEEK_LEAD,
           refLive: refIsLive,
           streamLive,
           refTime,
           seekable: streamLive || refIsLive ? seekRangeOf(v) : null,
           streamTime: v.currentTime,
         });
-        if (plan.kind === 'seek') {
+        // A waiting stream resumes as soon as the plan is anything but wait, and is corrected
+        // again only once it actually plays.
+        if (plan.kind !== 'wait' && plan.kind !== 'hold' && waitingRef.current.has(e.id)) {
+          if (v.paused) {
+            v.play().catch(() => {});
+            allDone = false;
+            return holding;
+          }
+          waitingRef.current.delete(e.id);
+        }
+        if (plan.kind === 'hold') {
+          // Still loading: the player owns playbackRate while it buffers (it sets 0), leave it.
+          allDone = false;
+        } else if (plan.kind === 'wait') {
+          if (Math.abs(rate - 1) > 0.001) v.playbackRate = 1;
+          rate = 1;
+          if (!v.paused) {
+            try { v.pause(); } catch (_) {}
+          }
+          waitingRef.current.add(e.id);
+          allDone = false;
+        } else if (plan.kind === 'seek') {
+          if (!bufferedAtRef) seekStartedRef.current.set(e.id, performance.now());
           try { v.currentTime = plan.to; } catch (_) {}
           if (Math.abs(rate - 1) > 0.001) v.playbackRate = 1;
           rate = 1;
@@ -295,7 +361,9 @@ export function useSyncEngine() {
     (entries: SyncEntry[], opts?: { silent?: boolean }) => {
       stopTimers();
       resetRates();
-      enginePausedRef.current.clear();
+      // A new run (a stream started) begins from playing streams: release the ones the previous
+      // run paused, or they would stay paused with nobody resuming them.
+      resumeEnginePausedStreams();
       refHasStartedRef.current = false;
 
       const withVideos: RuntimeEntry[] = liveEntries(entries).filter((e) => Number.isFinite(e.video.currentTime));
@@ -333,8 +401,10 @@ export function useSyncEngine() {
         if (refIsLive || isLikelyLiveVideo(e.video)) return;
         const offset = e.video.currentTime - refTime;
         if (Math.abs(offset) >= COARSE_SEEK_THRESHOLD) {
+          // Unloaded media there: land a little ahead, the ticks below let the reference catch up.
+          const lead = isBufferedAt(e.video, refTime) ? 0 : (seekLeadRef.current.get(e.id) ?? DEFAULT_SEEK_LEAD);
           window.setTimeout(() => {
-            try { e.video.currentTime = Math.max(0, refTime); } catch (_) {}
+            try { e.video.currentTime = Math.max(0, refTime + lead); } catch (_) {}
           }, i * SEEK_STAGGER_MS);
         }
       });
@@ -380,7 +450,7 @@ export function useSyncEngine() {
         }
       }, TICK_MS);
     },
-    [stopTimers, resetRates, computeAndCorrect, setSyncStreams, setShowSyncOverlay]
+    [stopTimers, resetRates, resumeEnginePausedStreams, computeAndCorrect, setSyncStreams, setShowSyncOverlay]
   );
 
   const minimizeOverlay = useCallback(() => {

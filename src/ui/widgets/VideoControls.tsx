@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play, Volume2, VolumeX, Maximize, Minimize, Settings } from 'lucide-react';
 import type shaka from 'shaka-player/dist/shaka-player.compiled-es2021';
 import { useLocale } from '../../i18n/LocaleContext';
+import { usePreferences } from '../../services/preferences';
 
 /**
  * Custom playback control bar shared by every player surface (embedded panels, single player,
@@ -52,6 +53,9 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
   const [duration, setDuration] = useState(0);
   const [liveFill, setLiveFill] = useState(1); // 0..1 position within the DVR window
   const [behindLive, setBehindLive] = useState(0); // seconds behind the live edge
+  /** Seconds behind the newest video (wall clock when the stream carries one), for the low-latency mode. */
+  const [latency, setLatency] = useState<number | null>(null);
+  const showLatency = usePreferences().lowLatencyLive;
   const [isFs, setIsFs] = useState(false);
   const [visible, setVisible] = useState(true);
   /** Hidden bar: skip the per-timeupdate time/progress state (4 Hz re-render per stream). */
@@ -93,6 +97,12 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
       const start = range ? range.start : (v.seekable.length ? v.seekable.start(0) : 0);
       setAtEdge(end - v.currentTime <= LIVE_EDGE_THRESHOLD);
       setBehindLive(Math.max(0, end - v.currentTime));
+      let measured: number | null = null;
+      try {
+        const stat = p?.getStats?.().liveLatency;
+        if (typeof stat === 'number' && Number.isFinite(stat) && stat > 0) measured = stat;
+      } catch (_) {}
+      setLatency(measured ?? Math.max(0, end - v.currentTime));
       const span = end - start;
       setLiveFill(span > 0 ? Math.min(1, Math.max(0, (v.currentTime - start) / span)) : 1);
     } else {
@@ -316,6 +326,9 @@ export function VideoControls({ getVideo, getPlayer, getContainer, compact, onUn
                 />
                 {tr('player.ctl.live')}
               </button>
+              {showLatency && latency != null && (
+                <span className="shrink-0 text-[11px] tabular-nums text-white/70" title={tr('player.ctl.latency')}>{latency.toFixed(1)} s</span>
+              )}
               {/* DVR scrubber: click to seek back within the live window; clicking near the end snaps to live. */}
               <input type="range" min={0} max={1} step={0.001} value={atEdge ? 1 : liveFill}
                 aria-label={tr('player.ctl.seekLive')} aria-valuetext={atEdge ? tr('player.ctl.live') : `−${fmt(behindLive)}`}
